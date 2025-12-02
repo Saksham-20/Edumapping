@@ -85,25 +85,11 @@ router.post('/generate',
 router.post('/upload', 
   authenticateToken, 
   requireRole('student'), 
-  upload.single('resume'),
-  async (req, res, next) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          error: 'No File',
-          message: 'Please select a PDF file to upload'
-        });
-      }
-
-      const result = await resumeService.uploadCustomResume(req.user.id, req.file);
-      
-      res.json({
-        message: 'Resume uploaded successfully',
-        resume: result
-      });
-    } catch (error) {
-      next(error);
-    }
+  (req, res) => {
+    return res.status(400).json({
+      error: 'FeatureDisabled',
+      message: 'Custom resume upload has been disabled. Please generate your resume from your profile instead.'
+    });
   }
 );
 

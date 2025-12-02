@@ -26,7 +26,6 @@ const Header = () => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showDebug, setShowDebug] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -132,26 +131,21 @@ const Header = () => {
         : 'bg-white shadow-sm border-b border-gray-200'
         }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center h-16 sm:h-20">
             {/* Logo and Brand */}
-            <div className="flex items-center">
-              <Link to="/" className="flex flex-col items-start group">
+            <div className="flex items-center pl-6 sm:pl-10 mr-6 sm:mr-6">
+              <Link to="/" className="flex flex-col items-start group min-w-0 space-y-1">
                 <div className="flex items-center">
                   <img
                     src="/logo.svg"
                     alt="Logo"
-                    className="w-auto transition-transform duration-200 group-hover:scale-105"
-                    style={{ height: '50px', filter: 'none' }}
+                    className="h-10 sm:h-12 w-auto ml-4 sm:ml-10 transition-transform duration-200 group-hover:scale-105"
+                    style={{ filter: 'none' }}
                   />
                 </div>
-                <span className="text-[10px] font-semibold text-[#156395] ml-1 -mt-1">
+                <span className="ml-0 text-[10px] sm:text-xs font-semibold text-[#156395] leading-tight">
                   Nurturing Young Minds
                 </span>
-                {user?.role === 'tpo' && (
-                  <span className="text-[9px] font-medium text-gray-500 ml-1">
-                    Brand by eTraze
-                  </span>
-                )}
               </Link>
             </div>
 
@@ -195,16 +189,6 @@ const Header = () => {
 
             {/* Right side items */}
             <div className="flex items-center space-x-3">
-              {/* Debug Button (only in development) */}
-              {process.env.NODE_ENV === 'development' && (
-                <button
-                  onClick={() => setShowDebug(!showDebug)}
-                  className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-                >
-                  Debug
-                </button>
-              )}
-
               {/* Notifications */}
               <button
                 onClick={() => setIsNotificationPanelOpen(true)}
@@ -310,30 +294,6 @@ const Header = () => {
               </button>
             </div>
           </div>
-
-          {/* Debug Panel */}
-          {showDebug && process.env.NODE_ENV === 'development' && (
-            <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 p-4 text-xs rounded-lg mb-2">
-              <div className="font-semibold mb-2 text-yellow-800">Debug Info:</div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <strong>Auth Status:</strong> {isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
-                </div>
-                <div>
-                  <strong>User Role:</strong> {user?.role || 'None'}
-                </div>
-                <div>
-                  <strong>Has Tokens:</strong> {tokens ? 'Yes' : 'No'}
-                </div>
-                <div>
-                  <strong>User ID:</strong> {user?.id || 'None'}
-                </div>
-              </div>
-              <div className="mt-2">
-                <strong>Current Path:</strong> {location.pathname}
-              </div>
-            </div>
-          )}
 
           {/* Mobile Navigation */}
           {isMobileMenuOpen && (

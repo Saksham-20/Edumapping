@@ -30,6 +30,31 @@ class ResumeService {
       throw new Error('Student profile not found');
     }
 
+    // Delete old resume if exists
+    if (user.studentProfile.resumeUrl) {
+      try {
+        // Find and delete old file record
+        const oldFileRecord = await File.findOne({
+          where: {
+            userId: user.id,
+            fileType: 'resume'
+          },
+          order: [['createdAt', 'DESC']]
+        });
+
+        if (oldFileRecord) {
+          // Delete the physical file
+          await fileService.deleteFile(oldFileRecord.filePath);
+          // Delete the database record
+          await oldFileRecord.destroy();
+          console.log(`✅ Deleted old resume for user ${user.id}`);
+        }
+      } catch (error) {
+        console.error('⚠️ Error deleting old resume:', error.message);
+        // Continue with generation even if deletion fails
+      }
+    }
+
     // Generate PDF
     const pdfBuffer = await this.createResumePDF(user);
 
@@ -37,11 +62,18 @@ class ResumeService {
     const fileName = `resume_${user.id}_${Date.now()}.pdf`;
     const filePath = await fileService.saveFile(pdfBuffer, fileName, 'application/pdf');
 
+    // Determine resume URL based on storage type
+    let resumeUrl = filePath;
+    if (process.env.STORAGE_TYPE !== 'minio') {
+      // For local storage, convert absolute path to relative URL
+      resumeUrl = `/uploads/${path.basename(filePath)}`;
+    }
+
     // Save file record
     const fileRecord = await File.create({
       userId: user.id,
       originalName: fileName,
-      filePath,
+      filePath, // Keep original path/object name for file management
       fileSize: pdfBuffer.length,
       mimeType: 'application/pdf',
       fileType: 'resume',
@@ -50,14 +82,14 @@ class ResumeService {
 
     // Update student profile with new resume URL
     await user.studentProfile.update({
-      resumeUrl: filePath
+      resumeUrl
     });
 
     return {
       fileId: fileRecord.id,
       fileName,
       filePath,
-      downloadUrl: `/api/files/${fileRecord.id}/download`
+      downloadUrl: resumeUrl // Use the accessible URL
     };
   }
 
@@ -117,17 +149,17 @@ class ResumeService {
 
   addHeader(doc, user, profile) {
     const fullName = `${user.firstName} ${user.lastName}`;
-    
+
     // Name
     doc.fontSize(24)
-       .font('Helvetica-Bold')
-       .text(fullName, 50, 50, { align: 'center' });
+      .font('Helvetica-Bold')
+      .text(fullName, 50, 50, { align: 'center' });
 
     // Course and Year
     if (profile.course && profile.yearOfStudy) {
       doc.fontSize(14)
-         .font('Helvetica')
-         .text(`${profile.course} - Year ${profile.yearOfStudy}`, { align: 'center' });
+        .font('Helvetica')
+        .text(`${profile.course} - Year ${profile.yearOfStudy}`, { align: 'center' });
     }
 
     // Contact info
@@ -138,7 +170,7 @@ class ResumeService {
 
     if (contactInfo.length > 0) {
       doc.fontSize(10)
-         .text(contactInfo.join(' | '), { align: 'center' });
+        .text(contactInfo.join(' | '), { align: 'center' });
     }
 
     doc.moveDown(2);
@@ -147,48 +179,48 @@ class ResumeService {
   addSection(doc, title, content) {
     // Section title
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .text(title, 50, doc.y);
-    
+      .font('Helvetica-Bold')
+      .text(title, 50, doc.y);
+
     // Underline
     doc.moveTo(50, doc.y + 2)
-       .lineTo(545, doc.y + 2)
-       .stroke();
+      .lineTo(545, doc.y + 2)
+      .stroke();
 
     doc.moveDown(0.5);
 
     // Content
     doc.fontSize(11)
-       .font('Helvetica')
-       .text(content, 50, doc.y, { 
-         width: 495,
-         align: 'justify' 
-       });
+      .font('Helvetica')
+      .text(content, 50, doc.y, {
+        width: 495,
+        align: 'justify'
+      });
 
     doc.moveDown(1.5);
   }
 
   addEducationSection(doc, profile) {
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .text('EDUCATION', 50, doc.y);
-    
+      .font('Helvetica-Bold')
+      .text('EDUCATION', 50, doc.y);
+
     doc.moveTo(50, doc.y + 2)
-       .lineTo(545, doc.y + 2)
-       .stroke();
+      .lineTo(545, doc.y + 2)
+      .stroke();
 
     doc.moveDown(0.5);
 
     // University/College name (from organization)
     if (profile.course) {
       doc.fontSize(12)
-         .font('Helvetica-Bold')
-         .text(profile.course, 50, doc.y);
+        .font('Helvetica-Bold')
+        .text(profile.course, 50, doc.y);
 
       if (profile.branch) {
         doc.fontSize(11)
-           .font('Helvetica')
-           .text(`Specialization: ${profile.branch}`, 50, doc.y);
+          .font('Helvetica')
+          .text(`Specialization: ${profile.branch}`, 50, doc.y);
       }
 
       // Grades
@@ -199,7 +231,7 @@ class ResumeService {
 
       if (gradeInfo.length > 0) {
         doc.fontSize(11)
-           .text(gradeInfo.join(' | '), 50, doc.y);
+          .text(gradeInfo.join(' | '), 50, doc.y);
       }
     }
 
@@ -208,12 +240,12 @@ class ResumeService {
 
   addSkillsSection(doc, skills) {
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .text('TECHNICAL SKILLS', 50, doc.y);
-    
+      .font('Helvetica-Bold')
+      .text('TECHNICAL SKILLS', 50, doc.y);
+
     doc.moveTo(50, doc.y + 2)
-       .lineTo(545, doc.y + 2)
-       .stroke();
+      .lineTo(545, doc.y + 2)
+      .stroke();
 
     doc.moveDown(0.5);
 
@@ -221,15 +253,15 @@ class ResumeService {
     if (Array.isArray(skills)) {
       const skillText = skills.join(', ');
       doc.fontSize(11)
-         .font('Helvetica')
-         .text(skillText, 50, doc.y, { width: 495 });
+        .font('Helvetica')
+        .text(skillText, 50, doc.y, { width: 495 });
     } else if (typeof skills === 'object') {
       Object.entries(skills).forEach(([category, skillList]) => {
         doc.fontSize(11)
-           .font('Helvetica-Bold')
-           .text(`${category}: `, 50, doc.y, { continued: true })
-           .font('Helvetica')
-           .text(Array.isArray(skillList) ? skillList.join(', ') : skillList);
+          .font('Helvetica-Bold')
+          .text(`${category}: `, 50, doc.y, { continued: true })
+          .font('Helvetica')
+          .text(Array.isArray(skillList) ? skillList.join(', ') : skillList);
       });
     }
 
@@ -238,20 +270,20 @@ class ResumeService {
 
   addAchievementsSection(doc, achievements) {
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .text('ACHIEVEMENTS & EXPERIENCE', 50, doc.y);
-    
+      .font('Helvetica-Bold')
+      .text('ACHIEVEMENTS & EXPERIENCE', 50, doc.y);
+
     doc.moveTo(50, doc.y + 2)
-       .lineTo(545, doc.y + 2)
-       .stroke();
+      .lineTo(545, doc.y + 2)
+      .stroke();
 
     doc.moveDown(0.5);
 
     achievements.forEach((achievement, index) => {
       // Achievement title
       doc.fontSize(12)
-         .font('Helvetica-Bold')
-         .text(achievement.title, 50, doc.y);
+        .font('Helvetica-Bold')
+        .text(achievement.title, 50, doc.y);
 
       // Organization and date
       const orgDate = [];
@@ -263,15 +295,15 @@ class ResumeService {
 
       if (orgDate.length > 0) {
         doc.fontSize(10)
-           .font('Helvetica-Oblique')
-           .text(orgDate.join(' | '), 50, doc.y);
+          .font('Helvetica-Oblique')
+          .text(orgDate.join(' | '), 50, doc.y);
       }
 
       // Description
       if (achievement.description) {
         doc.fontSize(11)
-           .font('Helvetica')
-           .text(achievement.description, 50, doc.y, { width: 495 });
+          .font('Helvetica')
+          .text(achievement.description, 50, doc.y, { width: 495 });
       }
 
       // Add space between achievements
@@ -285,12 +317,12 @@ class ResumeService {
 
   addContactSection(doc, user, profile) {
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .text('ADDITIONAL INFORMATION', 50, doc.y);
-    
+      .font('Helvetica-Bold')
+      .text('ADDITIONAL INFORMATION', 50, doc.y);
+
     doc.moveTo(50, doc.y + 2)
-       .lineTo(545, doc.y + 2)
-       .stroke();
+      .lineTo(545, doc.y + 2)
+      .stroke();
 
     doc.moveDown(0.5);
 
@@ -302,18 +334,18 @@ class ResumeService {
 
     if (links.length > 0) {
       doc.fontSize(11)
-         .font('Helvetica')
-         .text(links.join('\n'), 50, doc.y);
+        .font('Helvetica')
+        .text(links.join('\n'), 50, doc.y);
     }
 
     // Address
     if (profile.address) {
       doc.moveDown(0.5);
       doc.fontSize(11)
-         .font('Helvetica-Bold')
-         .text('Address: ', 50, doc.y, { continued: true })
-         .font('Helvetica')
-         .text(profile.address);
+        .font('Helvetica-Bold')
+        .text('Address: ', 50, doc.y, { continued: true })
+        .font('Helvetica')
+        .text(profile.address);
     }
   }
 
@@ -323,15 +355,41 @@ class ResumeService {
       throw new Error('Only PDF files are allowed for resume upload');
     }
 
+    // Delete old resume if exists
+    try {
+      const oldFileRecord = await File.findOne({
+        where: {
+          userId,
+          fileType: 'resume'
+        },
+        order: [['createdAt', 'DESC']]
+      });
+
+      if (oldFileRecord) {
+        await fileService.deleteFile(oldFileRecord.filePath);
+        await oldFileRecord.destroy();
+        console.log(`✅ Deleted old resume for user ${userId}`);
+      }
+    } catch (error) {
+      console.error('⚠️ Error deleting old resume:', error.message);
+    }
+
     // Save file
     const fileName = `resume_${userId}_${Date.now()}.pdf`;
     const filePath = await fileService.saveFile(file.buffer, fileName, file.mimetype);
+
+    // Determine resume URL based on storage type
+    let resumeUrl = filePath;
+    if (process.env.STORAGE_TYPE !== 'minio') {
+      // For local storage, convert absolute path to relative URL
+      resumeUrl = `/uploads/${path.basename(filePath)}`;
+    }
 
     // Save file record
     const fileRecord = await File.create({
       userId,
       originalName: file.originalname,
-      filePath,
+      filePath, // Keep original path/object name
       fileSize: file.size,
       mimeType: file.mimetype,
       fileType: 'resume',
@@ -345,7 +403,7 @@ class ResumeService {
 
     if (user && user.studentProfile) {
       await user.studentProfile.update({
-        resumeUrl: filePath
+        resumeUrl
       });
     }
 
@@ -353,7 +411,7 @@ class ResumeService {
       fileId: fileRecord.id,
       fileName: file.originalname,
       filePath,
-      downloadUrl: `/api/files/${fileRecord.id}/download`
+      downloadUrl: resumeUrl
     };
   }
 

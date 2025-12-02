@@ -4,6 +4,7 @@ const { body } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const { requireRole, requireOwnership } = require('../middleware/rbac');
 const userController = require('../controllers/userController');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -27,14 +28,38 @@ router.get('/profile', authenticateToken, userController.getProfile);
  *     security:
  *       - bearerAuth: []
  */
-router.put('/profile', 
+router.put('/profile',
   authenticateToken,
   [
     body('firstName').optional().trim().isLength({ min: 1, max: 100 }),
     body('lastName').optional().trim().isLength({ min: 1, max: 100 }),
-    body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/)
+    body('phone').optional().matches(/^[\+]?[\d\s-]{5,20}$/)
   ],
   userController.updateProfile
+);
+
+/**
+ * @swagger
+ * /api/users/profile/picture:
+ *   post:
+ *     summary: Upload profile picture
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               profilePicture:
+ *                 type: string
+ *                 format: binary
+ */
+router.post('/profile/picture',
+  authenticateToken,
+  upload.uploadProfilePicture,
+  userController.uploadProfilePicture
 );
 
 /**
@@ -46,9 +71,9 @@ router.put('/profile',
  *     security:
  *       - bearerAuth: []
  */
-router.get('/', 
-  authenticateToken, 
-  requireRole('admin', 'tpo'), 
+router.get('/',
+  authenticateToken,
+  requireRole('admin', 'tpo'),
   userController.getAllUsers
 );
 
@@ -61,9 +86,9 @@ router.get('/',
  *     security:
  *       - bearerAuth: []
  */
-router.get('/role/:role', 
-  authenticateToken, 
-  requireRole('admin', 'tpo', 'recruiter'), 
+router.get('/role/:role',
+  authenticateToken,
+  requireRole('admin', 'tpo', 'recruiter'),
   userController.getUsersByRole
 );
 
@@ -76,9 +101,9 @@ router.get('/role/:role',
  *     security:
  *       - bearerAuth: []
  */
-router.get('/top-candidates', 
-  authenticateToken, 
-  requireRole('recruiter', 'admin'), 
+router.get('/top-candidates',
+  authenticateToken,
+  requireRole('recruiter', 'admin'),
   userController.getTopCandidates
 );
 
@@ -102,9 +127,9 @@ router.get('/:id', authenticateToken, userController.getProfile);
  *     security:
  *       - bearerAuth: []
  */
-router.patch('/:id/status', 
-  authenticateToken, 
-  requireRole('admin'), 
+router.patch('/:id/status',
+  authenticateToken,
+  requireRole('admin'),
   userController.toggleUserStatus
 );
 

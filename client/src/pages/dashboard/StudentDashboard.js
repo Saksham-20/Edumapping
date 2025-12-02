@@ -45,7 +45,7 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-    
+
     // Test: Let's also fetch profile data the same way Profile.js does
     const testProfileFetch = async () => {
       try {
@@ -54,7 +54,7 @@ const StudentDashboard = () => {
         console.log('Dashboard: Test profile response:', response);
         console.log('Dashboard: Test profile.user:', response.user);
         console.log('Dashboard: Test profile.data:', response.data);
-        
+
         // Test the calculation with the same data structure
         if (response.user) {
           const testCompletion = calculateProfileCompletion(response.user);
@@ -64,7 +64,7 @@ const StudentDashboard = () => {
         console.error('Dashboard: Test profile fetch failed:', error);
       }
     };
-    
+
     // Test server connectivity
     const testServerConnectivity = async () => {
       try {
@@ -76,7 +76,7 @@ const StudentDashboard = () => {
         console.error('Dashboard: This might mean the server is not running!');
       }
     };
-    
+
     testProfileFetch();
     testServerConnectivity();
   }, []);
@@ -85,7 +85,7 @@ const StudentDashboard = () => {
     try {
       setIsLoading(true);
       console.log('Dashboard: Starting to fetch data...');
-      
+
       // Test each API call individually to see which ones fail
       try {
         const applicationsRes = await api.get('/applications?limit=10');
@@ -93,42 +93,42 @@ const StudentDashboard = () => {
       } catch (error) {
         console.error('Dashboard: Applications API failed:', error);
       }
-      
+
       try {
         const jobsRes = await api.get('/jobs/recommended?limit=6');
         console.log('Dashboard: Jobs API success:', jobsRes);
       } catch (error) {
         console.error('Dashboard: Jobs API failed:', error);
       }
-      
+
       try {
         const eventsRes = await api.get('/events?upcoming=true&limit=5');
         console.log('Dashboard: Events API success:', eventsRes);
       } catch (error) {
         console.error('Dashboard: Events API failed:', error);
       }
-      
+
       try {
         const statsRes = await api.get('/applications/stats');
         console.log('Dashboard: Stats API success:', statsRes);
       } catch (error) {
         console.error('Dashboard: Stats API failed:', error);
       }
-      
+
       try {
         const achievementsRes = await api.get('/achievements?limit=5');
         console.log('Dashboard: Achievements API success:', achievementsRes);
       } catch (error) {
         console.error('Dashboard: Achievements API failed:', error);
       }
-      
+
       try {
         const profileRes = await api.get('/users/profile');
         console.log('Dashboard: Profile API success:', profileRes);
       } catch (error) {
         console.error('Dashboard: Profile API failed:', error);
       }
-      
+
       // Now try all together
       const [applicationsRes, jobsRes, eventsRes, statsRes, achievementsRes, profileRes] = await Promise.all([
         api.get('/applications?limit=10'),
@@ -140,17 +140,17 @@ const StudentDashboard = () => {
       ]);
 
       console.log('Dashboard: Profile API response:', profileRes);
-      
+
       // Use the complete profile data from the API
       let profile = profileRes.user || profileRes.data || profileRes;
       console.log('Dashboard: Extracted profile data:', profile);
-      
+
       // Ensure we have the correct profile structure
       if (!profile && profileRes.user) {
         console.log('Dashboard: Using profileRes.user instead');
         profile = profileRes.user;
       }
-      
+
       const profileCompletion = calculateProfileCompletion(profile);
       console.log('Dashboard: Calculated profile completion:', profileCompletion);
 
@@ -162,7 +162,7 @@ const StudentDashboard = () => {
         profile: profile, // Use complete profile data
         stats: {
           totalApplications: Array.isArray(statsRes.stats?.byStatus) ? statsRes.stats.byStatus.reduce((sum, stat) => sum + (parseInt(stat.count) || 0), 0) : 0,
-          activeApplications: Array.isArray(statsRes.stats?.byStatus) ? statsRes.stats.byStatus.filter(s => 
+          activeApplications: Array.isArray(statsRes.stats?.byStatus) ? statsRes.stats.byStatus.filter(s =>
             s && s.status && ['applied', 'screening', 'shortlisted', 'interviewed'].includes(s.status)
           ).reduce((sum, stat) => sum + (parseInt(stat.count) || 0), 0) : 0,
           interviewsScheduled: Array.isArray(statsRes.stats?.byStatus) ? parseInt(statsRes.stats.byStatus.find(s => s && s.status === 'interviewed')?.count) || 0 : 0,
@@ -172,7 +172,7 @@ const StudentDashboard = () => {
           achievementsCount: Array.isArray(achievementsRes.achievements) ? achievementsRes.achievements.length : 0
         }
       });
-      
+
       console.log('Dashboard: Final dashboard data:', {
         profileCompletion,
         profile: profile,
@@ -182,7 +182,7 @@ const StudentDashboard = () => {
           achievementsCount: Array.isArray(achievementsRes.achievements) ? achievementsRes.achievements.length : 0
         }
       });
-      
+
     } catch (error) {
       console.error('Dashboard: Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard data');
@@ -193,26 +193,26 @@ const StudentDashboard = () => {
 
   const calculateProfileCompletion = (profile) => {
     console.log('Dashboard: calculateProfileCompletion called with profile:', profile);
-    
+
     if (!profile) {
       console.log('Dashboard: No profile data available for completion calculation');
       return 0;
     }
-    
+
     // Use the EXACT same logic as Profile.js
     const requiredFields = [
       'firstName', 'lastName', 'email', 'phone'
     ];
-    
+
     const studentFields = [
       'course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'
     ];
-    
+
     let totalFields = requiredFields.length;
     let completedFields = 0;
-    
+
     console.log('Dashboard: Checking required fields:', requiredFields);
-    
+
     // Check basic fields
     requiredFields.forEach(field => {
       const value = profile[field];
@@ -220,14 +220,14 @@ const StudentDashboard = () => {
       console.log(`Dashboard: Field ${field}: "${value}" - Completed: ${isCompleted}`);
       if (isCompleted) completedFields++;
     });
-    
+
     console.log('Dashboard: Basic fields completed:', completedFields, 'out of', totalFields);
-    
+
     // Check student specific fields
     if (user && user.role === 'student' && profile.studentProfile) {
       console.log('Dashboard: Checking student fields:', studentFields);
       console.log('Dashboard: Student profile data:', profile.studentProfile);
-      
+
       totalFields += studentFields.length;
       studentFields.forEach(field => {
         const value = profile.studentProfile[field];
@@ -241,37 +241,37 @@ const StudentDashboard = () => {
         hasStudentProfile: !!profile.studentProfile
       });
     }
-    
+
     const completion = totalFields > 0 ? Math.round((completedFields / totalFields) * 100) : 0;
     console.log(`Dashboard: Final calculation: ${completedFields}/${totalFields} = ${completion}%`);
-    
+
     // Also calculate using the same method as Profile.js for comparison
     const profilePageCalculation = calculateProfileCompletionLikeProfilePage(profile);
     console.log(`Dashboard: Profile page calculation: ${profilePageCalculation}%`);
-    
+
     return completion;
   };
 
   // Duplicate the exact logic from Profile.js for comparison
   const calculateProfileCompletionLikeProfilePage = (profile) => {
     if (!profile) return 0;
-    
+
     const requiredFields = [
       'firstName', 'lastName', 'email', 'phone'
     ];
-    
+
     const studentFields = [
       'course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'
     ];
-    
+
     let totalFields = requiredFields.length;
     let completedFields = 0;
-    
+
     // Check basic fields
     requiredFields.forEach(field => {
       if (profile[field]) completedFields++;
     });
-    
+
     // Check student specific fields
     if (user && user.role === 'student' && profile.studentProfile) {
       totalFields += studentFields.length;
@@ -282,13 +282,13 @@ const StudentDashboard = () => {
         }
       });
     }
-    
+
     return totalFields > 0 ? Math.round((completedFields / totalFields) * 100) : 0;
   };
 
   const getStatusColor = (status) => {
     if (!status) return 'text-gray-600 bg-gray-100';
-    
+
     const colors = {
       applied: 'text-blue-600 bg-blue-100',
       screening: 'text-yellow-600 bg-yellow-100',
@@ -303,7 +303,7 @@ const StudentDashboard = () => {
 
   const getStatusIcon = (status) => {
     if (!status) return <DocumentTextIcon className="h-4 w-4" />;
-    
+
     switch (status) {
       case 'applied': return <DocumentTextIcon className="h-4 w-4" />;
       case 'screening': return <ClockIcon className="h-4 w-4" />;
@@ -318,11 +318,11 @@ const StudentDashboard = () => {
   const StatCard = ({ title, value, icon: Icon, color = "blue", subtitle, trend }) => {
     const colorClasses = {
       blue: "text-blue-600",
-      green: "text-green-600", 
+      green: "text-green-600",
       orange: "text-orange-600",
       purple: "text-purple-600"
     };
-    
+
     return (
       <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow">
         <div className="p-5">
@@ -365,9 +365,9 @@ const StudentDashboard = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div>
-                             <h1 className="text-3xl font-bold text-gray-900">
-                 Welcome back, {user?.firstName || 'Student'}! 👋
-               </h1>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Welcome back, {user?.firstName || 'Student'}! 👋
+              </h1>
               <p className="text-gray-600 mt-2">
                 Here's what's happening with your job search and career development
               </p>
@@ -405,10 +405,10 @@ const StudentDashboard = () => {
                 <div className="mt-2">
                   <div className="flex items-center justify-between text-sm text-blue-700">
                     <span>Profile completion</span>
-                                         <span className="font-medium">{dashboardData.stats.profileCompletion || 0}%</span>
+                    <span className="font-medium">{dashboardData.stats.profileCompletion || 0}%</span>
                   </div>
                   <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
-                    <div 
+                    <div
                       className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                       style={{ width: `${dashboardData.stats.profileCompletion}%` }}
                     ></div>
@@ -451,28 +451,28 @@ const StudentDashboard = () => {
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <StatCard
             title="Total Applications"
-                         value={dashboardData.stats.totalApplications || 0}
+            value={dashboardData.stats.totalApplications || 0}
             icon={DocumentTextIcon}
             color="blue"
             subtitle="Across all jobs"
           />
           <StatCard
             title="Active Applications"
-                         value={dashboardData.stats.activeApplications || 0}
-             icon={BriefcaseIcon}
-             color="green"
-             subtitle="In progress"
-           />
-           <StatCard
-             title="Interviews Scheduled"
-             value={dashboardData.stats.interviewsScheduled || 0}
-             icon={CalendarIcon}
-             color="orange"
-             subtitle="Upcoming"
-           />
-           <StatCard
-             title="Offers Received"
-             value={dashboardData.stats.offers || 0}
+            value={dashboardData.stats.activeApplications || 0}
+            icon={BriefcaseIcon}
+            color="green"
+            subtitle="In progress"
+          />
+          <StatCard
+            title="Interviews Scheduled"
+            value={dashboardData.stats.interviewsScheduled || 0}
+            icon={CalendarIcon}
+            color="orange"
+            subtitle="Upcoming"
+          />
+          <StatCard
+            title="Offers Received"
+            value={dashboardData.stats.offers || 0}
             icon={StarIcon}
             color="purple"
             subtitle="Congratulations!"
@@ -491,11 +491,10 @@ const StudentDashboard = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-                  activeTab === tab.id
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${activeTab === tab.id
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
+                  }`}
               >
                 <tab.icon className="h-4 w-4 mr-2" />
                 {tab.name}
@@ -606,25 +605,25 @@ const StudentDashboard = () => {
                     <>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">Completion</span>
-                                                 <span className="text-sm font-medium text-gray-900">{dashboardData.stats.profileCompletion || 0}%</span>
+                        <span className="text-sm font-medium text-gray-900">{dashboardData.stats.profileCompletion || 0}%</span>
                       </div>
-                                         <div className="w-full bg-gray-200 rounded-full h-2">
-                     <div 
-                       className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                       style={{ width: `${dashboardData.stats.profileCompletion || 0}%` }}
-                     ></div>
-                   </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${dashboardData.stats.profileCompletion || 0}%` }}
+                        ></div>
+                      </div>
                     </>
                   )}
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                                         <div>
-                       <span className="text-gray-600">Skills:</span>
-                       <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.skillsCount || 0}</span>
-                     </div>
-                     <div>
-                       <span className="text-gray-600">Achievements:</span>
-                       <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.achievementsCount || 0}</span>
-                     </div>
+                    <div>
+                      <span className="text-gray-600">Skills:</span>
+                      <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.skillsCount || 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Achievements:</span>
+                      <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.achievementsCount || 0}</span>
+                    </div>
                   </div>
                   <Link
                     to="/profile"
@@ -674,9 +673,9 @@ const StudentDashboard = () => {
               <h2 className="text-lg font-medium text-gray-900">All Applications</h2>
             </div>
             <div className="divide-y divide-gray-200">
-                              {Array.isArray(dashboardData.applications) && dashboardData.applications.length > 0 ? (
-                  dashboardData.applications.map((application) => (
-                    <div key={application?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
+              {Array.isArray(dashboardData.applications) && dashboardData.applications.length > 0 ? (
+                dashboardData.applications.map((application) => (
+                  <div key={application?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <h3 className="text-sm font-medium text-gray-900">
@@ -703,14 +702,14 @@ const StudentDashboard = () => {
                       <div className="flex items-center space-x-3">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
                           {getStatusIcon(application.status)}
-                                                         <span className="ml-1">{application.status ? application.status.replace('_', ' ') : 'Unknown'}</span>
+                          <span className="ml-1">{application.status ? application.status.replace('_', ' ') : 'Unknown'}</span>
                         </span>
-                                                    <Link
-                              to={`/applications/${application?.id || '#'}`}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <EyeIcon className="h-5 w-5" />
-                            </Link>
+                        <Link
+                          to={`/applications/${application?.id || '#'}`}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          <EyeIcon className="h-5 w-5" />
+                        </Link>
                       </div>
                     </div>
                   </div>
@@ -745,7 +744,7 @@ const StudentDashboard = () => {
                 <h2 className="text-lg font-medium text-gray-900">Recommended Jobs</h2>
               </div>
               <div className="divide-y divide-gray-200">
-                                 {Array.isArray(dashboardData.recommendedJobs) && dashboardData.recommendedJobs.length > 0 ? (
+                {Array.isArray(dashboardData.recommendedJobs) && dashboardData.recommendedJobs.length > 0 ? (
                   dashboardData.recommendedJobs.map((job) => (
                     <div key={job?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
                       <div className="flex justify-between">
@@ -797,7 +796,7 @@ const StudentDashboard = () => {
                 <h2 className="text-lg font-medium text-gray-900">Recent Achievements</h2>
               </div>
               <div className="divide-y divide-gray-200">
-                                 {Array.isArray(dashboardData.achievements) && dashboardData.achievements.length > 0 ? (
+                {Array.isArray(dashboardData.achievements) && dashboardData.achievements.length > 0 ? (
                   dashboardData.achievements.map((achievement) => (
                     <div key={achievement?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
                       <h3 className="text-sm font-medium text-gray-900 mb-1">
@@ -806,15 +805,15 @@ const StudentDashboard = () => {
                       <p className="text-xs text-gray-600 mb-1">
                         {achievement.issuingOrganization || 'Organization unavailable'}
                       </p>
-                                              <p className="text-xs text-gray-500">
-                          {achievement.issueDate && (() => {
-                            try {
-                              return new Date(achievement.issueDate).toLocaleDateString();
-                            } catch (error) {
-                              return 'Date unavailable';
-                            }
-                          })()}
-                        </p>
+                      <p className="text-xs text-gray-500">
+                        {achievement.issueDate && (() => {
+                          try {
+                            return new Date(achievement.issueDate).toLocaleDateString();
+                          } catch (error) {
+                            return 'Date unavailable';
+                          }
+                        })()}
+                      </p>
                     </div>
                   ))
                 ) : (
@@ -841,9 +840,9 @@ const StudentDashboard = () => {
               <h2 className="text-lg font-medium text-gray-900">Upcoming Events</h2>
             </div>
             <div className="divide-y divide-gray-200">
-                              {Array.isArray(dashboardData.upcomingEvents) && dashboardData.upcomingEvents.length > 0 ? (
-                  dashboardData.upcomingEvents.map((event) => (
-                    <div key={event?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
+              {Array.isArray(dashboardData.upcomingEvents) && dashboardData.upcomingEvents.length > 0 ? (
+                dashboardData.upcomingEvents.map((event) => (
+                  <div key={event?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <h3 className="text-sm font-medium text-gray-900 mb-1">
@@ -856,9 +855,9 @@ const StudentDashboard = () => {
                           <CalendarIcon className="h-4 w-4 mr-1" />
                           <span>{(() => {
                             try {
-                              return `${new Date(event.startTime).toLocaleDateString()} at ${new Date(event.startTime).toLocaleTimeString([], { 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
+                              return `${new Date(event.startTime).toLocaleDateString()} at ${new Date(event.startTime).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
                               })}`;
                             } catch (error) {
                               return 'Date unavailable';

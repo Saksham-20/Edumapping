@@ -33,7 +33,7 @@ const JobDetail = () => {
       setLoading(true);
       const jobData = await api.get(`/jobs/${id}`);
       setJob(jobData);
-      
+
       // Check if user has already applied
       if (user?.role === 'student') {
         // Use the job ID from the URL params since that's what we know is valid
@@ -53,11 +53,11 @@ const JobDetail = () => {
       console.warn('No job ID provided for application status check');
       return;
     }
-    
+
     try {
       // Use the existing /applications endpoint to get all user applications
       const response = await api.get('/applications');
-      
+
       // Check if user has already applied for this specific job
       // The response structure is { applications: [...], pagination: {...} }
       const applications = response.applications || [];
@@ -79,6 +79,59 @@ const JobDetail = () => {
 
     if (user.role !== 'student') {
       toast.error('Only students can apply for jobs');
+      return;
+    }
+
+    // Ensure profile is complete and resume is generated before applying
+    try {
+      const resumeResponse = await api.get('/resume/data');
+      const { personalInfo, profile, achievements } = resumeResponse.data || {};
+
+      // Basic checks similar to profile completion logic
+      const missingUserFields = [];
+      if (!personalInfo?.firstName) missingUserFields.push('firstName');
+      if (!personalInfo?.lastName) missingUserFields.push('lastName');
+      if (!personalInfo?.email) missingUserFields.push('email');
+      if (!personalInfo?.phone) missingUserFields.push('phone');
+
+      const requiredProfileFields = [
+        'course',
+        'branch',
+        'yearOfStudy',
+        'graduationYear',
+        'cgpa',
+        'skills',
+        'bio'
+      ];
+
+      const missingProfileFields = [];
+      if (!profile) {
+        missingProfileFields.push(...requiredProfileFields);
+      } else {
+        requiredProfileFields.forEach((field) => {
+          const value = profile[field];
+          const isCompleted =
+            value && (Array.isArray(value) ? value.length > 0 : true);
+          if (!isCompleted) {
+            missingProfileFields.push(field);
+          }
+        });
+      }
+
+      if (missingUserFields.length > 0 || missingProfileFields.length > 0) {
+        toast.error('Please complete your profile before applying for jobs.');
+        navigate('/profile');
+        return;
+      }
+
+      if (!profile?.resumeUrl) {
+        toast.error('Please generate your resume from the Resume page before applying.');
+        navigate('/resume');
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking profile/resume before applying:', error);
+      toast.error('Unable to verify your profile and resume. Please try again.');
       return;
     }
 
@@ -139,20 +192,20 @@ const JobDetail = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-8">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-start justify-between">
+        <div className="bg-white rounded-lg shadow-sm p-4 sm:p-6 mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 break-words">
                 {job?.title || 'Software Engineer'}
               </h1>
-              <div className="flex items-center text-lg text-gray-600 mb-4">
+              <div className="flex items-center text-base sm:text-lg text-gray-600 mb-4">
                 <BuildingOfficeIcon className="h-5 w-5 mr-2" />
                 {job?.company?.name || 'Tech Company'}
               </div>
-              <div className="flex flex-wrap gap-4 text-sm text-gray-500">
+              <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
                 <div className="flex items-center">
                   <MapPinIcon className="h-4 w-4 mr-1" />
                   {job?.location || 'Remote'}
@@ -172,11 +225,11 @@ const JobDetail = () => {
               </div>
             </div>
             {user?.role === 'student' && (
-              <div className="ml-6">
+              <div className="w-full sm:w-auto sm:ml-6">
                 {hasApplied ? (
                   <button
                     disabled
-                    className="bg-green-100 text-green-800 px-6 py-3 rounded-md font-medium"
+                    className="w-full sm:w-auto bg-green-100 text-green-800 px-6 py-3 rounded-md font-medium"
                   >
                     Applied ✓
                   </button>
@@ -184,7 +237,7 @@ const JobDetail = () => {
                   <button
                     onClick={handleApply}
                     disabled={applying}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 disabled:opacity-50"
+                    className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 disabled:opacity-50"
                   >
                     {applying ? 'Applying...' : 'Apply Now'}
                   </button>
@@ -194,7 +247,7 @@ const JobDetail = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Job Description */}

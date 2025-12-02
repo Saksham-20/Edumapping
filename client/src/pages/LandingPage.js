@@ -85,7 +85,7 @@ const LandingPage = () => {
               variants={staggerContainer}
             >
               <motion.h1
-                className="text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
+                className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
                 variants={fadeInUp}
               >
                 Welcome to <br />
@@ -95,7 +95,7 @@ const LandingPage = () => {
               </motion.h1>
 
               <motion.p
-                className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto lg:mx-0"
+                className="text-lg sm:text-xl text-gray-600 mb-8 max-w-2xl mx-auto lg:mx-0"
                 variants={fadeInUp}
               >
                 Where learning meets limitless possibilities
@@ -121,7 +121,7 @@ const LandingPage = () => {
               </motion.div>
 
               <motion.div
-                className="mt-12 grid grid-cols-3 gap-6 text-center"
+                className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 text-center"
                 variants={fadeInUp}
               >
                 <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
@@ -149,7 +149,7 @@ const LandingPage = () => {
                 <Slider {...carouselSettings}>
                   {/* Slide 1: Career Growth - Saffron */}
                   <div className="outline-none px-2">
-                    <div className="h-[400px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#FF9933]/20 to-[#FF9933]/5 backdrop-blur-lg border border-[#FF9933]/20 flex items-center justify-center group">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#FF9933]/20 to-[#FF9933]/5 backdrop-blur-lg border border-[#FF9933]/20 flex items-center justify-center group">
                       {/* Abstract Shapes */}
                       <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF9933]/30 rounded-full -mr-16 -mt-16 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
                       <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#FF9933]/20 rounded-full -ml-10 -mb-10 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
@@ -165,7 +165,7 @@ const LandingPage = () => {
 
                   {/* Slide 2: Skill Development - White/Blue (Chakra) */}
                   <div className="outline-none px-2">
-                    <div className="h-[400px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/40 to-blue-50/20 backdrop-blur-lg border border-white/40 flex items-center justify-center group">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/40 to-blue-50/20 backdrop-blur-lg border border-white/40 flex items-center justify-center group">
                       <div className="absolute top-0 left-0 w-64 h-64 bg-[#000080]/10 rounded-full -ml-16 -mt-16 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
                       <div className="absolute bottom-0 right-0 w-48 h-48 bg-[#000080]/10 rounded-full -mr-10 -mb-10 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
 
@@ -180,7 +180,7 @@ const LandingPage = () => {
 
                   {/* Slide 3: Industry Connect - Green */}
                   <div className="outline-none px-2">
-                    <div className="h-[400px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#138808]/20 to-[#138808]/5 backdrop-blur-lg border border-[#138808]/20 flex items-center justify-center group">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#138808]/20 to-[#138808]/5 backdrop-blur-lg border border-[#138808]/20 flex items-center justify-center group">
                       <div className="absolute top-0 right-0 w-72 h-72 bg-[#138808]/30 rounded-full blur-3xl"></div>
                       <div className="absolute bottom-0 left-0 w-72 h-72 bg-[#138808]/20 rounded-full blur-3xl"></div>
 
@@ -681,14 +681,19 @@ const LandingPage = () => {
       <nav className={`fixed w-full z-50 transition-all duration-300 ${currentPage === 'home' ? 'bg-white/90 backdrop-blur-md shadow-sm' : 'bg-white shadow-sm'}`}>
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center h-20">
-            <button onClick={() => handlePageChange('home')} className="flex flex-col items-start gap-1">
+            <button
+              onClick={() => handlePageChange('home')}
+              className="flex flex-col items-start gap-1 text-left"
+            >
               <div className="flex items-center gap-2">
                 <img src="/logo.svg" alt="EduMapping" className="h-12 w-auto" />
                 <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
                   EduMapping
                 </span>
               </div>
-              <span className="text-xs text-gray-600 font-medium ml-14">Nurturing Young Minds</span>
+              <span className="text-[11px] sm:text-xs text-gray-600 font-medium leading-tight">
+                Nurturing Young Minds
+              </span>
             </button>
 
             <div className="hidden md:flex items-center gap-8">

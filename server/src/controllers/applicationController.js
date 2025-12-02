@@ -15,7 +15,7 @@ class ApplicationController {
         });
       }
 
-      const { jobId, coverLetter, resumeUrl } = req.body;
+      const { jobId, coverLetter } = req.body;
       const studentId = req.user.id;
 
       // Check if job exists and is active
@@ -86,12 +86,74 @@ class ApplicationController {
         }
       }
 
-      // Create application
+      // Enforce completed profile & generated resume before applying
+      if (!studentProfile) {
+        return res.status(400).json({
+          error: 'Profile Incomplete',
+          message: 'Please complete your student profile before applying for jobs'
+        });
+      }
+
+      const userRecord = await User.findByPk(studentId);
+      if (!userRecord) {
+        return res.status(400).json({
+          error: 'User Not Found',
+          message: 'User account not found'
+        });
+      }
+
+      const missingUserFields = [];
+      if (!userRecord.firstName) missingUserFields.push('firstName');
+      if (!userRecord.lastName) missingUserFields.push('lastName');
+      if (!userRecord.email) missingUserFields.push('email');
+      if (!userRecord.phone) missingUserFields.push('phone');
+
+      const requiredProfileFields = [
+        'course',
+        'branch',
+        'yearOfStudy',
+        'graduationYear',
+        'cgpa',
+        'skills',
+        'bio'
+      ];
+
+      const missingProfileFields = [];
+      requiredProfileFields.forEach((field) => {
+        const value = studentProfile[field];
+        const isCompleted =
+          value && (Array.isArray(value) ? value.length > 0 : true);
+        if (!isCompleted) {
+          missingProfileFields.push(field);
+        }
+      });
+
+      if (missingUserFields.length > 0 || missingProfileFields.length > 0) {
+        return res.status(400).json({
+          error: 'Profile Incomplete',
+          message:
+            'Your profile is incomplete. Please fill in all required details before applying for jobs.',
+          details: {
+            missingUserFields,
+            missingProfileFields
+          }
+        });
+      }
+
+      if (!studentProfile.resumeUrl) {
+        return res.status(400).json({
+          error: 'Resume Not Generated',
+          message:
+            'You must generate your resume from your profile before applying for jobs.'
+        });
+      }
+
+      // Create application (always use resume from student profile)
       const application = await Application.create({
         jobId,
         studentId,
         coverLetter,
-        resumeUrl,
+        resumeUrl: studentProfile.resumeUrl,
         status: 'applied'
       });
 
