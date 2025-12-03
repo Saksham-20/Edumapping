@@ -258,8 +258,8 @@ app.get('/api/health', (req, res) => {
 
 // Debug endpoints - only available in development
 if (process.env.NODE_ENV === 'development') {
-  // Debug endpoint to check database and user
-  app.get('/api/debug/user/:email', async (req, res) => {
+// Debug endpoint to check database and user
+app.get('/api/debug/user/:email', async (req, res) => {
   try {
     const { User, Organization } = models;
     const { email } = req.params;
@@ -299,8 +299,8 @@ if (process.env.NODE_ENV === 'development') {
   }
 });
 
-  // Manual seeding endpoint
-  app.post('/api/debug/seed', async (req, res) => {
+// Manual seeding endpoint
+app.post('/api/debug/seed', async (req, res) => {
   try {
     logger.info('Starting manual database seeding');
 
@@ -329,8 +329,8 @@ if (process.env.NODE_ENV === 'development') {
   }
 });
 
-  // List all users endpoint
-  app.get('/api/debug/users', async (req, res) => {
+// List all users endpoint
+app.get('/api/debug/users', async (req, res) => {
   try {
     const { User, Organization } = models;
 
@@ -372,8 +372,8 @@ if (process.env.NODE_ENV === 'development') {
   }
 });
 
-  // Test login endpoint with detailed debugging
-  app.post('/api/debug/test-login', async (req, res) => {
+// Test login endpoint with detailed debugging
+app.post('/api/debug/test-login', async (req, res) => {
   try {
     const { email, password } = req.body;
     logger.debug('Debug: Testing login', { email: logger.sanitize.email(email) });
@@ -403,7 +403,7 @@ if (process.env.NODE_ENV === 'development') {
       role: user?.role,
       isActive: user?.isActive,
       approvalStatus: user?.approvalStatus
-    });
+      });
 
     if (!user) {
       return res.json({

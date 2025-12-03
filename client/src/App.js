@@ -56,10 +56,10 @@ const DashboardRouter = () => {
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <NotificationProvider>
-          <Router>
-            <div className="min-h-screen bg-gray-50">
+    <AuthProvider>
+      <NotificationProvider>
+        <Router>
+          <div className="min-h-screen bg-gray-50">
             <Toaster
               position="top-right"
               toastOptions={{
@@ -223,10 +223,10 @@ function App() {
             
             {/* WhatsApp Chat Button - appears on all pages */}
             <WhatsAppChat />
-            </div>
-          </Router>
-        </NotificationProvider>
-      </AuthProvider>
+          </div>
+        </Router>
+      </NotificationProvider>
+    </AuthProvider>
     </ErrorBoundary>
   );
 }
