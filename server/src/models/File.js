@@ -14,6 +14,10 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
+    filename: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
     originalName: {
       type: DataTypes.STRING(255),
       allowNull: false,
