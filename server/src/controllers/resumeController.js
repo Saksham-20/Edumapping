@@ -15,25 +15,8 @@ class ResumeController {
     }
   }
 
-  async uploadResume(req, res, next) {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          error: 'No File',
-          message: 'Please select a PDF file to upload'
-        });
-      }
-
-      const result = await resumeService.uploadCustomResume(req.user.id, req.file);
-      
-      res.json({
-        message: 'Resume uploaded successfully',
-        resume: result
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  // uploadResume method removed - custom resume upload feature disabled
+  // Resume generation from profile is the preferred method
 
   async getResumeData(req, res, next) {
     try {

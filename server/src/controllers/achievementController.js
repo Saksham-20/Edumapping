@@ -1,6 +1,7 @@
 // server/src/controllers/achievementController.js
 const { Achievement, User } = require('../models');
 const { validationResult } = require('express-validator');
+const logger = require('../utils/logger');
 
 class AchievementController {
   async getAllAchievements(req, res, next) {
@@ -65,7 +66,7 @@ class AchievementController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        console.log('Validation errors:', errors.array()); // Debug log
+        logger.debug('Validation errors', { errors: errors.array() });
         return res.status(400).json({
           error: 'Validation Error',
           message: 'Validation failed',
@@ -79,7 +80,7 @@ class AchievementController {
         ...req.body
       };
 
-      console.log('Creating achievement with data:', achievementData); // Debug log
+      logger.info('Creating achievement', { userId: achievementData.userId });
 
       const achievement = await Achievement.create(achievementData);
 
@@ -98,7 +99,7 @@ class AchievementController {
         achievement: createdAchievement
       });
     } catch (error) {
-      console.error('Achievement creation error:', error); // Debug log
+      logger.error('Achievement creation error', error);
       next(error);
     }
   }

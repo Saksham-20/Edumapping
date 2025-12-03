@@ -1,5 +1,6 @@
 const { User, Organization, RecruiterProfile } = require('../models');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 class ApprovalController {
   // Get pending approvals for TPO
@@ -67,7 +68,7 @@ class ApprovalController {
         }
       });
     } catch (error) {
-      console.error('Error in getPendingApprovals:', error);
+      logger.error('Error in getPendingApprovals', error);
       next(error);
     }
   }
@@ -139,7 +140,7 @@ class ApprovalController {
         }
       });
     } catch (error) {
-      console.error('Error in approveOrganization:', error);
+      logger.error('Error in approveOrganization', error);
       next(error);
     }
   }
@@ -212,7 +213,7 @@ class ApprovalController {
         }
       });
     } catch (error) {
-      console.error('Error in approveRecruiter:', error);
+      logger.error('Error in approveRecruiter', error);
       next(error);
     }
   }
@@ -276,7 +277,7 @@ class ApprovalController {
         updatedCount: updatedOrgs
       });
     } catch (error) {
-      console.error('Error in bulkApproveOrganizations:', error);
+      logger.error('Error in bulkApproveOrganizations', error);
       next(error);
     }
   }
@@ -358,7 +359,7 @@ class ApprovalController {
         }
       });
     } catch (error) {
-      console.error('Error in getApprovalStats:', error);
+      logger.error('Error in getApprovalStats', error);
       next(error);
     }
   }

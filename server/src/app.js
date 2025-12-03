@@ -12,6 +12,8 @@ const jwt = require('jsonwebtoken');
 const models = require('./models');
 const sequelize = models.sequelize;
 const errorHandler = require('./middleware/errorHandler');
+const requestIdMiddleware = require('./middleware/requestId');
+const logger = require('./utils/logger');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -35,6 +37,9 @@ const app = express();
 
 // Trust proxy for rate limiting (required for Render)
 app.set('trust proxy', 1);
+
+// Request ID middleware (must be early in the middleware chain)
+app.use(requestIdMiddleware);
 
 // Security middleware (more strict in production)
 app.use(helmet({
@@ -79,7 +84,7 @@ app.use(cors({
 // Rate limiting with user-based keys for authenticated requests
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 500 : 100), // Higher limit in production
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 500 : 1000), // Much higher limit in development
   message: {
     error: 'Too many requests from this IP, please try again later'
   },
@@ -109,9 +114,19 @@ const limiter = rateLimit({
     // For unauthenticated requests, use IP
     return req.ip || req.connection.remoteAddress;
   },
-  // Skip rate limiting for health check
+  // Skip rate limiting for health check and localhost in development
   skip: (req) => {
-    return req.path === '/api/health';
+    if (req.path === '/api/health') {
+      return true;
+    }
+    // Skip rate limiting for localhost in development
+    if (process.env.NODE_ENV === 'development') {
+      const ip = req.ip || req.connection.remoteAddress || '';
+      if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.includes('localhost')) {
+        return true;
+      }
+    }
+    return false;
   }
 });
 
@@ -119,7 +134,7 @@ const limiter = rateLimit({
 // Extracts user ID from JWT token without full authentication
 const authCheckLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 60, // 60 requests per minute (frequent auth checks)
+  max: 120, // Increased limit for auth checks
   message: {
     error: 'Too many authentication check requests, please slow down'
   },
@@ -144,13 +159,46 @@ const authCheckLimiter = rateLimit({
     // For unauthenticated requests or if token extraction fails, use IP
     return req.ip || req.connection.remoteAddress;
   },
-  skipSuccessfulRequests: true // Don't count successful requests
+  skipSuccessfulRequests: true, // Don't count successful requests
+  // Skip rate limiting for localhost in development
+  skip: (req) => {
+    if (process.env.NODE_ENV === 'development') {
+      const ip = req.ip || req.connection.remoteAddress || '';
+      if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.includes('localhost')) {
+        return true;
+      }
+    }
+    return false;
+  }
 });
 
 // Apply auth check limiter to /auth/me endpoint
 app.use('/api/auth/me', authCheckLimiter);
 // Apply general limiter to all other API routes
 app.use('/api/', limiter);
+
+// Request logging middleware (after rate limiting)
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  
+  // Log request start
+  logger.debug('Incoming request', {
+    method: req.method,
+    path: req.path,
+    ip: req.ip
+  });
+  
+  // Log response when finished
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    logger.request(req.method, req.path, res.statusCode, duration, {
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+  });
+  
+  next();
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -208,18 +256,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Debug endpoint to check database and user
-app.get('/api/debug/user/:email', async (req, res) => {
+// Debug endpoints - only available in development
+if (process.env.NODE_ENV === 'development') {
+  // Debug endpoint to check database and user
+  app.get('/api/debug/user/:email', async (req, res) => {
   try {
     const { User, Organization } = models;
     const { email } = req.params;
 
-    console.log('🔍 Debug: Looking for user with email:', email);
-    console.log('🔍 Debug: Sequelize instance:', sequelize ? 'Available' : 'Not available');
+    logger.debug('Debug: Looking for user', { email: logger.sanitize.email(email) });
 
     // Test database connection first
     await sequelize.authenticate();
-    console.log('🔍 Debug: Database connection successful');
+    logger.debug('Debug: Database connection successful');
 
     const user = await User.findOne({
       where: { email },
@@ -231,7 +280,7 @@ app.get('/api/debug/user/:email', async (req, res) => {
       ]
     });
 
-    console.log('🔍 Debug: User found:', user ? 'Yes' : 'No');
+    logger.debug('Debug: User lookup complete', { found: !!user, userId: user?.id });
 
     res.json({
       found: !!user,
@@ -245,15 +294,15 @@ app.get('/api/debug/user/:email', async (req, res) => {
       } : null
     });
   } catch (error) {
-    console.error('❌ Debug error:', error);
+    logger.error('Debug endpoint error', error, { endpoint: '/api/debug/user/:email' });
     res.status(500).json({ error: error.message });
   }
 });
 
-// Manual seeding endpoint
-app.post('/api/debug/seed', async (req, res) => {
+  // Manual seeding endpoint
+  app.post('/api/debug/seed', async (req, res) => {
   try {
-    console.log('🌱 Starting manual database seeding...');
+    logger.info('Starting manual database seeding');
 
     // Run the seeders
     const { exec } = require('child_process');
@@ -262,8 +311,7 @@ app.post('/api/debug/seed', async (req, res) => {
 
     const { stdout, stderr } = await execAsync('NODE_ENV=production npx sequelize-cli db:seed:all');
 
-    console.log('🌱 Seeding output:', stdout);
-    if (stderr) console.log('🌱 Seeding errors:', stderr);
+    logger.info('Database seeding completed', { hasOutput: !!stdout, hasErrors: !!stderr });
 
     res.json({
       success: true,
@@ -271,7 +319,7 @@ app.post('/api/debug/seed', async (req, res) => {
       output: stdout
     });
   } catch (error) {
-    console.error('❌ Seeding error:', error);
+    logger.error('Database seeding error', error);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -281,17 +329,16 @@ app.post('/api/debug/seed', async (req, res) => {
   }
 });
 
-// List all users endpoint
-app.get('/api/debug/users', async (req, res) => {
+  // List all users endpoint
+  app.get('/api/debug/users', async (req, res) => {
   try {
     const { User, Organization } = models;
 
-    console.log('🔍 Debug: Fetching all users...');
-    console.log('🔍 Debug: Sequelize instance:', sequelize ? 'Available' : 'Not available');
+    logger.debug('Debug: Fetching all users');
 
     // Test database connection first
     await sequelize.authenticate();
-    console.log('🔍 Debug: Database connection successful');
+    logger.debug('Debug: Database connection successful');
 
     const users = await User.findAll({
       include: [
@@ -303,7 +350,7 @@ app.get('/api/debug/users', async (req, res) => {
       limit: 10
     });
 
-    console.log('🔍 Debug: Found', users.length, 'users');
+    logger.debug('Debug: User fetch complete', { count: users.length });
 
     res.json({
       count: users.length,
@@ -320,27 +367,26 @@ app.get('/api/debug/users', async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('❌ Debug error:', error);
+    logger.error('Debug endpoint error', error, { endpoint: '/api/debug/users' });
     res.status(500).json({ error: error.message });
   }
 });
 
-// Test login endpoint with detailed debugging
-app.post('/api/debug/test-login', async (req, res) => {
+  // Test login endpoint with detailed debugging
+  app.post('/api/debug/test-login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log('🔍 Debug: Testing login for email:', email);
+    logger.debug('Debug: Testing login', { email: logger.sanitize.email(email) });
 
     const { User, Organization } = models;
     const bcrypt = require('bcryptjs');
 
     // Test database connection first
-    console.log('🔍 Debug: Testing database connection...');
     await sequelize.authenticate();
-    console.log('🔍 Debug: Database connection successful');
+    logger.debug('Debug: Database connection successful');
 
     // Step 1: Check if user exists
-    console.log('🔍 Step 1: Looking for user...');
+    logger.debug('Step 1: Looking for user');
     const user = await User.findOne({
       where: { email, isActive: true },
       include: [
@@ -351,18 +397,13 @@ app.post('/api/debug/test-login', async (req, res) => {
       ]
     });
 
-    console.log('🔍 User found:', user ? 'Yes' : 'No');
-    if (user) {
-      console.log('🔍 User details:', {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-        approvalStatus: user.approvalStatus,
-        hasPasswordHash: !!user.passwordHash,
-        organizationId: user.organizationId
-      });
-    }
+    logger.debug('User lookup complete', { 
+      found: !!user, 
+      userId: user?.id,
+      role: user?.role,
+      isActive: user?.isActive,
+      approvalStatus: user?.approvalStatus
+    });
 
     if (!user) {
       return res.json({
@@ -374,9 +415,9 @@ app.post('/api/debug/test-login', async (req, res) => {
     }
 
     // Step 2: Check password
-    console.log('🔍 Step 2: Checking password...');
+    logger.debug('Step 2: Checking password');
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    console.log('🔍 Password valid:', isPasswordValid);
+    logger.debug('Password check complete', { valid: isPasswordValid });
 
     if (!isPasswordValid) {
       return res.json({
@@ -392,7 +433,7 @@ app.post('/api/debug/test-login', async (req, res) => {
     }
 
     // Step 3: Check approval status
-    console.log('🔍 Step 3: Checking approval status...');
+    logger.debug('Step 3: Checking approval status');
     if (user.approvalStatus !== 'approved') {
       return res.json({
         success: false,
@@ -408,7 +449,7 @@ app.post('/api/debug/test-login', async (req, res) => {
     }
 
     // Step 4: Generate tokens (simplified)
-    console.log('🔍 Step 4: Generating tokens...');
+    logger.debug('Step 4: Generating tokens');
     const jwt = require('jsonwebtoken');
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
@@ -416,7 +457,7 @@ app.post('/api/debug/test-login', async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    console.log('🔍 Access token generated:', !!accessToken);
+    logger.debug('Token generation complete', { hasToken: !!accessToken });
 
     res.json({
       success: true,
@@ -433,7 +474,7 @@ app.post('/api/debug/test-login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Debug login error:', error);
+    logger.error('Debug login error', error, { endpoint: '/api/debug/test-login' });
     res.status(500).json({
       success: false,
       step: 'error',
@@ -442,6 +483,7 @@ app.post('/api/debug/test-login', async (req, res) => {
     });
   }
 });
+}
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -456,7 +498,6 @@ app.use('/api/files', fileRoutes);
 app.use('/api/organizations', organizationsRoutes);
 app.use('/api/achievements', achievementRoutes);
 app.use('/api/statistics', statisticsRoutes);
-app.use('/api/approvals', approvalRoutes);
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
@@ -504,43 +545,32 @@ app.use(errorHandler);
 const connectDB = async (retries = 5, delay = 5000) => {
   for (let i = 0; i < retries; i++) {
     try {
-      console.log(`🔍 Attempting database connection... (attempt ${i + 1}/${retries})`);
-      console.log('🔍 NODE_ENV:', process.env.NODE_ENV);
-      console.log('🔍 DATABASE_URL exists:', !!process.env.DATABASE_URL);
-      if (process.env.DATABASE_URL) {
-        console.log('🔍 DATABASE_URL starts with:', process.env.DATABASE_URL.substring(0, 30) + '...');
-        console.log('🔍 DATABASE_URL contains .render.com:', process.env.DATABASE_URL.includes('.render.com'));
-        console.log('🔍 DATABASE_URL contains singapore-postgres:', process.env.DATABASE_URL.includes('singapore-postgres'));
-      }
-
-      // Log the actual config being used
-      console.log('🔍 Sequelize config:', {
-        dialect: sequelize.options.dialect,
-        ssl: sequelize.options.dialectOptions?.ssl,
-        host: sequelize.config.host,
-        port: sequelize.config.port,
-        database: sequelize.config.database
+      logger.info(`Attempting database connection (attempt ${i + 1}/${retries})`, {
+        nodeEnv: process.env.NODE_ENV,
+        hasDatabaseUrl: !!process.env.DATABASE_URL
       });
 
       await sequelize.authenticate();
-      console.log('✅ Database connection established successfully');
+      logger.info('Database connection established successfully');
 
       if (process.env.NODE_ENV === 'development') {
         await sequelize.sync({ alter: true });
-        console.log('✅ Database synchronized');
+        logger.info('Database synchronized');
       }
       return; // Success, exit the retry loop
 
     } catch (error) {
-      console.error(`❌ Database connection attempt ${i + 1} failed:`, error.message);
+      logger.error(`Database connection attempt ${i + 1} failed`, error, {
+        attempt: i + 1,
+        totalRetries: retries
+      });
 
       if (i === retries - 1) {
-        console.error('❌ All database connection attempts failed');
-        console.error('❌ Final error:', error);
+        logger.error('All database connection attempts failed', error);
         process.exit(1);
       }
 
-      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      logger.debug(`Waiting ${delay}ms before retry`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -548,13 +578,13 @@ const connectDB = async (retries = 5, delay = 5000) => {
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+  logger.info('SIGTERM signal received: closing HTTP server');
   await sequelize.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT signal received: closing HTTP server');
+  logger.info('SIGINT signal received: closing HTTP server');
   await sequelize.close();
   process.exit(0);
 });

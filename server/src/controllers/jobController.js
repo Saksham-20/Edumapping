@@ -2,6 +2,7 @@
 const { Job, Organization, User, Application, Assessment } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 class JobController {
   async createJob(req, res, next) {
@@ -24,7 +25,7 @@ class JobController {
 
       // Remove id if it's being sent (should be auto-generated)
       if (normalizedJobData.id !== undefined) {
-        console.warn('⚠️  Warning: ID field was provided in request, removing it:', normalizedJobData.id);
+        logger.warn('ID field was provided in request, removing it', { providedId: normalizedJobData.id });
         delete normalizedJobData.id;
       }
 
@@ -50,8 +51,8 @@ class JobController {
         });
       }
 
-      // Log the job data for debugging (remove sensitive info in production)
-      console.log('Creating job with data:', {
+      // Log the job data for debugging
+      logger.info('Creating job', {
         title: normalizedJobData.title,
         organizationId: normalizedJobData.organizationId,
         jobType: normalizedJobData.jobType,
@@ -74,10 +75,8 @@ class JobController {
       });
     } catch (error) {
       // Log detailed error information for debugging
-      console.error('❌ Error creating job:', {
+      logger.error('Error creating job', error, {
         name: error.name,
-        message: error.message,
-        stack: error.stack,
         parent: error.parent ? {
           message: error.parent.message,
           constraint: error.parent.constraint,
@@ -427,7 +426,7 @@ class JobController {
         }
       });
     } catch (error) {
-      console.error('Error in getJobStats:', error);
+      logger.error('Error in getJobStats', error);
       next(error);
     }
   }

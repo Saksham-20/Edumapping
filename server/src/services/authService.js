@@ -2,6 +2,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { User, Organization } = require('../models');
+const logger = require('../utils/logger');
 
 class AuthService {
   async hashPassword(password) {
@@ -120,7 +121,7 @@ class AuthService {
 }
 
   async login(email, password) {
-    console.log('🔍 Login attempt for email:', email);
+    logger.auth('login', null, false, { email: logger.sanitize.email(email) });
     
     try {
       // First, find user by email (regardless of isActive status)
@@ -134,16 +135,13 @@ class AuthService {
         ]
       });
       
-      console.log('🔍 User found:', user ? 'Yes' : 'No');
-      if (user) {
-        console.log('🔍 User details:', {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
-          approvalStatus: user.approvalStatus
-        });
-      }
+      logger.debug('User lookup for login', { 
+        found: !!user, 
+        userId: user?.id,
+        role: user?.role,
+        isActive: user?.isActive,
+        approvalStatus: user?.approvalStatus
+      });
 
       if (!user) {
         throw new Error('Invalid credentials');
@@ -175,12 +173,14 @@ class AuthService {
     // Return user without password
     const { passwordHash: _, ...userWithoutPassword } = user.toJSON();
 
+    logger.auth('login', user.id, true, { role: user.role });
+
     return {
       user: userWithoutPassword,
       tokens
     };
     } catch (error) {
-      console.error('❌ Login error:', error);
+      logger.auth('login', null, false, { error: error.message });
       throw error;
     }
   }

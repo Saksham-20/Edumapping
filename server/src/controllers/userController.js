@@ -1,5 +1,5 @@
 // server/src/controllers/userController.js
-const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job } = require('../models');
+const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job, File } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 
@@ -67,6 +67,25 @@ class UserController {
           error: 'User Not Found',
           message: 'User profile not found'
         });
+      }
+
+      // If user has a student profile with resume, find the resume file
+      if (user.studentProfile && user.studentProfile.resumeUrl) {
+        const resumeFile = await File.findOne({
+          where: {
+            userId: user.id,
+            fileType: 'resume'
+          },
+          order: [['createdAt', 'DESC']]
+        });
+
+        if (resumeFile) {
+          // Add file ID and download URL to student profile
+          const profileData = user.studentProfile.toJSON();
+          profileData.resumeFileId = resumeFile.id;
+          profileData.resumeDownloadUrl = `/api/files/${resumeFile.id}/download`;
+          user.studentProfile = profileData;
+        }
       }
 
       res.json({

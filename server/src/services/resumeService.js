@@ -4,6 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { User, StudentProfile, Achievement, File } = require('../models');
 const fileService = require('./fileService');
+const logger = require('../utils/logger');
 
 class ResumeService {
   async generateResumeFromProfile(userId) {
@@ -47,10 +48,10 @@ class ResumeService {
           await fileService.deleteFile(oldFileRecord.filePath);
           // Delete the database record
           await oldFileRecord.destroy();
-          console.log(`✅ Deleted old resume for user ${user.id}`);
+          logger.info('Deleted old resume', { userId: user.id });
         }
       } catch (error) {
-        console.error('⚠️ Error deleting old resume:', error.message);
+        logger.warn('Error deleting old resume', { userId: user.id, error: error.message });
         // Continue with generation even if deletion fails
       }
     }
@@ -80,7 +81,7 @@ class ResumeService {
       isPublic: false
     });
 
-    // Update student profile with new resume URL
+    // Update student profile with new resume URL (keep for backward compatibility)
     await user.studentProfile.update({
       resumeUrl
     });
@@ -89,7 +90,7 @@ class ResumeService {
       fileId: fileRecord.id,
       fileName,
       filePath,
-      downloadUrl: resumeUrl // Use the accessible URL
+      downloadUrl: `/api/files/${fileRecord.id}/download` // Use File ID-based download endpoint
     };
   }
 
@@ -368,10 +369,10 @@ class ResumeService {
       if (oldFileRecord) {
         await fileService.deleteFile(oldFileRecord.filePath);
         await oldFileRecord.destroy();
-        console.log(`✅ Deleted old resume for user ${userId}`);
+        logger.info('Deleted old resume', { userId });
       }
     } catch (error) {
-      console.error('⚠️ Error deleting old resume:', error.message);
+      logger.warn('Error deleting old resume', { userId, error: error.message });
     }
 
     // Save file
@@ -434,6 +435,27 @@ class ResumeService {
       throw new Error('User not found');
     }
 
+    // Find the resume file record if it exists
+    let resumeFile = null;
+    if (user.studentProfile && user.studentProfile.resumeUrl) {
+      resumeFile = await File.findOne({
+        where: {
+          userId: user.id,
+          fileType: 'resume'
+        },
+        order: [['createdAt', 'DESC']]
+      });
+    }
+
+    // Build profile object with file information
+    const profileData = user.studentProfile ? { ...user.studentProfile.toJSON() } : null;
+    
+    if (profileData && resumeFile) {
+      // Add file ID and download URL to profile
+      profileData.resumeFileId = resumeFile.id;
+      profileData.resumeDownloadUrl = `/api/files/${resumeFile.id}/download`;
+    }
+
     return {
       personalInfo: {
         firstName: user.firstName,
@@ -441,7 +463,7 @@ class ResumeService {
         email: user.email,
         phone: user.phone
       },
-      profile: user.studentProfile,
+      profile: profileData,
       achievements: user.achievements
     };
   }

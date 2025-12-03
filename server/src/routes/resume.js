@@ -55,43 +55,7 @@ router.post('/generate',
   }
 );
 
-/**
- * @swagger
- * /api/resume/upload:
- *   post:
- *     summary: Upload custom resume PDF
- *     tags: [Resume]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               resume:
- *                 type: string
- *                 format: binary
- *                 description: PDF file to upload
- *     responses:
- *       200:
- *         description: Resume uploaded successfully
- *       400:
- *         description: Invalid file or file too large
- *       401:
- *         description: Authentication required
- */
-router.post('/upload', 
-  authenticateToken, 
-  requireRole('student'), 
-  (req, res) => {
-    return res.status(400).json({
-      error: 'FeatureDisabled',
-      message: 'Custom resume upload has been disabled. Please generate your resume from your profile instead.'
-    });
-  }
-);
+// Upload route removed - resume generation from profile is the preferred method
 
 /**
  * @swagger

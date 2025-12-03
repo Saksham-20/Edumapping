@@ -299,29 +299,41 @@ export const getPaginationRange = (currentPage, totalPages, delta = 2) => {
 export const calculateProfileCompletion = (profile, userRole = 'student') => {
   if (!profile) return 0;
 
-  const requiredFields = ['firstName', 'lastName', 'email', 'phone'];
-  let totalFields = requiredFields.length;
-  let completedFields = 0;
+  // Use weighted scoring system for better accuracy
+  // Basic info (40% weight)
+  const basicFields = ['firstName', 'lastName', 'email', 'phone'];
+  let score = 0;
+  let totalFields = 0;
 
-  // Check basic fields
-  requiredFields.forEach(field => {
-    if (profile[field]) completedFields++;
+  basicFields.forEach(field => {
+    totalFields += 10;
+    if (profile[field]) score += 10;
   });
 
-  // Check role-specific fields
+  // Profile info (40% weight) - for students
   if (userRole === 'student' && profile.studentProfile) {
-    const studentFields = ['course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'];
-    totalFields += studentFields.length;
-    
-    studentFields.forEach(field => {
+    const profileFields = [
+      'course', 'branch', 'yearOfStudy', 'graduationYear',
+      'cgpa', 'skills', 'bio', 'linkedinUrl'
+    ];
+    profileFields.forEach(field => {
+      totalFields += 5;
       const value = profile.studentProfile[field];
       if (value && (Array.isArray(value) ? value.length > 0 : true)) {
-        completedFields++;
+        score += 5;
       }
     });
   }
 
-  return Math.round((completedFields / totalFields) * 100);
+  // Achievements (20% weight) - for students
+  if (userRole === 'student' && profile.achievements) {
+    totalFields += 20;
+    if (Array.isArray(profile.achievements) && profile.achievements.length > 0) {
+      score += Math.min(20, profile.achievements.length * 5);
+    }
+  }
+
+  return totalFields > 0 ? Math.round((score / totalFields) * 100) : 0;
 };
 
 /**

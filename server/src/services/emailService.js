@@ -1,5 +1,6 @@
 // server/src/services/emailService.js
 const nodemailer = require('nodemailer');
+const logger = require('../utils/logger');
 
 class EmailService {
   constructor() {
@@ -25,17 +26,24 @@ class EmailService {
       };
 
       const result = await this.transporter.sendMail(mailOptions);
-      console.log('Email sent successfully:', result.messageId);
+      logger.info('Email sent successfully', { 
+        messageId: result.messageId,
+        to: logger.sanitize.email(to),
+        subject 
+      });
       return result;
     } catch (error) {
-      console.error('Email sending failed:', error);
+      logger.error('Email sending failed', error, { 
+        to: logger.sanitize.email(to),
+        subject 
+      });
       // In development/demo mode, if email fails, we'll log it and pretend it worked
       // This is to allow the UI to function without a real mail server
       if (process.env.NODE_ENV !== 'production' || true) { // Force mock for now to unblock user
-        console.log('MOCK EMAIL SENT (Fallback):');
-        console.log('To:', to);
-        console.log('Subject:', subject);
-        console.log('Content:', text);
+        logger.info('MOCK EMAIL SENT (Fallback)', {
+          to: logger.sanitize.email(to),
+          subject
+        });
         return { messageId: 'mock-email-id-' + Date.now() };
       }
       throw new Error('Failed to send email');

@@ -1,6 +1,7 @@
 // server/src/services/notificationService.js
 const { Notification, User, Application, Job, Organization } = require('../models');
 const emailService = require('./emailService');
+const logger = require('../utils/logger');
 
 class NotificationService {
   async createNotification(userId, title, message, type = 'general', metadata = {}, priority = 'medium') {
@@ -16,7 +17,7 @@ class NotificationService {
 
       return notification;
     } catch (error) {
-      console.error('Error creating notification:', error);
+      logger.error('Error creating notification', error, { userId, type });
       throw error;
     }
   }
@@ -65,7 +66,7 @@ class NotificationService {
         );
       }
     } catch (error) {
-      console.error('Error notifying new application:', error);
+      logger.error('Error notifying new application', error, { applicationId });
     }
   }
 
@@ -115,10 +116,10 @@ class NotificationService {
       try {
         await emailService.sendApplicationStatusUpdate(application, newStatus);
       } catch (emailError) {
-        console.error('Error sending email notification:', emailError);
+        logger.error('Error sending email notification', emailError, { applicationId });
       }
     } catch (error) {
-      console.error('Error notifying application status update:', error);
+      logger.error('Error notifying application status update', error, { applicationId, status });
     }
   }
 
@@ -146,10 +147,10 @@ class NotificationService {
       try {
         await emailService.sendNewJobAlert(user, job);
       } catch (emailError) {
-        console.error('Error sending job alert email:', emailError);
+        logger.error('Error sending job alert email', emailError, { userId, jobId });
       }
     } catch (error) {
-      console.error('Error sending job alert:', error);
+      logger.error('Error sending job alert', error, { userId, jobId });
     }
   }
 
@@ -177,10 +178,10 @@ class NotificationService {
       try {
         await emailService.sendEventReminder(user, event);
       } catch (emailError) {
-        console.error('Error sending event reminder email:', emailError);
+        logger.error('Error sending event reminder email', emailError, { userId, eventId });
       }
     } catch (error) {
-      console.error('Error sending event reminder:', error);
+      logger.error('Error sending event reminder', error, { userId, eventId });
     }
   }
 
@@ -211,7 +212,7 @@ class NotificationService {
 
       await Notification.bulkCreate(notifications);
     } catch (error) {
-      console.error('Error sending system alert:', error);
+      logger.error('Error sending system alert', error);
     }
   }
 
@@ -225,10 +226,10 @@ class NotificationService {
         }
       });
 
-      console.log(`Cleaned up ${deletedCount} expired notifications`);
+      logger.info('Cleaned up expired notifications', { deletedCount });
       return deletedCount;
     } catch (error) {
-      console.error('Error cleaning up notifications:', error);
+      logger.error('Error cleaning up notifications', error);
     }
   }
 
@@ -245,7 +246,7 @@ class NotificationService {
 
       return null;
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      logger.error('Error marking notification as read', error, { notificationId, userId });
       throw error;
     }
   }
@@ -265,7 +266,7 @@ class NotificationService {
 
       return count;
     } catch (error) {
-      console.error('Error getting unread count:', error);
+      logger.error('Error getting unread count', error, { userId });
       return 0;
     }
   }

@@ -1,6 +1,7 @@
 // server/src/controllers/analyticsController.js
 const { User, Application, Job, Organization, StudentProfile } = require('../models');
 const { Op, fn, col, literal } = require('sequelize');
+const logger = require('../utils/logger');
 
 class AnalyticsController {
   // TPO Analytics with advanced filtering
@@ -396,7 +397,7 @@ class AnalyticsController {
         analytics
       });
     } catch (error) {
-      console.error('Error in getTPOAnalytics:', error);
+      logger.error('Error in getTPOAnalytics', error);
       next(error);
     }
   }
@@ -416,7 +417,7 @@ class AnalyticsController {
         timestamp: new Date().toISOString()
       });
     } catch (error) {
-      console.error('Error in exportTPOAnalytics:', error);
+      logger.error('Error in exportTPOAnalytics', error);
       next(error);
     }
   }
@@ -494,7 +495,7 @@ class AnalyticsController {
         }
       });
     } catch (error) {
-      console.error('Error in getStudentAnalytics:', error);
+      logger.error('Error in getStudentAnalytics', error);
       next(error);
     }
   }

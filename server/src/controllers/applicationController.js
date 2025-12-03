@@ -3,6 +3,7 @@ const { Application, Job, User, StudentProfile, Organization } = require('../mod
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 class ApplicationController {
   async submitApplication(req, res, next) {
@@ -177,7 +178,7 @@ class ApplicationController {
       try {
         await notificationService.notifyNewApplication(application.id);
       } catch (notifError) {
-        console.error('Notification error:', notifError);
+        logger.error('Notification error', notifError, { applicationId: application.id });
       }
 
       res.status(201).json({
@@ -254,9 +255,8 @@ class ApplicationController {
         // Only show applications from these students
         whereClause.studentId = { [Op.in]: studentIds };
         
-        console.log('TPO Student Filter:', {
+        logger.debug('TPO Student Filter', {
           tpoOrgId: req.user.organizationId,
-          studentIds,
           studentCount: studentIds.length
         });
       }
@@ -270,11 +270,10 @@ class ApplicationController {
       });
 
       // Debug logging
-      console.log('Applications Query Debug:', {
+      logger.debug('Applications Query Debug', {
         userId: req.user.id,
         userRole: req.user.role,
         userOrgId: req.user.organizationId,
-        whereClause,
         count,
         applicationsCount: applications.length,
         limit: parseInt(limit),
@@ -345,7 +344,7 @@ class ApplicationController {
       }
 
       // Debug logging for permission issues
-      console.log('Permission Check Debug:', {
+      logger.debug('Permission Check Debug', {
         userId: req.user.id,
         userRole: req.user.role,
         userOrgId: req.user.organizationId,
@@ -439,7 +438,7 @@ class ApplicationController {
       try {
         await notificationService.notifyApplicationStatusUpdate(application.id, status);
       } catch (notifError) {
-        console.error('Notification error:', notifError);
+        logger.error('Notification error', notifError, { applicationId: application.id, status });
       }
 
       res.json({

@@ -1,10 +1,10 @@
 // server/src/models/index.js
 const { Sequelize } = require('sequelize');
 const config = require('../config/database');
+const logger = require('../utils/logger');
 
 const env = process.env.NODE_ENV || 'development';
-console.log('🔍 Environment:', env);
-console.log('🔍 DATABASE_URL set:', !!process.env.DATABASE_URL);
+logger.debug('Initializing database models', { environment: env, hasDatabaseUrl: !!process.env.DATABASE_URL });
 
 // Get the appropriate config
 let dbConfig;
@@ -16,7 +16,7 @@ if (typeof config[env] === 'function') {
   dbConfig = config[env];
 }
 
-console.log('🔍 Config being used:', dbConfig ? 'Found' : 'Not found');
+logger.debug('Database config loaded', { hasConfig: !!dbConfig });
 
 // Initialize Sequelize using explicit params to support both dev (object config)
 // and prod (parsed DATABASE_URL config)

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const emailService = require('../services/emailService');
+const logger = require('../utils/logger');
 
 // POST /api/contact
 router.post('/', async (req, res) => {
@@ -30,7 +31,7 @@ router.post('/', async (req, res) => {
 
         res.json({ success: true, message: 'Message sent successfully' });
     } catch (error) {
-        console.error('Contact form error:', error);
+        logger.error('Contact form error', error);
         res.status(500).json({ error: 'Failed to send message' });
     }
 });

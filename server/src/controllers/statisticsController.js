@@ -1,5 +1,6 @@
 const { User, Job, Application, Organization, StudentProfile, RecruiterProfile, Event, EventRegistration, Achievement } = require('../models');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 class StatisticsController {
   // Get comprehensive admin statistics
@@ -137,7 +138,7 @@ class StatisticsController {
         }
       });
     } catch (error) {
-      console.error('Error in getAdminStats:', error);
+      logger.error('Error in getAdminStats', error);
       next(error);
     }
   }
@@ -369,7 +370,7 @@ class StatisticsController {
         }
       });
     } catch (error) {
-      console.error('Error in getTPOStats:', error);
+      logger.error('Error in getTPOStats', error);
       next(error);
     }
   }
@@ -390,7 +391,7 @@ class StatisticsController {
         });
       }
     } catch (error) {
-      console.error('Error in getDashboardOverview:', error);
+      logger.error('Error in getDashboardOverview', error);
       next(error);
     }
   }
@@ -438,7 +439,7 @@ class StatisticsController {
         }
       });
     } catch (error) {
-      console.error('Error in getAdvancedAnalytics:', error);
+      logger.error('Error in getAdvancedAnalytics', error);
       next(error);
     }
   }
@@ -752,7 +753,7 @@ class StatisticsController {
         }
       });
     } catch (error) {
-      console.error('Error in getTopPerformers:', error);
+      logger.error('Error in getTopPerformers', error);
       next(error);
     }
   }

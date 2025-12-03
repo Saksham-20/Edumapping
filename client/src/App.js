@@ -7,6 +7,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import Header from './components/common/Header';
 import WhatsAppChat from './components/common/WhatsAppChat';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 // Import pages
 import LandingPage from './pages/LandingPage';
@@ -54,10 +55,11 @@ const DashboardRouter = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <NotificationProvider>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
+    <ErrorBoundary>
+      <AuthProvider>
+        <NotificationProvider>
+          <Router>
+            <div className="min-h-screen bg-gray-50">
             <Toaster
               position="top-right"
               toastOptions={{
@@ -221,10 +223,11 @@ function App() {
             
             {/* WhatsApp Chat Button - appears on all pages */}
             <WhatsAppChat />
-          </div>
-        </Router>
-      </NotificationProvider>
-    </AuthProvider>
+            </div>
+          </Router>
+        </NotificationProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

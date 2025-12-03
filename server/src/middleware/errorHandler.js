@@ -1,6 +1,12 @@
 // server/src/middleware/errorHandler.js
+const logger = require('../utils/logger');
+
 const errorHandler = (err, req, res, next) => {
-  console.error('Error:', err);
+  logger.error('Request error', err, {
+    method: req.method,
+    path: req.path,
+    statusCode: err.status || 500
+  });
 
   // Sequelize validation errors
   if (err.name === 'SequelizeValidationError') {
@@ -22,7 +28,7 @@ const errorHandler = (err, req, res, next) => {
     
     // Handle primary key constraint errors (sequence issues)
     if (constraintName === 'organizations_pkey' || constraintName === 'users_pkey' || constraintName.includes('_pkey')) {
-      console.error('⚠️  Primary key constraint error detected - sequence may be out of sync:', {
+      logger.error('Primary key constraint error detected - sequence may be out of sync', null, {
         constraint: constraintName,
         detail: err.parent?.detail,
         code: err.parent?.code,
@@ -34,11 +40,10 @@ const errorHandler = (err, req, res, next) => {
       });
     }
     
-    console.error('Unique constraint error details:', {
+    logger.warn('Unique constraint error', {
       constraint: constraintName,
       fields: err.fields,
-      message: err.parent?.message,
-      errors: err.errors
+      message: err.parent?.message
     });
     
     // Format details as array to match client expectations

@@ -4,6 +4,7 @@ const { Organization } = require('../models');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -273,8 +274,8 @@ router.post('/register', async (req, res, next) => {
       `);
     } catch (seqError) {
       // Log but don't fail - sequence might be fine or will be fixed by migration
-      console.warn('Warning: Could not auto-fix organizations sequence:', seqError.message);
-      console.warn('Please run migration 25-fix-organizations-sequence.js to fix this permanently');
+      logger.warn('Could not auto-fix organizations sequence', { error: seqError.message });
+      logger.warn('Please run migration 25-fix-organizations-sequence.js to fix this permanently');
     }
 
     // Create organization with pending approval

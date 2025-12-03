@@ -2,6 +2,7 @@
 // Always load .env file (for migrations and CLI tools)
 const path = require('path');
 const fs = require('fs');
+const logger = require('../utils/logger');
 
 // Try to find .env file in multiple locations
 const envPaths = [
@@ -16,13 +17,13 @@ for (const envPath of envPaths) {
   if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
     envLoaded = true;
-    console.log(`🔍 Loaded .env from: ${envPath}`);
+    logger.debug('Loaded .env file', { path: envPath });
     break;
   }
 }
 
 if (!envLoaded) {
-  console.warn('⚠️  No .env file found in expected locations, using environment variables only');
+  logger.warn('No .env file found in expected locations, using environment variables only');
   require('dotenv').config(); // Try default location anyway
 }
 
@@ -31,7 +32,7 @@ function parseDatabaseUrl() {
   if (process.env.DATABASE_URL) {
     // Parse DATABASE_URL manually
     const url = process.env.DATABASE_URL;
-    console.log('🔍 Parsing DATABASE_URL for production config');
+    logger.debug('Parsing DATABASE_URL for production config');
     
     // Handle both formats: with port and without port, and both postgres:// and postgresql://
     const schemeRegex = /postgres(?:ql)?:\/\//;
@@ -53,7 +54,12 @@ function parseDatabaseUrl() {
     }
 
     if (urlParts) {
-      console.log('🔍 Parsed DATABASE_URL:', { username, host, port, database });
+      logger.debug('Parsed DATABASE_URL', { 
+        username: logger.sanitize.email(username), 
+        host, 
+        port, 
+        database 
+      });
       const sslRequired = process.env.PGSSLMODE === 'require' || process.env.DATABASE_SSL === 'true' || process.env.NODE_ENV === 'production';
       return {
         username,
@@ -74,11 +80,11 @@ function parseDatabaseUrl() {
         }
       };
     } else {
-      console.error('❌ Failed to parse DATABASE_URL:', url);
+      logger.error('Failed to parse DATABASE_URL', new Error('Invalid DATABASE_URL format'));
       throw new Error('Invalid DATABASE_URL format');
     }
   } else {
-    console.error('❌ DATABASE_URL not found in production');
+    logger.error('DATABASE_URL not found in production', new Error('DATABASE_URL is required'));
     throw new Error('DATABASE_URL is required in production');
   }
 }
@@ -106,7 +112,7 @@ if (process.env.DB_PASSWORD && process.env.DB_USERNAME) {
       idle: 10000
     }
   };
-  console.log('🔍 Using individual DB environment variables');
+  logger.debug('Using individual DB environment variables');
 } else if (process.env.DATABASE_URL) {
   // Fall back to DATABASE_URL if individual vars not available
   productionConfig = parseDatabaseUrl();
@@ -116,12 +122,12 @@ if (process.env.DB_PASSWORD && process.env.DB_USERNAME) {
 
 // Validate production config has required fields
 if (!productionConfig.password || productionConfig.password === '') {
-  console.error('❌ Database password is missing or empty');
+  logger.error('Database password is missing or empty', new Error('Database password is required'));
   throw new Error('Database password is required');
 }
 
-console.log('🔍 Production DB config:', { 
-  username: productionConfig.username, 
+logger.debug('Production DB config loaded', { 
+  username: logger.sanitize.email(productionConfig.username), 
   host: productionConfig.host, 
   port: productionConfig.port, 
   database: productionConfig.database,
@@ -136,7 +142,7 @@ module.exports = {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
     dialect: 'postgres',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    logging: process.env.NODE_ENV === 'development' ? (query) => logger.database('QUERY', 'database', null, { query }) : false,
     pool: {
       max: 10,
       min: 0,

@@ -2,8 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import authService from '../../services/auth';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
+import { calculateProfileCompletion } from '../../utils/helpers';
 import {
   DocumentTextIcon,
   ArrowDownTrayIcon,
@@ -55,10 +57,47 @@ const ResumePage = () => {
 
   const handleDownloadResume = async () => {
     try {
-      if (resumeData?.profile?.resumeUrl) {
-        // Create a temporary link element and trigger download
+      // Use File ID for download if available (preferred method)
+      if (resumeData?.profile?.resumeFileId) {
+        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const downloadUrl = `${apiBaseUrl}/api/files/${resumeData.profile.resumeFileId}/download`;
+        
+        // Get token using auth service (properly retrieves from localStorage)
+        const token = authService.getAccessToken();
+        if (!token) {
+          toast.error('Authentication required. Please login again.');
+          return;
+        }
+        
+        const response = await fetch(downloadUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          credentials: 'include' // Include cookies if needed
+        });
+        
+        if (response.ok) {
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+          toast.success('Resume download started');
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMessage = errorData.message || errorData.error || 'Failed to download resume';
+          console.error('Download failed:', response.status, errorMessage);
+          toast.error(errorMessage);
+        }
+      } else if (resumeData?.profile?.resumeUrl) {
+        // Fallback for backward compatibility with old resumeUrl format
+        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
         const link = document.createElement('a');
-        link.href = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${resumeData.profile.resumeUrl}`;
+        link.href = `${apiBaseUrl}${resumeData.profile.resumeUrl}`;
         link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
         link.target = '_blank';
         document.body.appendChild(link);
@@ -70,46 +109,21 @@ const ResumePage = () => {
       }
     } catch (error) {
       console.error('Failed to download resume:', error);
-      toast.error('Failed to download resume');
+      toast.error(error.message || 'Failed to download resume');
     }
   };
 
   const getProfileCompletionScore = () => {
     if (!resumeData) return 0;
 
-    const { personalInfo, profile, achievements } = resumeData;
-    let score = 0;
-    let totalFields = 0;
-
-    // Basic info (40% weight)
-    const basicFields = ['firstName', 'lastName', 'email', 'phone'];
-    basicFields.forEach(field => {
-      totalFields += 10;
-      if (personalInfo[field]) score += 10;
-    });
-
-    // Profile info (40% weight)
-    if (profile) {
-      const profileFields = [
-        'course', 'branch', 'yearOfStudy', 'graduationYear',
-        'cgpa', 'skills', 'bio', 'linkedinUrl'
-      ];
-      profileFields.forEach(field => {
-        totalFields += 5;
-        const value = profile[field];
-        if (value && (Array.isArray(value) ? value.length > 0 : true)) {
-          score += 5;
-        }
-      });
-    }
-
-    // Achievements (20% weight)
-    totalFields += 20;
-    if (achievements && achievements.length > 0) {
-      score += Math.min(20, achievements.length * 5);
-    }
-
-    return Math.round((score / totalFields) * 100);
+    // Use unified helper function
+    const profileData = {
+      ...resumeData.personalInfo,
+      studentProfile: resumeData.profile,
+      achievements: resumeData.achievements
+    };
+    
+    return calculateProfileCompletion(profileData, 'student');
   };
 
   const ResumePreview = () => {

@@ -3,8 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import authService from '../../services/auth';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
+import { calculateProfileCompletion } from '../../utils/helpers';
 import {
   UserCircleIcon,
   PencilIcon,
@@ -247,37 +249,10 @@ const Profile = () => {
     }
   };
 
-  const calculateProfileCompletion = () => {
+  // Use unified helper function for profile completion
+  const calculateProfileCompletionLocal = () => {
     if (!profile) return 0;
-
-    const requiredFields = [
-      'firstName', 'lastName', 'email', 'phone'
-    ];
-
-    const studentFields = [
-      'course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'
-    ];
-
-    let totalFields = requiredFields.length;
-    let completedFields = 0;
-
-    // Check basic fields
-    requiredFields.forEach(field => {
-      if (profile[field]) completedFields++;
-    });
-
-    // Check student specific fields
-    if (user.role === 'student' && profile.studentProfile) {
-      totalFields += studentFields.length;
-      studentFields.forEach(field => {
-        const value = profile.studentProfile[field];
-        if (value && (Array.isArray(value) ? value.length > 0 : true)) {
-          completedFields++;
-        }
-      });
-    }
-
-    return Math.round((completedFields / totalFields) * 100);
+    return calculateProfileCompletion(profile, user?.role || 'student');
   };
 
   const getAchievementTypeColor = (type) => {
@@ -300,7 +275,7 @@ const Profile = () => {
     );
   }
 
-  const profileCompletion = calculateProfileCompletion();
+  const profileCompletion = calculateProfileCompletionLocal();
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -1046,7 +1021,7 @@ const Profile = () => {
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Resume</h3>
-                    {profile?.studentProfile?.resumeUrl ? (
+                    {profile?.studentProfile?.resumeUrl || profile?.studentProfile?.resumeFileId ? (
                       <div className="border border-gray-200 rounded-lg p-6">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
@@ -1054,30 +1029,113 @@ const Profile = () => {
                             <div>
                               <h4 className="text-sm font-medium text-gray-900">Resume Available</h4>
                               <p className="text-sm text-gray-500">
-                                {profile.studentProfile.resumeUrl.includes('http')
+                                {profile.studentProfile.resumeUrl?.includes('http')
                                   ? 'External resume link'
                                   : 'Resume file uploaded'}
                               </p>
                             </div>
                           </div>
                           <div className="flex space-x-3">
-                            <a
-                              href={profile.studentProfile.resumeUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                            >
-                              <DocumentTextIcon className="h-4 w-4 mr-2" />
-                              View Resume
-                            </a>
-                            <a
-                              href={profile.studentProfile.resumeUrl}
-                              download={`${profile.firstName}_${profile.lastName}_Resume.pdf`}
-                              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-                            >
-                              <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
-                              Download
-                            </a>
+                            {profile.studentProfile.resumeFileId ? (
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+                                      const downloadUrl = `${apiBaseUrl}/api/files/${profile.studentProfile.resumeFileId}/download`;
+                                      const token = authService.getAccessToken();
+                                      if (!token) {
+                                        toast.error('Authentication required. Please login again.');
+                                        return;
+                                      }
+                                      const response = await fetch(downloadUrl, {
+                                        headers: {
+                                          'Authorization': `Bearer ${token}`
+                                        },
+                                        credentials: 'include'
+                                      });
+                                      if (response.ok) {
+                                        const blob = await response.blob();
+                                        const blobUrl = window.URL.createObjectURL(blob);
+                                        window.open(blobUrl, '_blank');
+                                        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+                                      } else {
+                                        const errorData = await response.json().catch(() => ({}));
+                                        toast.error(errorData.message || 'Failed to view resume');
+                                      }
+                                    } catch (error) {
+                                      console.error('Failed to view resume:', error);
+                                      toast.error('Failed to view resume');
+                                    }
+                                  }}
+                                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                >
+                                  <DocumentTextIcon className="h-4 w-4 mr-2" />
+                                  View Resume
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+                                      const downloadUrl = `${apiBaseUrl}/api/files/${profile.studentProfile.resumeFileId}/download`;
+                                      const token = authService.getAccessToken();
+                                      if (!token) {
+                                        toast.error('Authentication required. Please login again.');
+                                        return;
+                                      }
+                                      const response = await fetch(downloadUrl, {
+                                        headers: {
+                                          'Authorization': `Bearer ${token}`
+                                        },
+                                        credentials: 'include'
+                                      });
+                                      if (response.ok) {
+                                        const blob = await response.blob();
+                                        const blobUrl = window.URL.createObjectURL(blob);
+                                        const link = document.createElement('a');
+                                        link.href = blobUrl;
+                                        link.download = `${profile.firstName}_${profile.lastName}_Resume.pdf`;
+                                        document.body.appendChild(link);
+                                        link.click();
+                                        document.body.removeChild(link);
+                                        window.URL.revokeObjectURL(blobUrl);
+                                        toast.success('Resume download started');
+                                      } else {
+                                        const errorData = await response.json().catch(() => ({}));
+                                        toast.error(errorData.message || 'Failed to download resume');
+                                      }
+                                    } catch (error) {
+                                      console.error('Failed to download resume:', error);
+                                      toast.error('Failed to download resume');
+                                    }
+                                  }}
+                                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
+                                  Download
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <a
+                                  href={profile.studentProfile.resumeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                >
+                                  <DocumentTextIcon className="h-4 w-4 mr-2" />
+                                  View Resume
+                                </a>
+                                <a
+                                  href={profile.studentProfile.resumeUrl}
+                                  download={`${profile.firstName}_${profile.lastName}_Resume.pdf`}
+                                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
+                                  Download
+                                </a>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

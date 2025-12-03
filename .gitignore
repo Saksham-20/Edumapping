@@ -1,1 +1,16 @@
 node_modules
+
+# Environment variables (contains sensitive credentials)
+.env
+.env.*
+!.env.example
+
+# Server environment files
+server/.env
+server/.env.*
+!server/.env.example
+
+# Client environment files  
+client/.env
+client/.env.*
+!client/.env.example
