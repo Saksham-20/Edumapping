@@ -21,6 +21,7 @@ const carouselSettings = {
 const LandingPage = () => {
   const [currentPage, setCurrentPage] = useState('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSchoolMode, setIsSchoolMode] = useState(false);
 
   // Scroll animations observer
   useEffect(() => {
@@ -67,6 +68,12 @@ const LandingPage = () => {
         staggerChildren: 0.2
       }
     }
+  };
+
+  const pageTransition = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeInOut" } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.3, ease: "easeInOut" } }
   };
 
   const renderHomePage = () => (
@@ -301,9 +308,242 @@ const LandingPage = () => {
     </div>
   );
 
+  // School Landing Page
+  const renderSchoolHomePage = () => (
+    <div className="page-content">
+      {/* Hero Section with Carousel & Tricolor Gradient */}
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-orange-50 via-white to-teal-50">
+        {/* Animated Background Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#FF8C42]/10 via-white/50 to-[#20B2AA]/10 z-0" />
+
+        <div className="container mx-auto px-4 z-10 pt-20">
+          <div className="flex flex-col lg:flex-row items-center gap-12">
+            <motion.div
+              className="flex-1 text-center lg:text-left"
+              initial="hidden"
+              animate="visible"
+              variants={staggerContainer}
+            >
+              <motion.h1
+                className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
+                variants={fadeInUp}
+              >
+                Empowering <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#20B2AA] drop-shadow-md">
+                  School Students
+                </span>
+              </motion.h1>
+
+              <motion.p
+                className="text-lg sm:text-xl text-gray-600 mb-8 max-w-2xl mx-auto lg:mx-0"
+                variants={fadeInUp}
+              >
+                Unlock your potential with training programs and internship opportunities designed for school students
+              </motion.p>
+
+              <motion.div
+                className="flex flex-wrap justify-center lg:justify-start gap-4"
+                variants={fadeInUp}
+              >
+                <Link
+                  to="/login"
+                  state={{ from: { pathname: '/dashboard' } }}
+                  className="px-8 py-4 bg-gradient-to-r from-[#FF8C42] to-[#20B2AA] text-white rounded-full font-semibold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+                >
+                  Get Started
+                </Link>
+                <button
+                  onClick={() => handlePageChange('features')}
+                  className="px-8 py-4 bg-white text-[#FF8C42] border-2 border-[#FF8C42] rounded-full font-semibold hover:bg-orange-50 transition-all transform hover:-translate-y-1"
+                >
+                  Explore Programs
+                </button>
+              </motion.div>
+
+              <motion.div
+                className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 text-center"
+                variants={fadeInUp}
+              >
+                <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
+                  <div className="text-3xl font-bold text-[#FF8C42]">5000+</div>
+                  <div className="text-sm text-gray-600">School Students</div>
+                </div>
+                <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
+                  <div className="text-3xl font-bold text-[#20B2AA]">100+</div>
+                  <div className="text-sm text-gray-600">Training Programs</div>
+                </div>
+                <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
+                  <div className="text-3xl font-bold text-[#FF8C42]">300+</div>
+                  <div className="text-sm text-gray-600">Internships</div>
+                </div>
+              </motion.div>
+            </motion.div>
+
+            <motion.div
+              className="flex-1 w-full max-w-lg lg:max-w-xl"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              <div className="relative rounded-3xl overflow-hidden">
+                <Slider {...carouselSettings}>
+                  {/* Slide 1: Training Programs */}
+                  <div className="outline-none px-2">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#FF8C42]/20 to-[#FF8C42]/5 backdrop-blur-lg border border-[#FF8C42]/20 flex items-center justify-center group">
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF8C42]/30 rounded-full -mr-16 -mt-16 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
+                      <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#FF8C42]/20 rounded-full -ml-10 -mb-10 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
+
+                      <div className="relative z-10 text-center p-8 max-w-md mx-auto">
+                        <h3 className="text-4xl font-bold mb-4 tracking-tight text-gray-800 drop-shadow-sm">Training Programs</h3>
+                        <p className="text-gray-700 text-xl leading-relaxed font-medium">
+                          Skill-building programs designed to prepare you for real-world challenges.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Slide 2: Internship Opportunities */}
+                  <div className="outline-none px-2">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#20B2AA]/20 to-[#20B2AA]/5 backdrop-blur-lg border border-[#20B2AA]/20 flex items-center justify-center group">
+                      <div className="absolute top-0 left-0 w-64 h-64 bg-[#20B2AA]/30 rounded-full -ml-16 -mt-16 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
+                      <div className="absolute bottom-0 right-0 w-48 h-48 bg-[#20B2AA]/20 rounded-full -mr-10 -mb-10 blur-3xl transition-transform duration-700 group-hover:scale-110"></div>
+
+                      <div className="relative z-10 text-center p-8 max-w-md mx-auto">
+                        <h3 className="text-4xl font-bold mb-4 tracking-tight text-gray-800 drop-shadow-sm">Internship Opportunities</h3>
+                        <p className="text-gray-700 text-xl leading-relaxed font-medium">
+                          Gain hands-on experience with industry-leading companies and startups.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Slide 3: Career Guidance */}
+                  <div className="outline-none px-2">
+                    <div className="h-[320px] sm:h-[380px] lg:h-[460px] relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#FF8C42]/20 to-[#20B2AA]/10 backdrop-blur-lg border border-[#FF8C42]/20 flex items-center justify-center group">
+                      <div className="absolute top-0 right-0 w-72 h-72 bg-[#FF8C42]/30 rounded-full blur-3xl"></div>
+                      <div className="absolute bottom-0 left-0 w-72 h-72 bg-[#20B2AA]/20 rounded-full blur-3xl"></div>
+
+                      <div className="relative z-10 text-center p-8 max-w-md mx-auto">
+                        <h3 className="text-4xl font-bold mb-4 tracking-tight text-gray-800 drop-shadow-sm">Career Guidance</h3>
+                        <p className="text-gray-700 text-xl leading-relaxed font-medium">
+                          Expert mentorship to help you discover and pursue your passion.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Slider>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Training Programs Section */}
+      <section className="py-20 bg-white">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">Our Training Programs</h2>
+            <p className="text-xl text-gray-600">Comprehensive programs designed to build essential skills for school students</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              { icon: "🎨", title: "Creative Skills", desc: "Design, Writing, Digital Arts, Content Creation", color: "bg-orange-50 text-[#FF8C42]" },
+              { icon: "💻", title: "Tech Skills", desc: "Coding Basics, Web Development, App Development, Robotics", color: "bg-teal-50 text-[#20B2AA]" },
+              { icon: "🤝", title: "Soft Skills", desc: "Communication, Leadership, Teamwork, Problem Solving", color: "bg-orange-100 text-[#FF8C42]" }
+            ].map((feature, idx) => (
+              <motion.div
+                key={idx}
+                className="p-8 rounded-3xl border border-gray-100 shadow-lg hover:shadow-xl transition-shadow bg-white"
+                whileHover={{ y: -10 }}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: idx * 0.1 }}
+              >
+                <div className={`w-16 h-16 rounded-2xl ${feature.color} flex items-center justify-center text-3xl mb-6`}>
+                  {feature.icon}
+                </div>
+                <h3 className="text-2xl font-bold mb-4 text-gray-900">{feature.title}</h3>
+                <p className="text-gray-600 leading-relaxed">{feature.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">Everything for School Students</h2>
+            <p className="text-xl text-gray-600">Empowering young minds with opportunities and skills</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              { icon: "🎓", title: "Student Profiles", desc: "Build your profile and showcase your achievements" },
+              { icon: "📚", title: "Training Programs", desc: "Access diverse skill-building programs" },
+              { icon: "💼", title: "Internships", desc: "Find internships that match your interests" },
+              { icon: "📝", title: "Portfolio Builder", desc: "Create a professional portfolio of your work" },
+              { icon: "🎯", title: "Career Guidance", desc: "Get expert advice on career paths" },
+              { icon: "🏆", title: "Achievements", desc: "Track and display your accomplishments" }
+            ].map((item, idx) => (
+              <motion.div
+                key={idx}
+                className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-all"
+                initial={{ opacity: 0, scale: 0.95 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <div className="text-4xl mb-4">{item.icon}</div>
+                <h3 className="text-xl font-bold mb-2 text-gray-900">{item.title}</h3>
+                <p className="text-gray-600">{item.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden bg-gradient-to-br from-orange-50 via-white to-teal-50">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+        <div className="container mx-auto px-4 relative z-10 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="text-4xl font-bold mb-6 text-gray-900">Ready to start your journey?</h2>
+            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
+              Join thousands of school students already building their future with EduMapping.
+            </p>
+            <div className="flex justify-center gap-4">
+              <Link
+                to="/login"
+                state={{ from: { pathname: '/dashboard' } }}
+                className="px-8 py-4 bg-gradient-to-r from-[#FF8C42] to-[#20B2AA] text-white rounded-full font-bold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+              >
+                Get Started
+              </Link>
+              <button
+                onClick={() => handlePageChange('contact')}
+                className="px-8 py-4 bg-white text-[#FF8C42] border-2 border-[#FF8C42] rounded-full font-bold hover:bg-orange-50 transition-all transform hover:-translate-y-1"
+              >
+                Contact Us
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+    </div>
+  );
+
   // ... (Keep other render functions: renderFeaturesPage, renderAboutPage, renderServicesPage, renderContactPage)
   // For brevity, I'll implement them with similar modern styling but keep the core content.
 
+  // College/University Features Page
   const renderFeaturesPage = () => (
     <div className="pt-20">
       {/* Features Hero */}
@@ -396,6 +636,100 @@ const LandingPage = () => {
     </div>
   );
 
+  // School Features Page
+  const renderSchoolFeaturesPage = () => (
+    <div className="pt-20">
+      {/* Features Hero */}
+      <section className="relative py-20 overflow-hidden bg-gradient-to-br from-orange-50 via-white to-teal-50">
+        <div className="absolute inset-0 bg-gradient-to-r from-[#FF8C42]/10 via-white/50 to-[#20B2AA]/10 z-0" />
+        <div className="container mx-auto px-4 relative z-10 text-center">
+          <motion.h1
+            className="text-5xl font-bold mb-6 text-gray-900"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            Powerful Features for <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#20B2AA]">
+              School Students
+            </span>
+          </motion.h1>
+          <motion.p
+            className="text-xl text-gray-600 max-w-2xl mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            Everything you need to access training programs, internships, and build your career foundation.
+          </motion.p>
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section className="py-20 bg-white">
+        <div className="container mx-auto px-4">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              {
+                icon: "📚",
+                title: "Training Programs",
+                desc: "Access diverse skill-building programs in tech, creative arts, and soft skills designed for school students.",
+                color: "from-[#FF8C42] to-[#FF8C42]"
+              },
+              {
+                icon: "💼",
+                title: "Internship Portal",
+                desc: "Discover and apply for internships with companies looking for talented school students.",
+                color: "from-[#20B2AA] to-[#20B2AA]"
+              },
+              {
+                icon: "📝",
+                title: "Portfolio Builder",
+                desc: "Create a professional portfolio showcasing your projects, achievements, and skills.",
+                color: "from-[#FF8C42] to-[#20B2AA]"
+              },
+              {
+                icon: "🎯",
+                title: "Career Guidance",
+                desc: "Get expert mentorship and guidance to discover your passion and plan your career path.",
+                color: "from-[#FF8C42] to-[#FF8C42]"
+              },
+              {
+                icon: "🏆",
+                title: "Achievement Tracking",
+                desc: "Track and display your accomplishments, certificates, and milestones in one place.",
+                color: "from-[#20B2AA] to-[#20B2AA]"
+              },
+              {
+                icon: "📱",
+                title: "Mobile Ready",
+                desc: "Access all features on any device, anywhere. Learn and grow on the go.",
+                color: "from-[#FF8C42] to-[#20B2AA]"
+              }
+            ].map((feature, idx) => (
+              <motion.div
+                key={idx}
+                className="relative group p-8 rounded-3xl border border-gray-100 bg-white shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: idx * 0.1 }}
+                whileHover={{ y: -10 }}
+              >
+                <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
+                <div className="relative z-10">
+                  <div className="text-5xl mb-6 transform group-hover:scale-110 transition-transform duration-300">{feature.icon}</div>
+                  <h3 className="text-2xl font-bold mb-4 text-gray-900 group-hover:text-[#FF8C42] transition-colors">{feature.title}</h3>
+                  <p className="text-gray-600 leading-relaxed">{feature.desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+
+  // College/University About Page
   const renderAboutPage = () => (
     <div className="pt-20">
       {/* About Hero */}
@@ -509,6 +843,120 @@ const LandingPage = () => {
     </div>
   );
 
+  // School About Page
+  const renderSchoolAboutPage = () => (
+    <div className="pt-20">
+      {/* About Hero */}
+      <section className="relative py-24 overflow-hidden bg-gradient-to-br from-orange-50 via-white to-teal-50">
+        <div className="container mx-auto px-4 relative z-10">
+          <div className="max-w-4xl mx-auto text-center">
+            <motion.span
+              className="inline-block py-1 px-3 rounded-full bg-orange-100 text-[#FF8C42] font-semibold text-sm mb-4"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              Our Story
+            </motion.span>
+            <motion.h1
+              className="text-5xl lg:text-6xl font-bold mb-8 text-gray-900"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              Empowering School Students <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#20B2AA]">
+                Through Skills & Opportunities
+              </span>
+            </motion.h1>
+            <motion.p
+              className="text-xl text-gray-600 leading-relaxed"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              EduMapping is dedicated to helping school students discover their potential through training programs, internships, and career guidance that prepares them for future success.
+            </motion.p>
+          </div>
+        </div>
+      </section>
+
+      {/* Mission & Vision */}
+      <section className="py-20 bg-white">
+        <div className="container mx-auto px-4">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <motion.div
+              className="relative rounded-3xl overflow-hidden shadow-2xl"
+              initial={{ opacity: 0, x: -50 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-[#FF8C42]/20 to-[#20B2AA]/20 mix-blend-overlay z-10" />
+              <img src="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="School students learning" className="w-full h-full object-cover" />
+            </motion.div>
+
+            <div className="space-y-12">
+              <motion.div
+                initial={{ opacity: 0, x: 50 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-orange-100 flex items-center justify-center text-3xl mb-6 text-[#FF8C42]">🚀</div>
+                <h3 className="text-3xl font-bold mb-4 text-gray-900">Our Mission</h3>
+                <p className="text-gray-600 text-lg leading-relaxed">
+                  To empower school students with essential skills, training programs, and internship opportunities that help them discover their passions and build a strong foundation for their future careers.
+                </p>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, x: 50 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.4 }}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-teal-100 flex items-center justify-center text-3xl mb-6 text-[#20B2AA]">👁️</div>
+                <h3 className="text-3xl font-bold mb-4 text-gray-900">Our Vision</h3>
+                <p className="text-gray-600 text-lg leading-relaxed">
+                  To create a world where every school student has access to quality training, real-world experience through internships, and expert guidance to shape their future with confidence.
+                </p>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Values */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-4xl font-bold mb-16 text-gray-900">Our Core Values</h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              { title: "Empowerment", desc: "Giving school students the tools and confidence to pursue their dreams.", color: "bg-orange-50 text-[#FF8C42]" },
+              { title: "Growth", desc: "Fostering continuous learning and skill development from an early age.", color: "bg-teal-50 text-[#20B2AA]" },
+              { title: "Opportunity", desc: "Creating pathways for students to explore and excel in their interests.", color: "bg-orange-100 text-[#FF8C42]" }
+            ].map((value, idx) => (
+              <motion.div
+                key={idx}
+                className="bg-white p-8 rounded-3xl shadow-lg hover:shadow-xl transition-all"
+                whileHover={{ y: -10 }}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: idx * 0.1 }}
+              >
+                <div className={`w-20 h-20 mx-auto rounded-full ${value.color} flex items-center justify-center text-3xl mb-6`}>
+                  {value.title[0]}
+                </div>
+                <h3 className="text-2xl font-bold mb-4 text-gray-900">{value.title}</h3>
+                <p className="text-gray-600">{value.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+
   const renderServicesPage = () => (
     <div className="pt-20">
       <section className="bg-[#156395] text-white py-20">
@@ -520,7 +968,7 @@ const LandingPage = () => {
   );
 
   // Extracted ContactSection Component
-  const ContactSection = () => {
+  const ContactSection = ({ isSchoolMode: schoolMode }) => {
     const [formData, setFormData] = useState({ name: '', email: '', message: '' });
     const [status, setStatus] = useState({ type: '', message: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -537,10 +985,30 @@ const LandingPage = () => {
       setFormData({ name: '', email: '', message: '' });
     };
 
+    const gradientClass = schoolMode 
+      ? "bg-gradient-to-br from-orange-50 via-white to-teal-50"
+      : "bg-gradient-to-br from-orange-50 via-white to-green-50";
+    
+    const textGradient = schoolMode
+      ? "bg-gradient-to-r from-[#FF8C42] to-[#20B2AA]"
+      : "bg-gradient-to-r from-[#FF9933] to-[#138808]";
+
+    const buttonGradient = schoolMode
+      ? "bg-gradient-to-r from-[#FF8C42] to-[#20B2AA]"
+      : "bg-gradient-to-r from-[#FF9933] to-[#138808]";
+
+    const focusRingColor = schoolMode
+      ? "focus:ring-[#FF8C42]"
+      : "focus:ring-[#FF9933]";
+
+    const contactTitle = schoolMode
+      ? "Questions about Training Programs or Internships?"
+      : "Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.";
+
     return (
       <div className="pt-20">
         {/* Contact Hero */}
-        <section className="relative py-20 overflow-hidden bg-gradient-to-br from-orange-50 via-white to-green-50">
+        <section className={`relative py-20 overflow-hidden ${gradientClass}`}>
           <div className="container mx-auto px-4 relative z-10 text-center">
             <motion.h1
               className="text-5xl font-bold mb-6 text-gray-900"
@@ -548,7 +1016,7 @@ const LandingPage = () => {
               animate={{ opacity: 1, y: 0 }}
             >
               Get in Touch with <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808]">
+              <span className={`text-transparent bg-clip-text ${textGradient}`}>
                 EduMapping
               </span>
             </motion.h1>
@@ -558,7 +1026,7 @@ const LandingPage = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
             >
-              Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.
+              {contactTitle}
             </motion.p>
           </div>
         </section>
@@ -626,7 +1094,7 @@ const LandingPage = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] focus:border-transparent outline-none transition-all"
+                    className={`w-full p-4 rounded-xl border border-gray-200 focus:ring-2 ${focusRingColor} focus:border-transparent outline-none transition-all`}
                     required
                     placeholder="Your full name"
                   />
@@ -637,7 +1105,7 @@ const LandingPage = () => {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] focus:border-transparent outline-none transition-all"
+                    className={`w-full p-4 rounded-xl border border-gray-200 focus:ring-2 ${focusRingColor} focus:border-transparent outline-none transition-all`}
                     required
                     placeholder="your.email@example.com"
                   />
@@ -648,7 +1116,7 @@ const LandingPage = () => {
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     rows="5"
-                    className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] focus:border-transparent outline-none transition-all"
+                    className={`w-full p-4 rounded-xl border border-gray-200 focus:ring-2 ${focusRingColor} focus:border-transparent outline-none transition-all`}
                     required
                     placeholder="How can we help you?"
                   ></textarea>
@@ -663,7 +1131,7 @@ const LandingPage = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-4 bg-gradient-to-r from-[#FF9933] to-[#138808] text-white rounded-xl font-bold hover:shadow-lg transition-all transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed"
+                  className={`w-full py-4 ${buttonGradient} text-white rounded-xl font-bold hover:shadow-lg transition-all transform hover:-translate-y-1 disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
                   {isSubmitting ? 'Sending...' : 'Send Message'}
                 </button>
@@ -696,7 +1164,7 @@ const LandingPage = () => {
               </span>
             </button>
 
-            <div className="hidden md:flex items-center gap-8">
+            <div className="hidden md:flex items-center gap-6">
               {['Home', 'Features', 'About', 'Connect with Us'].map((item) => (
                 <button
                   key={item}
@@ -706,6 +1174,59 @@ const LandingPage = () => {
                   {item}
                 </button>
               ))}
+              
+              {/* Toggle Button */}
+              <div className="flex items-center gap-2 px-1 py-1 bg-gray-100 rounded-full border border-gray-200">
+                <motion.button
+                  onClick={() => {
+                    setIsSchoolMode(false);
+                    window.scrollTo(0, 0);
+                  }}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all relative ${
+                    !isSchoolMode 
+                      ? 'text-white shadow-md' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {!isSchoolMode && (
+                    <motion.div
+                      layoutId="activeMode"
+                      className="absolute inset-0 bg-gradient-to-r from-[#FF9933] to-[#138808] rounded-full"
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <span>🎓</span> College
+                  </span>
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setIsSchoolMode(true);
+                    window.scrollTo(0, 0);
+                  }}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all relative ${
+                    isSchoolMode 
+                      ? 'text-white shadow-md' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {isSchoolMode && (
+                    <motion.div
+                      layoutId="activeMode"
+                      className="absolute inset-0 bg-gradient-to-r from-[#FF8C42] to-[#20B2AA] rounded-full"
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <span>🏫</span> School
+                  </span>
+                </motion.button>
+              </div>
+
               <Link
                 to="/login"
                 state={{ from: { pathname: '/dashboard' } }}
@@ -743,6 +1264,57 @@ const LandingPage = () => {
                     {item}
                   </button>
                 ))}
+                
+                {/* Mobile Toggle Button */}
+                <div className="flex items-center gap-2 px-1 py-1 bg-gray-100 rounded-full border border-gray-200 my-2">
+                  <motion.button
+                    onClick={() => {
+                      setIsSchoolMode(false);
+                      window.scrollTo(0, 0);
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition-all relative flex-1 ${
+                      !isSchoolMode 
+                        ? 'text-white shadow-md' 
+                        : 'text-gray-600'
+                    }`}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {!isSchoolMode && (
+                      <motion.div
+                        layoutId="activeModeMobile"
+                        className="absolute inset-0 bg-gradient-to-r from-[#FF9933] to-[#138808] rounded-full"
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center justify-center gap-2">
+                      <span>🎓</span> College
+                    </span>
+                  </motion.button>
+                  <motion.button
+                    onClick={() => {
+                      setIsSchoolMode(true);
+                      window.scrollTo(0, 0);
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition-all relative flex-1 ${
+                      isSchoolMode 
+                        ? 'text-white shadow-md' 
+                        : 'text-gray-600'
+                    }`}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {isSchoolMode && (
+                      <motion.div
+                        layoutId="activeModeMobile"
+                        className="absolute inset-0 bg-gradient-to-r from-[#FF8C42] to-[#20B2AA] rounded-full"
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center justify-center gap-2">
+                      <span>🏫</span> School
+                    </span>
+                  </motion.button>
+                </div>
+
                 <Link
                   to="/login"
                   state={{ from: { pathname: '/dashboard' } }}
@@ -758,11 +1330,63 @@ const LandingPage = () => {
 
       {/* Main Content */}
       <main>
-        {currentPage === 'home' && renderHomePage()}
-        {currentPage === 'features' && renderFeaturesPage()}
-        {currentPage === 'about' && renderAboutPage()}
-        {currentPage === 'services' && renderServicesPage()}
-        {currentPage === 'contact' && <ContactSection />}
+        <AnimatePresence mode="wait">
+          {currentPage === 'home' && (
+            <motion.div
+              key={isSchoolMode ? 'school' : 'college'}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageTransition}
+            >
+              {isSchoolMode ? renderSchoolHomePage() : renderHomePage()}
+            </motion.div>
+          )}
+          {currentPage === 'features' && (
+            <motion.div
+              key={isSchoolMode ? 'school-features' : 'college-features'}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageTransition}
+            >
+              {isSchoolMode ? renderSchoolFeaturesPage() : renderFeaturesPage()}
+            </motion.div>
+          )}
+          {currentPage === 'about' && (
+            <motion.div
+              key={isSchoolMode ? 'school-about' : 'college-about'}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageTransition}
+            >
+              {isSchoolMode ? renderSchoolAboutPage() : renderAboutPage()}
+            </motion.div>
+          )}
+          {currentPage === 'services' && (
+            <motion.div
+              key="services"
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageTransition}
+            >
+              {renderServicesPage()}
+            </motion.div>
+          )}
+          {currentPage === 'contact' && (
+            <motion.div
+              key={isSchoolMode ? 'school-contact' : 'college-contact'}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageTransition}
+            >
+              <ContactSection isSchoolMode={isSchoolMode} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* WhatsApp Chat Button */}

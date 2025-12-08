@@ -18,7 +18,6 @@ class FileController {
 
       const file = await File.create({
         userId: req.user.id,
-        filename: fileName, // Required field in database
         originalName: req.file.originalname,
         filePath,
         fileSize: req.file.size,
@@ -44,13 +43,9 @@ class FileController {
   async downloadFile(req, res, next) {
     try {
       const { id } = req.params;
-      const logger = require('../utils/logger');
-
-      logger.info('File download request', { fileId: id, userId: req.user?.id });
 
       const file = await File.findByPk(id);
       if (!file) {
-        logger.warn('File not found for download', { fileId: id });
         return res.status(404).json({
           error: 'File Not Found',
           message: 'File not found'
@@ -86,13 +81,6 @@ class FileController {
         }
       }
 
-      logger.info('Serving file download', { 
-        fileId: id, 
-        filePath: file.filePath,
-        fileName: file.filename,
-        fileSize: file.fileSize 
-      });
-
       const fileStream = await fileService.getFile(file.filePath);
       
       res.setHeader('Content-Type', file.mimeType);
@@ -100,16 +88,10 @@ class FileController {
       
       if (Buffer.isBuffer(fileStream)) {
         res.send(fileStream);
-        logger.info('File download completed', { fileId: id });
       } else {
         fileStream.pipe(res);
-        fileStream.on('end', () => {
-          logger.info('File download stream completed', { fileId: id });
-        });
       }
     } catch (error) {
-      const logger = require('../utils/logger');
-      logger.error('File download error', error, { fileId: req.params.id });
       next(error);
     }
   }

@@ -59,8 +59,8 @@ const ResumePage = () => {
     try {
       // Use File ID for download if available (preferred method)
       if (resumeData?.profile?.resumeFileId) {
-        // Use the API service which handles base URL correctly
-        const downloadUrl = `/api/files/${resumeData.profile.resumeFileId}/download`;
+        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const downloadUrl = `${apiBaseUrl}/api/files/${resumeData.profile.resumeFileId}/download`;
         
         // Get token using auth service (properly retrieves from localStorage)
         const token = authService.getAccessToken();
@@ -95,8 +95,9 @@ const ResumePage = () => {
         }
       } else if (resumeData?.profile?.resumeUrl) {
         // Fallback for backward compatibility with old resumeUrl format
+        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
         const link = document.createElement('a');
-        link.href = resumeData.profile.resumeUrl;
+        link.href = `${apiBaseUrl}${resumeData.profile.resumeUrl}`;
         link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
         link.target = '_blank';
         document.body.appendChild(link);
