@@ -55,9 +55,13 @@ class AuthService {
       throw new Error('Invalid organization');
     }
     
-    // Enforce one college system: students and TPOs must belong to universities
-    if ((role === 'student' || role === 'tpo') && organization.type !== 'university') {
-      throw new Error('Students and TPOs can only belong to university organizations');
+    // Students can belong to universities (colleges) or schools
+    // TPOs can only belong to universities (colleges)
+    if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
+      throw new Error('Students can only belong to university or school organizations');
+    }
+    if (role === 'tpo' && organization.type !== 'university') {
+      throw new Error('TPOs can only belong to university organizations');
     }
     
     // Recruiters must belong to company organizations

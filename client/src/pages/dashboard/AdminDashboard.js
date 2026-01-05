@@ -90,6 +90,13 @@ const AdminDashboard = () => {
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [companyFormData, setCompanyFormData] = useState({});
 
+  // Schools tab state
+  const [schools, setSchools] = useState([]);
+  const [schoolsPagination, setSchoolsPagination] = useState({});
+  const [showSchoolModal, setShowSchoolModal] = useState(false);
+  const [selectedSchool, setSelectedSchool] = useState(null);
+  const [schoolFormData, setSchoolFormData] = useState({});
+
   // Approval info modal state
   const [showApprovalInfo, setShowApprovalInfo] = useState(false);
   const [approvalInfoType, setApprovalInfoType] = useState('');
@@ -100,7 +107,8 @@ const AdminDashboard = () => {
     { id: 'users', label: 'Users', icon: UsersIcon, badge: stats.users?.total },
     { id: 'tpos', label: 'TPOs', icon: AcademicCapIcon },
     { id: 'universities', label: 'Universities', icon: BuildingOfficeIcon },
-    { id: 'companies', label: 'Companies', icon: BriefcaseIcon }
+    { id: 'companies', label: 'Companies', icon: BriefcaseIcon },
+    { id: 'schools', label: 'Schools', icon: AcademicCapIcon }
   ];
 
   useEffect(() => {
@@ -119,6 +127,8 @@ const AdminDashboard = () => {
       fetchUniversities();
     } else if (activeTab === 'companies') {
       fetchCompanies();
+    } else if (activeTab === 'schools') {
+      fetchSchools();
     } else if (activeTab === 'analytics') {
       fetchAdvancedAnalytics();
       fetchTopPerformers();
@@ -282,6 +292,41 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchSchools = async (page = 1) => {
+    try {
+      setIsLoading(true);
+      const response = await adminService.getAllSchools({ page, limit: 20 });
+      setSchools(response.schools || []);
+      const pagination = response.pagination || {};
+      setSchoolsPagination({
+        currentPage: pagination.currentPage || 1,
+        totalPages: pagination.totalPages || 1,
+        totalItems: pagination.totalItems || 0,
+        hasMore: pagination.hasMore || false,
+        hasPrevious: pagination.currentPage > 1,
+        hasNext: pagination.hasMore || false,
+        limit: 20
+      });
+    } catch (error) {
+      console.error('Failed to fetch schools:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to load schools';
+      toast.error(errorMessage);
+      // Set empty state on error
+      setSchools([]);
+      setSchoolsPagination({
+        currentPage: 1,
+        totalPages: 1,
+        totalItems: 0,
+        hasMore: false,
+        hasPrevious: false,
+        hasNext: false,
+        limit: 20
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // User management handlers
   const handleCreateUser = () => {
     setSelectedUser(null);
@@ -420,6 +465,8 @@ const AdminDashboard = () => {
       setShowUniversityModal(true);
     } else if (approvalInfoType === 'company') {
       setShowCompanyModal(true);
+    } else if (approvalInfoType === 'school') {
+      setShowSchoolModal(true);
     }
   };
 
@@ -559,14 +606,94 @@ const AdminDashboard = () => {
     }
   };
 
+  // School management handlers
+  const handleCreateSchool = () => {
+    setSelectedSchool(null);
+    setSchoolFormData({
+      name: '',
+      domain: '',
+      contactEmail: '',
+      contactPhone: '',
+      website: '',
+      address: ''
+    });
+    setApprovalInfoType('school');
+    setShowApprovalInfo(true);
+  };
+
+  const handleEditSchool = (school) => {
+    setSelectedSchool(school);
+    setSchoolFormData({
+      name: school.name,
+      domain: school.domain,
+      contactEmail: school.contactEmail,
+      contactPhone: school.contactPhone || '',
+      website: school.website || '',
+      address: school.address || ''
+    });
+    setShowSchoolModal(true);
+  };
+
+  const handleSaveSchool = async (e) => {
+    e.preventDefault();
+    try {
+      if (selectedSchool) {
+        await adminService.updateOrganization(selectedSchool.id, {
+          ...schoolFormData,
+          type: 'school'
+        });
+        toast.success('School updated successfully');
+      } else {
+        await adminService.createOrganization({
+          ...schoolFormData,
+          type: 'school'
+        });
+        toast.success('School created successfully');
+      }
+      setShowSchoolModal(false);
+      fetchSchools();
+      fetchOrganizations();
+      fetchOverviewStats();
+    } catch (error) {
+      console.error('Failed to save school:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to save school';
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleDeleteSchool = async (schoolId) => {
+    if (!window.confirm('Are you sure you want to delete this school?')) return;
+    try {
+      await adminService.deleteOrganization(schoolId);
+      toast.success('School deleted successfully');
+      fetchSchools();
+      fetchOverviewStats();
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete school');
+    }
+  };
+
+  const handleVerifySchool = async (schoolId, isVerified) => {
+    try {
+      await adminService.verifyOrganization(schoolId, isVerified);
+      toast.success(`School ${isVerified ? 'verified' : 'unverified'} successfully`);
+      fetchSchools();
+    } catch (error) {
+      toast.error(error.message || 'Failed to update verification');
+    }
+  };
+
   const handleApproveOrganization = async (organizationId, type) => {
     try {
       await adminService.verifyOrganization(organizationId, true);
-      toast.success(`${type === 'university' ? 'University' : 'Company'} approved successfully`);
+      const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
+      toast.success(`${typeLabel} approved successfully`);
       if (type === 'university') {
         fetchUniversities();
-      } else {
+      } else if (type === 'company') {
         fetchCompanies();
+      } else if (type === 'school') {
+        fetchSchools();
       }
       fetchOverviewStats();
     } catch (error) {
@@ -580,11 +707,14 @@ const AdminDashboard = () => {
       await adminService.updateOrganization(organizationId, {
         approvalStatus: 'rejected'
       });
-      toast.success(`${type === 'university' ? 'University' : 'Company'} rejected successfully`);
+      const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
+      toast.success(`${typeLabel} rejected successfully`);
       if (type === 'university') {
         fetchUniversities();
-      } else {
+      } else if (type === 'company') {
         fetchCompanies();
+      } else if (type === 'school') {
+        fetchSchools();
       }
       fetchOverviewStats();
     } catch (error) {
@@ -1287,8 +1417,8 @@ const AdminDashboard = () => {
     const universityColumns = [
       { key: 'name', label: 'Name', sortable: true },
       { key: 'domain', label: 'Domain', sortable: true },
-      { key: 'stats', label: 'Students', render: (_, row) => row.stats?.students || 0 },
-      { key: 'stats', label: 'TPOs', render: (_, row) => row.stats?.tpos || 0 },
+      { key: 'students', label: 'Students', render: (_, row) => (row.stats?.students ?? 0) || 0 },
+      { key: 'tpos', label: 'TPOs', render: (_, row) => (row.stats?.tpos ?? 0) || 0 },
       { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
           {value || 'pending'}
@@ -1466,13 +1596,196 @@ const AdminDashboard = () => {
     );
   };
 
+  // Render Schools Tab
+  const renderSchoolsTab = () => {
+    const schoolColumns = [
+      { key: 'name', label: 'Name', sortable: true },
+      { key: 'domain', label: 'Domain', sortable: true },
+      { key: 'students', label: 'Students', render: (_, row) => (row.stats?.students ?? 0) || 0 },
+      { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
+          {value || 'pending'}
+        </span>
+      )},
+      { key: 'isVerified', label: 'Verified', render: (value) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+          value ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+        }`}>
+          {value ? 'Yes' : 'No'}
+        </span>
+      )}
+    ];
+
+    return (
+      <>
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="text-lg font-medium text-gray-900">Schools</h3>
+          <button
+            onClick={handleCreateSchool}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+          >
+            <PlusIcon className="h-5 w-5 mr-2" />
+            Create School
+          </button>
+        </div>
+
+        <DataTable
+          columns={schoolColumns}
+          data={schools}
+          actions={(row) => (
+            <div className="flex items-center space-x-2">
+              {row.approvalStatus === 'pending' && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApproveOrganization(row.id, 'school');
+                    }}
+                    className="text-sm px-2 py-1 rounded text-green-600 hover:bg-green-50 font-medium"
+                    title="Approve"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRejectOrganization(row.id, 'school');
+                    }}
+                    className="text-sm px-2 py-1 rounded text-red-600 hover:bg-red-50 font-medium"
+                    title="Reject"
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleVerifySchool(row.id, !row.isVerified);
+                }}
+                className={`text-sm px-2 py-1 rounded ${
+                  row.isVerified ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'
+                }`}
+              >
+                {row.isVerified ? 'Unverify' : 'Verify'}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditSchool(row);
+                }}
+                className="text-blue-600 hover:text-blue-900"
+              >
+                <PencilIcon className="h-5 w-5" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteSchool(row.id);
+                }}
+                className="text-red-600 hover:text-red-900"
+              >
+                <TrashIcon className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+          pagination={schoolsPagination}
+          onPageChange={fetchSchools}
+          loading={isLoading}
+        />
+
+        <AdminModal
+          isOpen={showSchoolModal}
+          onClose={() => setShowSchoolModal(false)}
+          title={selectedSchool ? 'Edit School' : 'Create School'}
+        >
+          <form onSubmit={handleSaveSchool} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Name</label>
+              <input
+                type="text"
+                required
+                value={schoolFormData.name}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, name: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Domain</label>
+              <input
+                type="email"
+                required
+                placeholder="admin@school.edu.in"
+                value={schoolFormData.domain}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, domain: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Contact Email</label>
+              <input
+                type="email"
+                required
+                value={schoolFormData.contactEmail}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, contactEmail: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Contact Phone</label>
+              <input
+                type="text"
+                value={schoolFormData.contactPhone}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Website</label>
+              <input
+                type="url"
+                value={schoolFormData.website}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, website: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Address</label>
+              <textarea
+                value={schoolFormData.address}
+                onChange={(e) => setSchoolFormData(prev => ({ ...prev, address: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                rows="3"
+              />
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowSchoolModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+              >
+                {selectedSchool ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </AdminModal>
+      </>
+    );
+  };
+
   // Render Companies Tab
   const renderCompaniesTab = () => {
     const companyColumns = [
       { key: 'name', label: 'Name', sortable: true },
       { key: 'domain', label: 'Domain', sortable: true },
-      { key: 'stats', label: 'Recruiters', render: (_, row) => row.stats?.recruiters || 0 },
-      { key: 'stats', label: 'Jobs', render: (_, row) => row.stats?.jobs || 0 },
+      { key: 'recruiters', label: 'Recruiters', render: (_, row) => (row.stats?.recruiters ?? 0) || 0 },
+      { key: 'jobs', label: 'Jobs', render: (_, row) => (row.stats?.jobs ?? 0) || 0 },
       { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
           {value || 'pending'}
@@ -1670,6 +1983,7 @@ const AdminDashboard = () => {
         {activeTab === 'tpos' && renderTPOsTab()}
         {activeTab === 'universities' && renderUniversitiesTab()}
         {activeTab === 'companies' && renderCompaniesTab()}
+        {activeTab === 'schools' && renderSchoolsTab()}
       </div>
 
       {/* Approval Info Modal */}

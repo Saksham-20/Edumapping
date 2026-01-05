@@ -57,6 +57,11 @@ class AdminService {
     return await api.get(`/admin/organizations/companies?${queryParams}`);
   }
 
+  async getAllSchools(params = {}) {
+    const queryParams = new URLSearchParams(params).toString();
+    return await api.get(`/admin/organizations/schools?${queryParams}`);
+  }
+
   async createOrganization(orgData) {
     return await api.post('/admin/organizations', orgData);
   }

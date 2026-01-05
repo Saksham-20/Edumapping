@@ -15,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     type: {
-      type: DataTypes.ENUM('university', 'company'),
+      type: DataTypes.ENUM('university', 'company', 'school'),
       allowNull: false
     },
     domain: {

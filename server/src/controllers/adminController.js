@@ -37,10 +37,18 @@ class AdminController {
         }
 
         // Enforce role-organization rules
-        if ((role === 'student' || role === 'tpo') && organization.type !== 'university') {
+        // Students can belong to universities (colleges) or schools
+        // TPOs can only belong to universities (colleges)
+        if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
           return res.status(400).json({
             error: 'Invalid Organization Type',
-            message: 'Students and TPOs can only belong to university organizations'
+            message: 'Students can only belong to university or school organizations'
+          });
+        }
+        if (role === 'tpo' && organization.type !== 'university') {
+          return res.status(400).json({
+            error: 'Invalid Organization Type',
+            message: 'TPOs can only belong to university organizations'
           });
         }
 

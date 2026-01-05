@@ -155,6 +155,79 @@ module.exports = {
         approved_at: new Date(),
         created_at: new Date(),
         updated_at: new Date()
+      },
+      // School students
+      {
+        id: 9,
+        email: 'rahul.sharma@dpsdelhi.edu.in',
+        password_hash: passwordHash,
+        role: 'student',
+        first_name: 'Rahul',
+        last_name: 'Sharma',
+        phone: '+91-9876543210',
+        profile_picture: 'https://via.placeholder.com/150x150/FF8C42/FFFFFF?text=RS',
+        organization_id: 5, // Delhi Public School
+        is_active: true,
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: 1,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 10,
+        email: 'priya.patel@dpsdelhi.edu.in',
+        password_hash: passwordHash,
+        role: 'student',
+        first_name: 'Priya',
+        last_name: 'Patel',
+        phone: '+91-9876543211',
+        profile_picture: 'https://via.placeholder.com/150x150/FF8C42/FFFFFF?text=PP',
+        organization_id: 5, // Delhi Public School
+        is_active: true,
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: 1,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 11,
+        email: 'arjun.kumar@kv1mumbai.edu.in',
+        password_hash: passwordHash,
+        role: 'student',
+        first_name: 'Arjun',
+        last_name: 'Kumar',
+        phone: '+91-9876543212',
+        profile_picture: 'https://via.placeholder.com/150x150/138808/FFFFFF?text=AK',
+        organization_id: 6, // Kendriya Vidyalaya No. 1
+        is_active: true,
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: 1,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 12,
+        email: 'ananya.singh@kv1mumbai.edu.in',
+        password_hash: passwordHash,
+        role: 'student',
+        first_name: 'Ananya',
+        last_name: 'Singh',
+        phone: '+91-9876543213',
+        profile_picture: 'https://via.placeholder.com/150x150/138808/FFFFFF?text=AS',
+        organization_id: 6, // Kendriya Vidyalaya No. 1
+        is_active: true,
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: 1,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
       }
     ]);
   },

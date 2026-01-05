@@ -126,6 +126,8 @@ router.get('/organizations', async (req, res, next) => {
       return adminOrganizationController.getAllUniversities(req, res, next);
     } else if (type === 'company') {
       return adminOrganizationController.getAllCompanies(req, res, next);
+    } else if (type === 'school') {
+      return adminOrganizationController.getAllSchools(req, res, next);
     } else {
       // Get all organizations
       const { Organization } = require('../models');
@@ -208,6 +210,17 @@ router.get('/organizations/universities', adminOrganizationController.getAllUniv
  *       - bearerAuth: []
  */
 router.get('/organizations/companies', adminOrganizationController.getAllCompanies);
+
+/**
+ * @swagger
+ * /api/admin/organizations/schools:
+ *   get:
+ *     summary: Get all schools (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/organizations/schools', adminOrganizationController.getAllSchools);
 
 /**
  * @swagger

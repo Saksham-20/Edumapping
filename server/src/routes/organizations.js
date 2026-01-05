@@ -232,10 +232,10 @@ router.post('/register', async (req, res, next) => {
     }
 
     // Validate type
-    if (!['university', 'company'].includes(type)) {
+    if (!['university', 'company', 'school'].includes(type)) {
       return res.status(400).json({
         error: 'Validation Error',
-        message: 'Type must be either "university" or "company"'
+        message: 'Type must be either "university", "company", or "school"'
       });
     }
 

@@ -12,10 +12,15 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 // Import pages
 import LandingPage from './pages/LandingPage';
 import Login from './pages/auth/Login';
+import CollegeLogin from './pages/auth/CollegeLogin';
+import SchoolLogin from './pages/auth/SchoolLogin';
 import Register from './pages/auth/Register';
+import CollegeRegister from './pages/auth/CollegeRegister';
+import SchoolRegister from './pages/auth/SchoolRegister';
 import PendingApproval from './pages/auth/PendingApproval';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import StudentDashboard from './pages/dashboard/StudentDashboard';
+import SchoolDashboard from './pages/dashboard/SchoolDashboard';
 import RecruiterDashboard from './pages/dashboard/RecruiterDashboard';
 import TPODashboard from './pages/dashboard/TPODashboard';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
@@ -38,6 +43,11 @@ const DashboardRouter = () => {
   const { user } = useAuth();
   
   if (!user) return <Navigate to="/login" replace />;
+  
+  // Check if student belongs to a school organization
+  if (user.role === 'student' && user.organization?.type === 'school') {
+    return <SchoolDashboard />;
+  }
   
   switch (user.role) {
     case 'student':
@@ -121,7 +131,11 @@ function App() {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/login/college" element={<CollegeLogin />} />
+              <Route path="/login/school" element={<SchoolLogin />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/register/college" element={<CollegeRegister />} />
+              <Route path="/register/school" element={<SchoolRegister />} />
               <Route path="/pending-approval" element={<PendingApproval />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               

@@ -71,6 +71,41 @@ module.exports = {
         approved_at: new Date(),
         created_at: new Date(),
         updated_at: new Date()
+      },
+      // School organizations
+      {
+        id: 5,
+        name: 'Delhi Public School',
+        type: 'school',
+        domain: 'dpsdelhi.edu.in',
+        logo_url: 'https://via.placeholder.com/150x150/FF8C42/FFFFFF?text=DPS',
+        contact_email: 'admin@dpsdelhi.edu.in',
+        contact_phone: '+91-11-12345678',
+        website: 'https://dpsdelhi.edu.in',
+        address: 'Mathura Road, New Delhi, Delhi 110076',
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: null,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 6,
+        name: 'Kendriya Vidyalaya No. 1',
+        type: 'school',
+        domain: 'kv1mumbai.edu.in',
+        logo_url: 'https://via.placeholder.com/150x150/138808/FFFFFF?text=KV',
+        contact_email: 'principal@kv1mumbai.edu.in',
+        contact_phone: '+91-22-23456789',
+        website: 'https://kv1mumbai.edu.in',
+        address: 'Andheri West, Mumbai, Maharashtra 400053',
+        is_verified: true,
+        approval_status: 'approved',
+        approved_by: null,
+        approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
       }
     ]);
   },

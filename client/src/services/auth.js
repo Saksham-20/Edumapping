@@ -5,9 +5,20 @@ const TOKEN_KEY = 'campusconnect_tokens';
 
 class AuthService {
   login = async (email, password) => {
-    const response = await api.post('/auth/login', { email, password });
-    this.setTokens(response.tokens);
-    return response;
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      
+      if (!response || !response.tokens) {
+        console.error('Login response missing tokens:', response);
+        throw new Error('Invalid response from server. Please try again.');
+      }
+      
+      this.setTokens(response.tokens);
+      return response;
+    } catch (error) {
+      console.error('Auth service login error:', error);
+      throw error;
+    }
   };
 
   register = async (userData) => {

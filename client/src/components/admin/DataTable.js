@@ -90,7 +90,7 @@ const DataTable = ({
                 >
                   {columns.map((column) => (
                     <td key={column.key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {column.render ? column.render(row[column.key], row) : row[column.key]}
+                      {column.render ? column.render(row[column.key], row) : (row[column.key] ?? '')}
                     </td>
                   ))}
                   {actions && (
@@ -126,11 +126,11 @@ const DataTable = ({
           <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
             <div>
               <p className="text-sm text-gray-700">
-                Showing <span className="font-medium">{((pagination.currentPage - 1) * pagination.limit) + 1}</span> to{' '}
+                Showing <span className="font-medium">{((pagination.currentPage - 1) * (pagination.limit || 20)) + 1}</span> to{' '}
                 <span className="font-medium">
-                  {Math.min(pagination.currentPage * pagination.limit, pagination.totalItems)}
+                  {Math.min((pagination.currentPage || 1) * (pagination.limit || 20), pagination.totalItems || 0)}
                 </span>{' '}
-                of <span className="font-medium">{pagination.totalItems}</span> results
+                of <span className="font-medium">{pagination.totalItems || 0}</span> results
               </p>
             </div>
             <div>

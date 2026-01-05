@@ -87,7 +87,8 @@ module.exports = {
 
   ORGANIZATION_TYPES: {
     UNIVERSITY: 'university',
-    COMPANY: 'company'
+    COMPANY: 'company',
+    SCHOOL: 'school'
   },
 
   FILE_TYPES: {

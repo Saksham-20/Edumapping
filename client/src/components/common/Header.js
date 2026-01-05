@@ -134,16 +134,16 @@ const Header = () => {
           <div className="flex justify-between items-center h-16 sm:h-20">
             {/* Logo and Brand */}
             <div className="flex items-center pl-6 sm:pl-10 mr-6 sm:mr-6">
-              <Link to="/" className="flex flex-col items-start group min-w-0 space-y-1">
+              <Link to="/" className="flex flex-col items-center group min-w-0 space-y-1">
                 <div className="flex items-center">
                   <img
                     src="/logo.svg"
                     alt="Logo"
-                    className="h-10 sm:h-12 w-auto ml-4 sm:ml-10 transition-transform duration-200 group-hover:scale-105"
+                    className="h-10 sm:h-12 w-auto transition-transform duration-200 group-hover:scale-105"
                     style={{ filter: 'none' }}
                   />
                 </div>
-                <span className="ml-0 text-[10px] sm:text-xs font-semibold text-[#156395] leading-tight">
+                <span className="text-[10px] sm:text-xs font-semibold text-[#156395] leading-tight text-center w-full">
                   Nurturing Young Minds
                 </span>
               </Link>

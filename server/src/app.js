@@ -60,7 +60,13 @@ app.use(cors({
   origin: (origin, callback) => {
     const defaultDevOrigins = [
       'http://localhost:3000',
-      'http://127.0.0.1:3000'
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'http://localhost:3003',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+      'http://127.0.0.1:3002',
+      'http://127.0.0.1:3003'
     ];
     // Support multiple frontend URLs (comma-separated) and individual URLs
     const frontendUrls = process.env.FRONTEND_URL
@@ -74,6 +80,12 @@ app.use(cors({
 
     if (!origin) return callback(null, true); // allow non-browser clients
     if (allowed.has(origin)) return callback(null, true);
+    
+    // In development, allow any localhost origin
+    if (process.env.NODE_ENV === 'development' && origin && origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
     return callback(new Error('CORS not allowed from this origin'));
   },
   credentials: true,

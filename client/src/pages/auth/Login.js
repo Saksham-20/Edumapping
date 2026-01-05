@@ -147,7 +147,7 @@ const EnquiryForm = () => {
   );
 };
 
-const Login = () => {
+const Login = ({ isSchoolMode = false }) => {
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -214,22 +214,47 @@ const Login = () => {
     }
 
     setIsLoading(true);
+    setErrors({}); // Clear previous errors
+    
     try {
       await login(formData.email, formData.password);
       navigate(from, { replace: true });
     } catch (error) {
+      console.error('Login error:', error);
+      
+      // Extract error message from various possible error formats
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
       // Check if it's an approval status error
-      if (error.message.includes('pending approval')) {
+      if (errorMessage.toLowerCase().includes('pending approval') || errorMessage.toLowerCase().includes('pending')) {
         setErrors({
           submit: 'Your account is pending approval. Please wait for TPO/Admin approval before logging in.'
         });
-      } else if (error.message.includes('rejected')) {
+      } else if (errorMessage.toLowerCase().includes('rejected')) {
         setErrors({
           submit: 'Your account has been rejected. Please contact support for more information.'
         });
+      } else if (errorMessage.toLowerCase().includes('invalid credentials') || errorMessage.toLowerCase().includes('invalid')) {
+        setErrors({
+          submit: 'Invalid email or password. Please check your credentials and try again.'
+        });
+      } else if (errorMessage.toLowerCase().includes('disabled')) {
+        setErrors({
+          submit: 'Your account has been disabled. Please contact support for more information.'
+        });
       } else {
         setErrors({
-          submit: error.message || 'Login failed. Please try again.'
+          submit: errorMessage
         });
       }
     } finally {
@@ -251,7 +276,7 @@ const Login = () => {
             <span className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
               EduMapping
             </span>
-            <span className="text-xs text-gray-500 font-medium mt-1">Nurturing Young Minds</span>
+            <span className="text-xs text-gray-500 font-medium mt-1 text-center">Nurturing Young Minds</span>
           </Link>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Sign in to your account
@@ -259,7 +284,7 @@ const Login = () => {
           <p className="mt-2 text-center text-sm text-gray-600">
             Or{' '}
             <Link
-              to="/register"
+              to={isSchoolMode ? "/register/school" : "/register/college"}
               className="font-medium text-primary-600 hover:text-primary-500"
             >
               create a new account

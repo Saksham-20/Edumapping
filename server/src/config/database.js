@@ -95,8 +95,8 @@ let productionConfig;
 // Check if we have individual DB variables (more reliable)
 if (process.env.DB_PASSWORD && process.env.DB_USERNAME) {
   productionConfig = {
-    username: String(process.env.DB_USERNAME),
-    password: String(process.env.DB_PASSWORD),
+    username: String(process.env.DB_USERNAME) || 'postgres',
+    password: String(process.env.DB_PASSWORD) || 'postgres',
     database: String(process.env.DB_NAME || 'edumapping_prod'),
     host: String(process.env.DB_HOST || 'localhost'),
     port: parseInt(process.env.DB_PORT || '5432'),
@@ -137,7 +137,7 @@ logger.debug('Production DB config loaded', {
 module.exports = {
   development: {
     username: process.env.DB_USERNAME || 'postgres',
-    password: process.env.DB_PASSWORD || 'root',
+    password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'edumapping_dev',
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -152,7 +152,7 @@ module.exports = {
   },
   test: {
     username: process.env.DB_USERNAME || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres123',
+    password: process.env.DB_PASSWORD || 'postgres',
     database: (process.env.DB_NAME || 'edumapping') + '_test',
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,

@@ -17,10 +17,10 @@ class AdminOrganizationController {
       }
 
       // Validate type
-      if (!['university', 'company'].includes(type)) {
+      if (!['university', 'company', 'school'].includes(type)) {
         return res.status(400).json({
           error: 'Validation Error',
-          message: 'Type must be either "university" or "company"'
+          message: 'Type must be either "university", "company", or "school"'
         });
       }
 
@@ -40,12 +40,14 @@ class AdminOrganizationController {
         domain,
         contactEmail,
         contactPhone,
-        website,
-        address,
+        website: website || null, // Allow null for optional website
+        address: address || null, // Allow null for optional address
         isVerified: true, // Admin-created organizations are verified
         approvalStatus: 'approved',
         approvedBy: req.user.id,
         approvedAt: new Date()
+      }, {
+        validate: true // Ensure validation runs
       });
 
       res.status(201).json({
@@ -53,6 +55,21 @@ class AdminOrganizationController {
         organization
       });
     } catch (error) {
+      // Handle Sequelize validation errors
+      if (error.name === 'SequelizeValidationError') {
+        const validationErrors = error.errors.map(err => err.message).join(', ');
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: validationErrors || 'Invalid organization data'
+        });
+      }
+      // Handle unique constraint errors
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({
+          error: 'Duplicate Entry',
+          message: 'An organization with this domain already exists'
+        });
+      }
       next(error);
     }
   }
@@ -147,14 +164,21 @@ class AdminOrganizationController {
           if (organization.type === 'university' && targetOrg.type !== 'university') {
             return res.status(400).json({
               error: 'Invalid Migration',
-              message: 'Cannot migrate university users to a company organization'
+              message: 'Cannot migrate university users to a non-university organization'
             });
           }
 
           if (organization.type === 'company' && targetOrg.type !== 'company') {
             return res.status(400).json({
               error: 'Invalid Migration',
-              message: 'Cannot migrate company users to a university organization'
+              message: 'Cannot migrate company users to a non-company organization'
+            });
+          }
+
+          if (organization.type === 'school' && targetOrg.type !== 'school') {
+            return res.status(400).json({
+              error: 'Invalid Migration',
+              message: 'Cannot migrate school users to a non-school organization'
             });
           }
 
@@ -356,6 +380,57 @@ class AdminOrganizationController {
           totalPages: Math.ceil(count / parseInt(limit)),
           totalItems: count,
           hasMore: offset + companies.length < count
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Get all schools
+  async getAllSchools(req, res, next) {
+    try {
+      const { page = 1, limit = 20, search, verified } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const whereClause = { type: 'school' };
+
+      if (search) {
+        whereClause[Op.or] = [
+          { name: { [Op.iLike]: `%${search}%` } },
+          { domain: { [Op.iLike]: `%${search}%` } }
+        ];
+      }
+
+      if (verified !== undefined) {
+        whereClause.isVerified = verified === 'true';
+      }
+
+      const { count, rows: schools } = await Organization.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        order: [['name', 'ASC']]
+      });
+
+      // Get stats for each school
+      const schoolsWithStats = await Promise.all(
+        schools.map(async (school) => {
+          const stats = {
+            students: await User.count({ where: { organizationId: school.id, role: 'student' } })
+          };
+          return { ...school.toJSON(), stats };
+        })
+      );
+
+      res.json({
+        message: 'Schools retrieved successfully',
+        schools: schoolsWithStats,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / parseInt(limit)),
+          totalItems: count,
+          hasMore: offset + schools.length < count
         }
       });
     } catch (error) {
