@@ -12,8 +12,16 @@ const validateRegistration = [
   body('password').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/),
   body('firstName').trim().isLength({ min: 1, max: 100 }),
   body('lastName').trim().isLength({ min: 1, max: 100 }),
-  body('role').isIn(['student', 'recruiter', 'tpo']),
-  body('organizationId').optional().isInt()
+  body('role').isIn(['student', 'recruiter', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor']),
+  body('organizationId')
+    .optional({ values: 'falsy' })
+    .custom((value) => {
+      if (value === null || value === undefined || value === '') {
+        return true; // Allow null, undefined, or empty string
+      }
+      return Number.isInteger(Number(value)); // Must be a valid integer if provided
+    })
+    .withMessage('Organization ID must be a valid integer')
 ];
 
 const validateLogin = [

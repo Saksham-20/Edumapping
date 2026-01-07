@@ -9,7 +9,11 @@ export const USER_ROLES = {
   STUDENT: 'student',
   RECRUITER: 'recruiter',
   TPO: 'tpo',
-  ADMIN: 'admin'
+  ADMIN: 'admin',
+  PRINCIPAL: 'principal',
+  TEACHER: 'teacher',
+  SCHOOL_ADMIN: 'school_admin',
+  CAREER_COUNSELOR: 'career_counselor'
 };
 
 // Approval Status

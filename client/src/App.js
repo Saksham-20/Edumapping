@@ -21,6 +21,10 @@ import PendingApproval from './pages/auth/PendingApproval';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import StudentDashboard from './pages/dashboard/StudentDashboard';
 import SchoolDashboard from './pages/dashboard/SchoolDashboard';
+import PrincipalDashboard from './pages/dashboard/PrincipalDashboard';
+import TeacherDashboard from './pages/dashboard/TeacherDashboard';
+import SchoolAdminDashboard from './pages/dashboard/SchoolAdminDashboard';
+import CareerCounselorDashboard from './pages/dashboard/CareerCounselorDashboard';
 import RecruiterDashboard from './pages/dashboard/RecruiterDashboard';
 import TPODashboard from './pages/dashboard/TPODashboard';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
@@ -47,6 +51,20 @@ const DashboardRouter = () => {
   // Check if student belongs to a school organization
   if (user.role === 'student' && user.organization?.type === 'school') {
     return <SchoolDashboard />;
+  }
+  
+  // Route school staff roles to their respective dashboards
+  if (user.organization?.type === 'school') {
+    switch (user.role) {
+      case 'principal':
+        return <PrincipalDashboard />;
+      case 'teacher':
+        return <TeacherDashboard />;
+      case 'school_admin':
+        return <SchoolAdminDashboard />;
+      case 'career_counselor':
+        return <CareerCounselorDashboard />;
+    }
   }
   
   switch (user.role) {

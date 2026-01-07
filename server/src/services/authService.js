@@ -15,19 +15,33 @@ class AuthService {
   }
 
   generateTokens(userId) {
-    const accessToken = jwt.sign(
-      { userId },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || '1h' }
-    );
+    if (!process.env.JWT_SECRET) {
+      logger.error('JWT_SECRET is not set in environment variables');
+      throw new Error('Server configuration error: JWT secret is missing');
+    }
+    if (!process.env.JWT_REFRESH_SECRET) {
+      logger.error('JWT_REFRESH_SECRET is not set in environment variables');
+      throw new Error('Server configuration error: JWT refresh secret is missing');
+    }
 
-    const refreshToken = jwt.sign(
-      { userId },
-      process.env.JWT_REFRESH_SECRET,
-      { expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d' }
-    );
+    try {
+      const accessToken = jwt.sign(
+        { userId },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRE || '1h' }
+      );
 
-    return { accessToken, refreshToken };
+      const refreshToken = jwt.sign(
+        { userId },
+        process.env.JWT_REFRESH_SECRET,
+        { expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d' }
+      );
+
+      return { accessToken, refreshToken };
+    } catch (error) {
+      logger.error('Error generating tokens', error, { userId });
+      throw new Error('Failed to generate authentication tokens');
+    }
   }
 
   async verifyRefreshToken(refreshToken) {
@@ -40,7 +54,10 @@ class AuthService {
   }
 
   async register(userData) {
-  const { email, password, role, organizationId, ...profileData } = userData;
+    try {
+      const { email, password, role, organizationId, ...profileData } = userData;
+      
+      logger.debug('Registration attempt', { email, role, organizationId: organizationId || 'none' });
 
   // Check if user exists
   const existingUser = await User.findOne({ where: { email } });
@@ -57,6 +74,7 @@ class AuthService {
     
     // Students can belong to universities (colleges) or schools
     // TPOs can only belong to universities (colleges)
+    // School roles (principal, teacher, school_admin, career_counselor) can only belong to schools
     if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
       throw new Error('Students can only belong to university or school organizations');
     }
@@ -67,6 +85,11 @@ class AuthService {
     // Recruiters must belong to company organizations
     if (role === 'recruiter' && organization.type !== 'company') {
       throw new Error('Recruiters can only belong to company organizations');
+    }
+    
+    // School roles must belong to school organizations
+    if ((role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') && organization.type !== 'school') {
+      throw new Error('School roles can only belong to school organizations');
     }
   } else if (role !== 'admin') {
     // Non-admin users must have an organization
@@ -91,38 +114,81 @@ class AuthService {
       approvalStatus = 'approved';
       isActive = true;
     } else if (role === 'student' || role === 'tpo') {
-      // Students and TPOs are auto-approved if they belong to a university
+      // Students and TPOs are auto-approved
       approvalStatus = 'approved';
       isActive = true;
     } else if (role === 'recruiter') {
       // Recruiters are auto-approved for now (can be changed later for manual approval)
       approvalStatus = 'approved';
       isActive = true;
+    } else if (role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') {
+      // School roles are auto-approved
+      approvalStatus = 'approved';
+      isActive = true;
     }
 
     // Create user
-    const user = await User.create({
-      email,
-      passwordHash,
-      role,
-      organizationId,
-      approvalStatus,
-      isActive,
-      isVerified: false,
-      ...cleanedProfileData
-    });
+    let user;
+    try {
+      user = await User.create({
+        email,
+        passwordHash,
+        role,
+        organizationId,
+        approvalStatus,
+        isActive,
+        isVerified: false,
+        ...cleanedProfileData
+      });
+    } catch (createError) {
+      // Check if it's an invalid ENUM value error
+      if (createError.name === 'SequelizeDatabaseError' && 
+          (createError.parent?.message?.includes('invalid input value for enum') ||
+           createError.parent?.message?.includes('enum_users_role'))) {
+        throw new Error(`Invalid role "${role}". The database may need to be updated with the latest migrations. Please contact support.`);
+      }
+      throw createError;
+    }
 
   // Generate tokens
   const tokens = this.generateTokens(user.id);
 
-  // Return user without password
-  const { passwordHash: _, ...userWithoutPassword } = user.toJSON();
+      // Reload user with organization to ensure it's included in response
+      const userWithOrg = await User.findByPk(user.id, {
+        include: [
+          {
+            model: Organization,
+            as: 'organization',
+            required: false
+          }
+        ],
+        attributes: { exclude: ['passwordHash'] }
+      });
 
-  return {
-    user: userWithoutPassword,
-    tokens
-  };
-}
+      if (!userWithOrg) {
+        logger.error('User not found after creation', { userId: user.id, email });
+        throw new Error('User created but could not be retrieved. Please try logging in.');
+      }
+
+      // Return user without password
+      const { passwordHash: _, ...userWithoutPassword } = userWithOrg.toJSON();
+
+      logger.debug('Registration successful', { userId: user.id, email, role });
+      
+      return {
+        user: userWithoutPassword,
+        tokens
+      };
+    } catch (error) {
+      logger.error('Registration error', error, { 
+        email: userData?.email, 
+        role: userData?.role,
+        errorName: error.name,
+        errorMessage: error.message 
+      });
+      throw error;
+    }
+  }
 
   async login(email, password) {
     logger.auth('login', null, false, { email: logger.sanitize.email(email) });

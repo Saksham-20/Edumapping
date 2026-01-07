@@ -39,6 +39,7 @@ class AdminController {
         // Enforce role-organization rules
         // Students can belong to universities (colleges) or schools
         // TPOs can only belong to universities (colleges)
+        // School roles (principal, teacher, school_admin, career_counselor) can only belong to schools
         if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
           return res.status(400).json({
             error: 'Invalid Organization Type',
@@ -56,6 +57,14 @@ class AdminController {
           return res.status(400).json({
             error: 'Invalid Organization Type',
             message: 'Recruiters can only belong to company organizations'
+          });
+        }
+        
+        // School roles must belong to school organizations
+        if ((role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') && organization.type !== 'school') {
+          return res.status(400).json({
+            error: 'Invalid Organization Type',
+            message: 'School roles can only belong to school organizations'
           });
         }
       } else if (role !== 'admin') {

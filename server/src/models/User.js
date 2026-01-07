@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
       field: 'password_hash'
     },
     role: {
-      type: DataTypes.ENUM('student', 'recruiter', 'tpo', 'admin'),
+      type: DataTypes.ENUM('student', 'recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor'),
       allowNull: false
     },
     firstName: {

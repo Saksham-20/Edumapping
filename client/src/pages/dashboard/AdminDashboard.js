@@ -1042,7 +1042,14 @@ const AdminDashboard = () => {
           {value}
         </span>
       )},
-      { key: 'organization', label: 'Organization', render: (_, row) => row.organization?.name || 'N/A' },
+      { key: 'organization', label: 'Organization', render: (_, row) => (
+        <div>
+          <div className="font-medium">{row.organization?.name || 'N/A'}</div>
+          {row.organization?.type && (
+            <div className="text-xs text-gray-500 capitalize">{row.organization.type}</div>
+          )}
+        </div>
+      )},
       { key: 'approvalStatus', label: 'Status', render: (value) => (
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
           {value}
@@ -1092,6 +1099,10 @@ const AdminDashboard = () => {
                 <option value="tpo">TPOs</option>
                 <option value="recruiter">Recruiters</option>
                 <option value="admin">Admins</option>
+                <option value="principal">Principals</option>
+                <option value="teacher">Teachers</option>
+                <option value="school_admin">School Admins</option>
+                <option value="career_counselor">Career Counselors</option>
               </select>
             </div>
             <div className="flex items-center space-x-2">
@@ -1106,6 +1117,7 @@ const AdminDashboard = () => {
                 <option value="">All Organizations</option>
                 <option value="university">Universities</option>
                 <option value="company">Companies</option>
+                <option value="school">Schools</option>
               </select>
             </div>
             {(usersFilters.role || usersFilters.organizationType || usersFilters.search) && (
@@ -1233,10 +1245,15 @@ const AdminDashboard = () => {
                   <option value="">Select organization</option>
                   {organizations
                     .filter(org => {
-                      if (userFormData.role === 'student' || userFormData.role === 'tpo') {
+                      if (userFormData.role === 'student') {
+                        return org.type === 'university' || org.type === 'school';
+                      } else if (userFormData.role === 'tpo') {
                         return org.type === 'university';
                       } else if (userFormData.role === 'recruiter') {
                         return org.type === 'company';
+                      } else if (userFormData.role === 'principal' || userFormData.role === 'teacher' || 
+                                 userFormData.role === 'school_admin' || userFormData.role === 'career_counselor') {
+                        return org.type === 'school';
                       }
                       return true;
                     })

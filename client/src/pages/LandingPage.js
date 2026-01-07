@@ -185,7 +185,7 @@ const LandingPage = () => {
               variants={staggerContainer}
             >
               <motion.h1
-                className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
+                className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 text-gray-900 leading-tight mt-4 sm:mt-6 lg:mt-8"
                 variants={fadeInUp}
               >
                 Welcome to <br />
@@ -559,10 +559,12 @@ const LandingPage = () => {
                 variants={staggerContainer}
               >
                 <motion.h1
-                  className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
+                  className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 leading-tight mt-4 sm:mt-6 lg:mt-8"
                   variants={fadeInUp}
                 >
-                  {audience.heroTitle}
+                  <span className={`text-transparent bg-clip-text bg-gradient-to-r ${isSchoolMode ? 'from-[#FF8C42] to-[#138808]' : 'from-[#FF9933] to-[#138808]'} drop-shadow-md`}>
+                    {audience.heroTitle}
+                  </span>
                 </motion.h1>
 
                 <motion.p
@@ -789,12 +791,11 @@ const LandingPage = () => {
               variants={staggerContainer}
             >
               <motion.h1
-                className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 text-gray-900 leading-tight"
+                className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 leading-tight mt-4 sm:mt-6 lg:mt-8"
                 variants={fadeInUp}
               >
-                Empowering <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#138808] drop-shadow-md">
-                  School Students
+                  Empowering School Students for Future Success
                 </span>
               </motion.h1>
 
@@ -820,7 +821,7 @@ const LandingPage = () => {
                   onClick={() => handlePageChange('features')}
                   className="px-8 py-4 bg-white text-[#FF8C42] border-2 border-[#FF8C42] rounded-full font-semibold hover:bg-orange-50 transition-all transform hover:-translate-y-1"
                 >
-                  Explore Programs
+                  Explore Features
                 </button>
               </motion.div>
 
@@ -1047,7 +1048,7 @@ const LandingPage = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-[#FF9933]/10 via-white/50 to-[#138808]/10 z-0" />
         <div className="container mx-auto px-4 relative z-10 text-center">
           <motion.h1
-            className="text-5xl font-bold mb-6 text-gray-900"
+            className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 text-gray-900"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
@@ -1140,7 +1141,7 @@ const LandingPage = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-[#FF8C42]/10 via-white/50 to-[#138808]/10 z-0" />
         <div className="container mx-auto px-4 relative z-10 text-center">
           <motion.h1
-            className="text-5xl font-bold mb-6 text-gray-900"
+            className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 text-gray-900"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
@@ -1252,7 +1253,7 @@ const LandingPage = () => {
               Our Story
             </motion.span>
             <motion.h1
-              className="text-5xl lg:text-6xl font-bold mb-8 text-gray-900"
+              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-8 text-gray-900"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
@@ -1542,14 +1543,13 @@ const LandingPage = () => {
               Our Story
             </motion.span>
             <motion.h1
-              className="text-5xl lg:text-6xl font-bold mb-8 text-gray-900"
+              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-8"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
             >
-              Empowering School Students <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#138808]">
-                Through Skills & Opportunities
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF8C42] to-[#138808] drop-shadow-md">
+                Empowering School Students for Future Success
               </span>
             </motion.h1>
             <motion.p
@@ -1695,7 +1695,7 @@ const LandingPage = () => {
         <section className={`relative py-20 overflow-hidden ${gradientClass}`}>
           <div className="container mx-auto px-4 relative z-10 text-center">
             <motion.h1
-              className="text-5xl font-bold mb-6 text-gray-900"
+              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 text-gray-900"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
             >
@@ -1839,17 +1839,17 @@ const LandingPage = () => {
                 setShowAudienceContent(false);
                 window.scrollTo(0, 0);
               }}
-              className="flex flex-col items-center gap-1 text-center"
+              className="flex items-center gap-2"
             >
-              <div className="flex items-center gap-2">
-                <img src="/logo.svg" alt="EduMapping" className="h-12 w-auto" />
+              <img src="/logo.svg" alt="EduMapping" className="h-12 w-auto" />
+              <div className="flex flex-col items-center">
                 <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
                   EduMapping
                 </span>
+                <span className="text-[11px] sm:text-xs text-gray-600 font-medium leading-tight text-center">
+                  Nurturing Young Minds
+                </span>
               </div>
-              <span className="text-[11px] sm:text-xs text-gray-600 font-medium leading-tight text-center w-full">
-                Nurturing Young Minds
-              </span>
             </button>
 
             <div className="hidden md:flex items-center gap-6">
@@ -2089,15 +2089,13 @@ const LandingPage = () => {
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div className="col-span-1 md:col-span-2">
-              <div className="flex flex-col items-start mb-6">
-                <div className="flex flex-col items-start">
-                  <div className="flex items-center gap-2 mb-2">
-                    <img src="/logo.svg" alt="EduMapping" className="h-10" />
-                    <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808]">
-                      EduMapping
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-400 font-medium text-center w-full">Nurturing Young Minds</span>
+              <div className="flex items-center gap-2 mb-6">
+                <img src="/logo.svg" alt="EduMapping" className="h-10" />
+                <div className="flex flex-col items-center">
+                  <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808]">
+                    EduMapping
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium text-center">Nurturing Young Minds</span>
                 </div>
               </div>
               <p className="mb-4 max-w-sm">Making youth job-ready with essential employability skills.</p>

@@ -141,6 +141,14 @@ const SchoolRegister = () => {
       let submitData = { ...formData };
       delete submitData.confirmPassword;
 
+      // Convert empty organizationId to null
+      if (submitData.organizationId === '' || submitData.organizationId === undefined) {
+        submitData.organizationId = null;
+      } else if (submitData.organizationId) {
+        // Convert to number if it's a string
+        submitData.organizationId = parseInt(submitData.organizationId, 10);
+      }
+
       // Handle new organization registration
       if (formData.role === 'new_school') {
         try {
@@ -179,6 +187,12 @@ const SchoolRegister = () => {
       const response = await register(submitData);
 
       if (response.user) {
+        // Verify that the organization is included in the response
+        if (!response.user.organization && submitData.organizationId) {
+          console.warn('Organization not included in registration response, reloading user...');
+          // The organization should be included, but if not, it will be loaded on next auth check
+        }
+        
         if (formData.role === 'new_school') {
           toast.success(
             `Registration successful! Your school and account are pending admin approval. You will be notified once approved.`,
@@ -190,9 +204,39 @@ const SchoolRegister = () => {
         navigate('/dashboard');
       }
     } catch (error) {
+      console.error('=== REGISTRATION ERROR ===');
+      console.error('Full error object:', error);
+      console.error('Error message:', error.message);
+      console.error('Error status:', error.status);
+      console.error('Error data:', error.data);
+      console.error('Error response:', error.response);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+        console.error('Response headers:', error.response.headers);
+      }
+      console.error('==========================');
+      
+      // Extract error message from various possible locations
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (error.response?.data) {
+        // Check for different error formats
+        if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data.error) {
+          errorMessage = error.response.data.error;
+        } else if (error.response.data.details && Array.isArray(error.response.data.details)) {
+          errorMessage = error.response.data.details.map(d => d.message || d).join(', ');
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       setErrors({
-        submit: error.message || 'Registration failed. Please try again.'
+        submit: errorMessage
       });
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -353,6 +397,10 @@ const SchoolRegister = () => {
               >
                 <option value="">Select a role</option>
                 <option value="student">Student</option>
+                <option value="principal">Principal/Headmaster</option>
+                <option value="teacher">Teacher</option>
+                <option value="school_admin">School Admin</option>
+                <option value="career_counselor">Career Counselor</option>
                 <option value="new_school">Register New School</option>
               </select>
               {errors.role && (
@@ -583,6 +631,7 @@ const SchoolRegister = () => {
 };
 
 export default SchoolRegister;
+
 
 
 

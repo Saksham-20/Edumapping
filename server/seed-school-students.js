@@ -144,3 +144,4 @@ async function seedSchoolStudents() {
 
 seedSchoolStudents();
 
+

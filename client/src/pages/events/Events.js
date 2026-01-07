@@ -36,9 +36,7 @@ const Events = () => {
         limit: '20'
       });
 
-      console.log('Fetching events with params:', params.toString());
       const response = await api.get(`/events?${params}`);
-      console.log('Events API response:', response);
       
       setEvents(response.events || []);
       
@@ -347,20 +345,6 @@ const Events = () => {
                 : 'No events match your current filter.'
               }
             </p>
-            
-            {/* Debug Information */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left">
-                <h4 className="font-medium text-gray-900 mb-2">Debug Info:</h4>
-                <div className="text-xs text-gray-600 space-y-1">
-                  <div><strong>Filter:</strong> {filter}</div>
-                  <div><strong>Events Count:</strong> {events.length}</div>
-                  <div><strong>User Role:</strong> {user?.role}</div>
-                  <div><strong>User Organization:</strong> {user?.organization?.name || 'None'}</div>
-                  <div><strong>API Response:</strong> {JSON.stringify(events, null, 2)}</div>
-                </div>
-              </div>
-            )}
             
             {filter === 'registered' && (
               <div className="mt-6">

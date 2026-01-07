@@ -50,34 +50,48 @@ const Header = () => {
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      navigate(`/jobs?search=${encodeURIComponent(searchQuery.trim())}`);
+      const isSchoolStudent = user?.role === 'student' && user?.organization?.type === 'school';
+      if (isSchoolStudent) {
+        // For school students, search events instead of jobs
+        navigate(`/events?search=${encodeURIComponent(searchQuery.trim())}`);
+      } else {
+        navigate(`/jobs?search=${encodeURIComponent(searchQuery.trim())}`);
+      }
       setSearchQuery('');
     }
   };
 
   const getNavigationItems = () => {
+    const isSchoolStudent = user?.role === 'student' && user?.organization?.type === 'school';
+    
     const baseItems = [
       {
         name: 'Dashboard',
         href: '/dashboard',
         current: location.pathname === '/dashboard',
         icon: HomeIcon
-      },
-      {
+      }
+    ];
+
+    // Only show Jobs for non-school students
+    if (!isSchoolStudent) {
+      baseItems.push({
         name: 'Jobs',
         href: '/jobs',
         current: location.pathname.startsWith('/jobs'),
         icon: BriefcaseIcon
-      },
-      {
-        name: 'Events',
-        href: '/events',
-        current: location.pathname.startsWith('/events'),
-        icon: CalendarIcon
-      }
-    ];
+      });
+    }
 
-    if (user?.role === 'student') {
+    baseItems.push({
+      name: 'Events',
+      href: '/events',
+      current: location.pathname.startsWith('/events'),
+      icon: CalendarIcon
+    });
+
+    // Only show Applications and Resume for college students, not school students
+    if (user?.role === 'student' && !isSchoolStudent) {
       baseItems.push(
         {
           name: 'Applications',
@@ -134,18 +148,21 @@ const Header = () => {
           <div className="flex justify-between items-center h-16 sm:h-20">
             {/* Logo and Brand */}
             <div className="flex items-center pl-6 sm:pl-10 mr-6 sm:mr-6">
-              <Link to="/" className="flex flex-col items-center group min-w-0 space-y-1">
-                <div className="flex items-center">
-                  <img
-                    src="/logo.svg"
-                    alt="Logo"
-                    className="h-10 sm:h-12 w-auto transition-transform duration-200 group-hover:scale-105"
-                    style={{ filter: 'none' }}
-                  />
+              <Link to="/" className="flex items-center gap-2 group">
+                <img
+                  src="/logo.svg"
+                  alt="EduMapping"
+                  className="h-10 sm:h-12 w-auto transition-transform duration-200 group-hover:scale-105"
+                  style={{ filter: 'none' }}
+                />
+                <div className="flex flex-col items-center">
+                  <span className="text-xl sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
+                    EduMapping
+                  </span>
+                  <span className="text-[10px] sm:text-xs text-gray-600 font-medium leading-tight text-center">
+                    Nurturing Young Minds
+                  </span>
                 </div>
-                <span className="text-[10px] sm:text-xs font-semibold text-[#156395] leading-tight text-center w-full">
-                  Nurturing Young Minds
-                </span>
               </Link>
             </div>
 
@@ -180,7 +197,7 @@ const Header = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search jobs, companies..."
+                    placeholder={user?.role === 'student' && user?.organization?.type === 'school' ? "Search events..." : "Search jobs, companies..."}
                     className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm transition-all duration-200 hover:border-gray-400"
                   />
                 </div>
@@ -309,7 +326,7 @@ const Header = () => {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search jobs, companies..."
+                      placeholder={user?.role === 'student' && user?.organization?.type === 'school' ? "Search events..." : "Search jobs, companies..."}
                       className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                     />
                   </div>

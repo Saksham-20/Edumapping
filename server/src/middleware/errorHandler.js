@@ -2,6 +2,20 @@
 const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
+  // Log full error details for debugging
+  console.error('=== ERROR HANDLER ===');
+  console.error('Error Name:', err.name);
+  console.error('Error Message:', err.message);
+  console.error('Error Stack:', err.stack);
+  if (err.parent) {
+    console.error('Parent Error:', err.parent.message);
+    console.error('Parent Code:', err.parent.code);
+    console.error('Parent Detail:', err.parent.detail);
+  }
+  console.error('Request Path:', req.path);
+  console.error('Request Method:', req.method);
+  console.error('===================');
+  
   logger.error('Request error', err, {
     method: req.method,
     path: req.path,
@@ -20,6 +34,76 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Sequelize database errors (e.g., invalid ENUM values)
+  if (err.name === 'SequelizeDatabaseError') {
+    const errorMessage = err.parent?.message || err.message || '';
+    const errorCode = err.parent?.code || '';
+    const errorDetail = err.parent?.detail || '';
+    
+    // Log full error details for debugging
+    logger.error('Database error details', {
+      name: err.name,
+      message: errorMessage,
+      code: errorCode,
+      detail: errorDetail,
+      sql: err.parent?.sql,
+      stack: err.stack
+    });
+    
+    // Check if it's an invalid ENUM value error
+    if (errorMessage.includes('invalid input value for enum') || 
+        errorMessage.includes('enum_users_role') ||
+        errorMessage.includes('invalid value for enum')) {
+      logger.error('Invalid ENUM value error - migration may not have been run', err, {
+        message: errorMessage,
+        hint: 'The database migration for new user roles may not have been executed'
+      });
+      return res.status(500).json({
+        error: 'Database Configuration Error',
+        message: 'The selected role is not available. This may indicate that database migrations need to be run. Please contact support.'
+      });
+    }
+    
+    // Check for foreign key constraint errors
+    if (errorCode === '23503' || errorMessage.includes('foreign key constraint')) {
+      logger.error('Foreign key constraint error', err, {
+        message: errorMessage,
+        detail: errorDetail
+      });
+      return res.status(400).json({
+        error: 'Invalid Reference',
+        message: errorDetail || 'The provided organization or reference does not exist. Please check your selection and try again.'
+      });
+    }
+    
+    // Check for not null constraint errors
+    if (errorCode === '23502' || errorMessage.includes('null value in column')) {
+      logger.error('Not null constraint error', err, {
+        message: errorMessage,
+        detail: errorDetail
+      });
+      return res.status(400).json({
+        error: 'Missing Required Field',
+        message: errorDetail || 'A required field is missing. Please check your input and try again.'
+      });
+    }
+    
+    // Generic database error - include more details in development
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    return res.status(500).json({
+      error: 'Database Error',
+      message: isDevelopment && errorMessage 
+        ? `Database error: ${errorMessage}` 
+        : 'A database error occurred. Please try again or contact support if the problem persists.',
+      ...(isDevelopment && { 
+        detail: errorDetail, 
+        code: errorCode,
+        sql: err.parent?.sql,
+        fullError: errorMessage
+      })
+    });
+  }
+
   // Sequelize unique constraint errors
   if (err.name === 'SequelizeUniqueConstraintError') {
     // Extract more details about which constraint failed
@@ -34,9 +118,16 @@ const errorHandler = (err, req, res, next) => {
         code: err.parent?.code,
         message: 'This usually indicates the auto-increment sequence needs to be reset'
       });
+      
+      const isDevelopment = process.env.NODE_ENV === 'development';
       return res.status(500).json({
         error: 'Database Error',
-        message: 'A database error occurred. Please try again or contact support if the problem persists.'
+        message: 'A database error occurred. The auto-increment sequence may be out of sync. Please contact support.',
+        ...(isDevelopment && {
+          hint: `Run 'node fix-user-sequence.js' in the server directory to fix the sequence`,
+          detail: err.parent?.detail,
+          code: err.parent?.code
+        })
       });
     }
     
@@ -94,10 +185,19 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // Default error
+  const isDevelopment = process.env.NODE_ENV === 'development';
   res.status(err.status || 500).json({
     error: err.name || 'Internal Server Error',
     message: err.message || 'Something went wrong',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    ...(isDevelopment && { 
+      stack: err.stack,
+      ...(err.parent && {
+        parentMessage: err.parent.message,
+        parentCode: err.parent.code,
+        parentDetail: err.parent.detail,
+        parentSql: err.parent.sql
+      })
+    })
   });
 };
 
