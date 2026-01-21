@@ -38,6 +38,7 @@ import Applications from './pages/applications/Applications';
 import ApplicationDetail from './pages/applications/ApplicationDetail';
 import Events from './pages/events/Events';
 import EventForm from './pages/events/EventForm';
+import EventDetails from './pages/events/EventDetails';
 
 import './styles/index.css';
 import './styles/carousel.css';
@@ -236,14 +237,21 @@ function App() {
               } />
               
               <Route path="/events/new" element={
-                <ProtectedRoute requiredRoles={['recruiter', 'tpo']}>
+                <ProtectedRoute>
                   <Header />
                   <EventForm />
                 </ProtectedRoute>
               } />
+
+              <Route path="/events/:id" element={
+                <ProtectedRoute>
+                  <Header />
+                  <EventDetails />
+                </ProtectedRoute>
+              } />
               
               <Route path="/events/:id/edit" element={
-                <ProtectedRoute requiredRoles={['recruiter', 'tpo']}>
+                <ProtectedRoute>
                   <Header />
                   <EventForm />
                 </ProtectedRoute>

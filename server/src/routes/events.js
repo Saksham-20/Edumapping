@@ -2,7 +2,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
-const { requireRole } = require('../middleware/rbac');
+const { requireRole, requireNotRole, requireOrganization } = require('../middleware/rbac');
 const eventController = require('../controllers/eventController');
 
 const router = express.Router();
@@ -27,8 +27,30 @@ router.get('/', optionalAuth, eventController.getAllEvents);
  */
 router.post('/', 
   authenticateToken, 
-  requireRole('recruiter', 'tpo', 'admin'),
+  (req, res, next) => {
+    // Admins may not be attached to an organization; allow them to specify organizationId in body.
+    if (req.user?.role === 'admin') return next();
+    return requireOrganization(req, res, next);
+  },
+  requireNotRole('student'),
   [
+    body('organizationId').custom((value, { req }) => {
+      // For admins without an organization, organizationId is required.
+      if (req.user?.role === 'admin' && !req.user.organizationId) {
+        if (value === undefined || value === null || value === '') {
+          throw new Error('organizationId is required for admin');
+        }
+      }
+
+      // If provided, it must be an integer.
+      if (value !== undefined && value !== null && value !== '') {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n <= 0) {
+          throw new Error('organizationId must be a positive integer');
+        }
+      }
+      return true;
+    }),
     body('title').notEmpty().trim().isLength({ min: 3, max: 255 }),
     body('description').notEmpty().trim(),
     body('eventType').isIn(['campus_drive', 'info_session', 'workshop', 'seminar', 'job_fair', 'other']),
@@ -72,7 +94,11 @@ router.get('/:id', optionalAuth, eventController.getEventById);
  */
 router.put('/:id', 
   authenticateToken, 
-  requireRole('recruiter', 'tpo', 'admin'),
+  (req, res, next) => {
+    if (req.user?.role === 'admin') return next();
+    return requireOrganization(req, res, next);
+  },
+  requireNotRole('student'),
   [
     body('title').notEmpty().trim().isLength({ min: 3, max: 255 }),
     body('description').notEmpty().trim(),

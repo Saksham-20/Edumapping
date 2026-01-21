@@ -446,6 +446,63 @@ export const copyToClipboard = async (text) => {
 };
 
 /**
+ * Open meeting link in the most app-friendly way (Zoom/Google Meet).
+ * - For Google Meet, the https link is usually enough (mobile will hand off to the app).
+ * - For Zoom, mobile often prefers the zoommtg:// deep link (we convert when possible).
+ */
+export const openMeetingLink = (rawUrl) => {
+  if (!rawUrl) return false;
+
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const host = url.hostname.toLowerCase();
+
+  // Zoom: convert common https links to zoommtg deep links for better app handoff on mobile.
+  if (host.includes('zoom.us')) {
+    const meetingId = url.pathname.split('/').filter(Boolean).pop();
+    const pwd = url.searchParams.get('pwd');
+
+    if (meetingId && /^\d+$/.test(meetingId)) {
+      const deepLink = `zoommtg://zoom.us/join?confno=${meetingId}${pwd ? `&pwd=${pwd}` : ''}`;
+      // Try deep link first; if it fails, the browser will just stay put, so also open the https link.
+      window.location.href = deepLink;
+      window.open(rawUrl, '_blank', 'noopener,noreferrer');
+      return true;
+    }
+  }
+
+  window.open(rawUrl, '_blank', 'noopener,noreferrer');
+  return true;
+};
+
+/**
+ * Share a URL (uses Web Share API when available, otherwise copies to clipboard).
+ */
+export const shareUrl = async ({ title, text, url }) => {
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      return { shared: true, copied: false };
+    }
+    await copyToClipboard(url);
+    return { shared: false, copied: true };
+  } catch {
+    // If user cancels share dialog, fall back to copy attempt
+    try {
+      await copyToClipboard(url);
+      return { shared: false, copied: true };
+    } catch {
+      return { shared: false, copied: false };
+    }
+  }
+};
+
+/**
  * Generate random string
  */
 export const generateRandomString = (length = 10) => {
@@ -890,6 +947,8 @@ export default {
   handleApiError,
   downloadFile,
   copyToClipboard,
+  openMeetingLink,
+  shareUrl,
   generateRandomString,
   hasPermission,
   getInitials,

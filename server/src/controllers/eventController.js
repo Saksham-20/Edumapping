@@ -3,6 +3,17 @@ const { Event, Organization, User, EventRegistration } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 
+let cachedEduMappingOrgId = undefined;
+const getEduMappingOrgId = async () => {
+  if (cachedEduMappingOrgId !== undefined) return cachedEduMappingOrgId;
+  const org = await Organization.findOne({
+    where: { name: { [Op.iLike]: 'EduMapping' } },
+    attributes: ['id']
+  });
+  cachedEduMappingOrgId = org ? org.id : null;
+  return cachedEduMappingOrgId;
+};
+
 class EventController {
   async createEvent(req, res, next) {
     try {
@@ -14,11 +25,45 @@ class EventController {
         });
       }
 
+      // Determine organizationId (admins may not be tied to an org)
+      let resolvedOrganizationId = req.user.organizationId;
+      if (req.user.role === 'admin' && !resolvedOrganizationId) {
+        resolvedOrganizationId = req.body.organizationId ? parseInt(req.body.organizationId) : null;
+        if (!resolvedOrganizationId) {
+          return res.status(400).json({
+            error: 'Validation Error',
+            message: 'organizationId is required for admin'
+          });
+        }
+
+        // Validate organization exists (clean 400 instead of FK error)
+        const orgExists = await Organization.findByPk(resolvedOrganizationId, { attributes: ['id'] });
+        if (!orgExists) {
+          return res.status(400).json({
+            error: 'Validation Error',
+            message: 'Invalid organizationId'
+          });
+        }
+      }
+
+      // Default new events to scheduled unless explicitly set (prevents "created but not visible" confusion)
+      const resolvedStatus = req.body.status || 'scheduled';
+
       const eventData = {
         ...req.body,
-        organizationId: req.user.organizationId,
-        createdBy: req.user.id
+        organizationId: resolvedOrganizationId,
+        createdBy: req.user.id,
+        status: resolvedStatus
       };
+
+      // Only admin may create events under the EduMapping org (global events)
+      const eduMappingOrgId = await getEduMappingOrgId();
+      if (eduMappingOrgId && eventData.organizationId === eduMappingOrgId && req.user.role !== 'admin') {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'Only admins can create EduMapping (global) events'
+        });
+      }
 
       const event = await Event.create(eventData);
 
@@ -44,7 +89,7 @@ class EventController {
         page = 1,
         limit = 10,
         eventType,
-        status = 'scheduled',
+        status,
         organizationId,
         upcoming = false
       } = req.query;
@@ -53,7 +98,12 @@ class EventController {
       const whereClause = {};
 
       if (eventType) whereClause.eventType = eventType;
-      if (status) whereClause.status = status;
+
+      // Default behavior: if status is omitted, do NOT filter by status (so new events show up).
+      // Client can pass status=scheduled for "Upcoming", or status=all for "All events".
+      if (status && status !== 'all') {
+        whereClause.status = status;
+      }
       
       // Handle upcoming filter
       if (upcoming === 'true' || upcoming === true) {
@@ -67,11 +117,29 @@ class EventController {
       } else if (req.user && req.user.role === 'recruiter') {
         // Recruiters only see events from their organization
         // Use query param if provided, otherwise use user's organizationId
-        whereClause.organizationId = organizationId || req.user.organizationId;
+        const orgId = organizationId || req.user.organizationId;
+        const eduMappingOrgId = await getEduMappingOrgId();
+        if (eduMappingOrgId) {
+          whereClause[Op.or] = [
+            { organizationId: orgId },
+            { organizationId: eduMappingOrgId }
+          ];
+        } else {
+          whereClause.organizationId = orgId;
+        }
       } else if (req.user && req.user.role === 'tpo') {
         // TPOs see events from their university
         // Use query param if provided, otherwise use user's organizationId
-        whereClause.organizationId = organizationId || req.user.organizationId;
+        const orgId = organizationId || req.user.organizationId;
+        const eduMappingOrgId = await getEduMappingOrgId();
+        if (eduMappingOrgId) {
+          whereClause[Op.or] = [
+            { organizationId: orgId },
+            { organizationId: eduMappingOrgId }
+          ];
+        } else {
+          whereClause.organizationId = orgId;
+        }
       } else if (organizationId) {
         // For unauthenticated or other roles, use query param if provided
         whereClause.organizationId = organizationId;

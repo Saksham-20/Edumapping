@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
+import { openMeetingLink, shareUrl } from '../../utils/helpers';
 import {
   CalendarIcon,
   MapPinIcon,
@@ -13,7 +14,8 @@ import {
   BuildingOfficeIcon,
   PlusIcon,
   CheckIcon,
-  XMarkIcon
+  XMarkIcon,
+  ShareIcon
 } from '@heroicons/react/24/outline';
 
 const Events = () => {
@@ -31,8 +33,17 @@ const Events = () => {
   const fetchEvents = async () => {
     try {
       setIsLoading(true);
+
+      // Students should only see scheduled events in Upcoming.
+      // Non-students may create drafts; include them in Upcoming so creators can find their events.
+      const statusParam =
+        filter === 'upcoming'
+          ? (user?.role === 'student' ? 'scheduled' : 'all')
+          : 'all';
+
       const params = new URLSearchParams({
         upcoming: filter === 'upcoming' ? 'true' : 'false',
+        status: statusParam,
         limit: '20'
       });
 
@@ -143,6 +154,25 @@ const Events = () => {
     const isRegistered = registeredEvents.has(event.id);
     const isFull = isEventFull(event);
     const canRegister = isRegistrationOpen(event) && !isFull;
+    const isGlobal = (event.organization?.name || '').toLowerCase() === 'edumapping';
+
+    const handleShare = async () => {
+      const url = `${window.location.origin}/events/${event.id}`;
+      const result = await shareUrl({
+        title: event.title || 'Campus Event',
+        text: event.title ? `Join: ${event.title}` : 'Check out this event',
+        url
+      });
+      if (result.shared) toast.success('Shared');
+      else if (result.copied) toast.success('Link copied');
+      else toast.error('Could not share');
+    };
+
+    const handleJoin = () => {
+      if (!event.virtualLink) return;
+      const ok = openMeetingLink(event.virtualLink);
+      if (!ok) toast.error('Invalid meeting link');
+    };
 
     return (
       <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow duration-200 overflow-hidden">
@@ -168,7 +198,12 @@ const Events = () => {
           </div>
 
           <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            {event.title}
+            <button
+              onClick={() => navigate(`/events/${event.id}`)}
+              className="text-left hover:underline"
+            >
+              {event.title}
+            </button>
           </h3>
 
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">
@@ -178,7 +213,12 @@ const Events = () => {
           <div className="space-y-2 text-sm text-gray-600 mb-4">
             <div className="flex items-center">
               <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
-              {event.organization?.name}
+              <span>{event.organization?.name}</span>
+              {isGlobal && (
+                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                  Global
+                </span>
+              )}
             </div>
             
             <div className="flex items-center">
@@ -217,6 +257,14 @@ const Events = () => {
             </div>
 
             <div className="flex items-center space-x-2">
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <ShareIcon className="h-4 w-4 mr-1" />
+                Share
+              </button>
+
               {user.role === 'student' && (
                 <>
                   {isRegistered ? (
@@ -245,14 +293,12 @@ const Events = () => {
               )}
 
               {event.virtualLink && (
-                <a
-                  href={event.virtualLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={handleJoin}
                   className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
                 >
                   Join Virtual Event
-                </a>
+                </button>
               )}
             </div>
           </div>
@@ -310,7 +356,7 @@ const Events = () => {
               )}
             </div>
 
-            {(user.role === 'recruiter' || user.role === 'tpo') && (
+            {user.role !== 'student' && (
               <button
                 onClick={() => navigate('/events/new')}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"

@@ -4,13 +4,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
-import { CalendarIcon, MapPinIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { isValidURL } from '../../utils/helpers';
 
 const EventForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [orgOptions, setOrgOptions] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -19,10 +20,12 @@ const EventForm = () => {
     startTime: '',
     endTime: '',
     maxParticipants: '',
+    meetingPlatform: 'none',
     virtualLink: '',
+    organizationId: '',
     contactEmail: '',
     contactPhone: '',
-    status: 'draft'
+    status: 'scheduled'
   });
 
   const isEditing = Boolean(id);
@@ -31,7 +34,36 @@ const EventForm = () => {
     if (isEditing) {
       fetchEvent();
     }
+    if (user?.role === 'admin') {
+      fetchOrganizations();
+    }
   }, [id]);
+
+  const inferMeetingPlatform = (url) => {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+      if (host.includes('zoom.us')) return 'zoom';
+      if (host.includes('meet.google.com')) return 'google_meet';
+      return 'custom';
+    } catch {
+      return 'custom';
+    }
+  };
+
+  const fetchOrganizations = async () => {
+    try {
+      const res = await api.get('/organizations?verified=all&limit=200');
+      const orgs = res.organizations || [];
+      // Put EduMapping first if present (global events)
+      const edu = orgs.find(o => (o.name || '').toLowerCase() === 'edumapping');
+      const rest = orgs.filter(o => (o.name || '').toLowerCase() !== 'edumapping');
+      setOrgOptions(edu ? [edu, ...rest] : orgs);
+    } catch (e) {
+      console.error('Failed to fetch organizations:', e);
+      // Not fatal; admin can still paste org id if needed
+    }
+  };
 
   const fetchEvent = async () => {
     try {
@@ -46,7 +78,9 @@ const EventForm = () => {
         startTime: event.startTime ? event.startTime.split('T')[0] + 'T' + event.startTime.split('T')[1] : '',
         endTime: event.endTime ? event.endTime.split('T')[0] + 'T' + event.endTime.split('T')[1] : '',
         maxParticipants: event.maxParticipants || '',
+        meetingPlatform: event.virtualLink ? inferMeetingPlatform(event.virtualLink) : 'none',
         virtualLink: event.virtualLink || '',
+        organizationId: event.organizationId || '',
         contactEmail: event.contactEmail || '',
         contactPhone: event.contactPhone || '',
         status: event.status || 'draft'
@@ -69,7 +103,7 @@ const EventForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!user || (user.role !== 'recruiter' && user.role !== 'tpo')) {
+    if (!user || user.role === 'student') {
       toast.error('You are not authorized to create events');
       return;
     }
@@ -100,6 +134,21 @@ const EventForm = () => {
       return;
     }
 
+    if (user.role === 'admin' && (!formData.organizationId || !String(formData.organizationId).trim())) {
+      toast.error('Please select an organization');
+      return;
+    }
+
+    if (formData.meetingPlatform !== 'none' && (!formData.virtualLink || !formData.virtualLink.trim())) {
+      toast.error('Please provide the meeting link');
+      return;
+    }
+
+    if (formData.virtualLink && formData.virtualLink.trim() && !isValidURL(formData.virtualLink.trim())) {
+      toast.error('Please provide a valid meeting link URL');
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -111,9 +160,13 @@ const EventForm = () => {
         startTime: new Date(formData.startTime).toISOString(),
         endTime: new Date(formData.endTime).toISOString(),
         status: formData.status,
-        organizationId: user.organizationId,
-        createdBy: user.id
+        // server will set organizationId/createdBy from token
       };
+
+      // Admins may not be attached to an organization; send organizationId explicitly
+      if (user.role === 'admin') {
+        eventData.organizationId = parseInt(formData.organizationId);
+      }
 
       // Only add optional fields if they have values
       if (formData.location && formData.location.trim()) {
@@ -144,8 +197,10 @@ const EventForm = () => {
         // Show specific validation errors
         const errorMessages = error.data.details.map(detail => detail.message).join(', ');
         toast.error(`Validation error: ${errorMessages}`);
+      } else if (error.status === 403) {
+        toast.error('You are not authorized to create events');
       } else {
-        toast.error(error.message || 'Failed to save event');
+        toast.error('Failed to save event');
       }
     } finally {
       setLoading(false);
@@ -161,7 +216,7 @@ const EventForm = () => {
     { value: 'other', label: 'Other' }
   ];
 
-  if (!user || (user.role !== 'recruiter' && user.role !== 'tpo')) {
+  if (!user || user.role === 'student') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -188,6 +243,32 @@ const EventForm = () => {
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
             {/* Basic Information */}
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              {user?.role === 'admin' && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Organization *
+                  </label>
+                  <select
+                    name="organizationId"
+                    value={formData.organizationId}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select organization</option>
+                    {orgOptions.map((org) => (
+                      <option key={org.id} value={org.id}>
+                        {org.name?.toLowerCase() === 'edumapping'
+                          ? 'EduMapping (Global - visible to all)'
+                          : `${org.name} (${org.type})`}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select <b>EduMapping (Global)</b> to create an event visible to all organizations and students.
+                  </p>
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Event Title *
@@ -284,6 +365,30 @@ const EventForm = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Meeting Platform
+                </label>
+                <select
+                  name="meetingPlatform"
+                  value={formData.meetingPlatform}
+                  onChange={(e) => {
+                    const nextPlatform = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      meetingPlatform: nextPlatform,
+                      virtualLink: nextPlatform === 'none' ? '' : prev.virtualLink
+                    }));
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="none">In-person / No virtual meeting</option>
+                  <option value="google_meet">Google Meet</option>
+                  <option value="zoom">Zoom</option>
+                  <option value="custom">Other (paste link)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Virtual Meeting Link
                 </label>
                 <input
@@ -292,10 +397,19 @@ const EventForm = () => {
                   value={formData.virtualLink}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://meet.google.com/..."
+                  placeholder={
+                    formData.meetingPlatform === 'zoom'
+                      ? 'https://zoom.us/j/...'
+                      : formData.meetingPlatform === 'google_meet'
+                      ? 'https://meet.google.com/...'
+                      : 'https://...'
+                  }
+                  disabled={formData.meetingPlatform === 'none'}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Leave empty if this is an in-person event
+                  {formData.meetingPlatform === 'none'
+                    ? 'This event will be treated as in-person (no virtual link).'
+                    : 'Paste the meeting invite link. On Join, users will be redirected to the respective app when possible.'}
                 </p>
               </div>
             </div>

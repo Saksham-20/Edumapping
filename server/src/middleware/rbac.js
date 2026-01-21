@@ -19,6 +19,27 @@ const requireRole = (...allowedRoles) => {
   };
 };
 
+// Deny access to specific roles (useful for "all except X" policies)
+const requireNotRole = (...deniedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Authentication Required',
+        message: 'Please login to access this resource'
+      });
+    }
+
+    if (deniedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Access Forbidden',
+        message: `This action is not allowed for the following roles: ${deniedRoles.join(', ')}`
+      });
+    }
+
+    next();
+  };
+};
+
 const requireOrganization = (req, res, next) => {
   if (!req.user.organizationId) {
     return res.status(403).json({
@@ -111,6 +132,7 @@ const checkPermissions = (...permissions) => {
 
 module.exports = {
   requireRole,
+  requireNotRole,
   requireOrganization,
   requireVerifiedUser,
   requireVerifiedOrganization,
