@@ -175,71 +175,70 @@ const Events = () => {
     };
 
     return (
-      <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow duration-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100">
         <div className="p-6">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center space-x-3">
-              <div className={`p-2 rounded-lg ${getEventTypeColor(event.eventType)}`}>
-                <TypeIcon className="h-6 w-6" />
-              </div>
-              <div>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getEventTypeColor(event.eventType)}`}>
-                  {event.eventType.replace('_', ' ').toUpperCase()}
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getEventTypeColor(event.eventType)}`}>
+                {event.eventType.replace('_', ' ').toUpperCase()}
+              </span>
+              {isGlobal && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                  Global
                 </span>
-              </div>
+              )}
             </div>
-            
+
             <div className="flex items-center text-sm text-gray-500">
               <UserGroupIcon className="h-4 w-4 mr-1" />
               {event.registrationCount || 0}
               {event.maxParticipants && ` / ${event.maxParticipants}`}
-              {isFull && <span className="ml-2 text-red-600 font-medium">FULL</span>}
+              {isFull && <span className="ml-2 text-red-600 font-semibold">FULL</span>}
             </div>
           </div>
 
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            <button
-              onClick={() => navigate(`/events/${event.id}`)}
-              className="text-left hover:underline"
-            >
-              {event.title}
-            </button>
-          </h3>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">
+                <button
+                  onClick={() => navigate(`/events/${event.id}`)}
+                  className="text-left hover:underline"
+                >
+                  {event.title}
+                </button>
+              </h3>
+              <div className="flex items-center text-sm text-gray-700 mb-3">
+                <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
+                <span className="truncate">{event.organization?.name}</span>
+              </div>
+            </div>
+
+            <div className={`p-2 rounded-xl ${getEventTypeColor(event.eventType)}`}>
+              <TypeIcon className="h-6 w-6" />
+            </div>
+          </div>
 
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">
             {event.description}
           </p>
 
-          <div className="space-y-2 text-sm text-gray-600 mb-4">
-            <div className="flex items-center">
-              <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
-              <span>{event.organization?.name}</span>
-              {isGlobal && (
-                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                  Global
-                </span>
-              )}
-            </div>
-            
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600 mb-4">
             <div className="flex items-center">
               <CalendarIcon className="h-4 w-4 mr-2 text-gray-400" />
-              {dateStr}
+              <span className="truncate">{dateStr}</span>
             </div>
-            
             <div className="flex items-center">
               <ClockIcon className="h-4 w-4 mr-2 text-gray-400" />
-              {timeStr}
+              <span className="truncate">{timeStr}</span>
             </div>
-            
             {event.location && (
-              <div className="flex items-center">
+              <div className="flex items-center sm:col-span-2">
                 <MapPinIcon className="h-4 w-4 mr-2 text-gray-400" />
-                {event.location}
+                <span className="truncate">{event.location}</span>
               </div>
             )}
-
             {event.registrationDeadline && (
-              <div className="flex items-center text-orange-600">
+              <div className="flex items-center text-orange-600 sm:col-span-2">
                 <ClockIcon className="h-4 w-4 mr-2" />
                 Registration closes: {new Date(event.registrationDeadline).toLocaleDateString()}
               </div>
@@ -247,19 +246,19 @@ const Events = () => {
           </div>
 
           <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               {isRegistered && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                   <CheckIcon className="h-3 w-3 mr-1" />
                   Registered
                 </span>
               )}
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
                 onClick={handleShare}
-                className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50"
               >
                 <ShareIcon className="h-4 w-4 mr-1" />
                 Share
@@ -270,23 +269,23 @@ const Events = () => {
                   {isRegistered ? (
                     <button
                       onClick={() => handleEventRegistration(event.id, false)}
-                      className="inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded text-red-700 bg-white hover:bg-red-50"
+                      className="inline-flex items-center px-3 py-2 border border-red-300 text-sm font-semibold rounded-lg text-red-700 bg-white hover:bg-red-50"
                     >
                       <XMarkIcon className="h-4 w-4 mr-1" />
-                      Cancel Registration
+                      Cancel
                     </button>
                   ) : (
                     <button
                       onClick={() => handleEventRegistration(event.id, true)}
                       disabled={!canRegister}
-                      className={`inline-flex items-center px-3 py-1.5 border text-sm font-medium rounded ${
+                      className={`inline-flex items-center px-3 py-2 border text-sm font-semibold rounded-lg ${
                         canRegister
                           ? 'border-transparent text-white bg-blue-600 hover:bg-blue-700'
                           : 'border-gray-300 text-gray-500 bg-gray-100 cursor-not-allowed'
                       }`}
                     >
                       <PlusIcon className="h-4 w-4 mr-1" />
-                      {isFull ? 'Event Full' : !isRegistrationOpen(event) ? 'Registration Closed' : 'Register'}
+                      {isFull ? 'Full' : !isRegistrationOpen(event) ? 'Closed' : 'Register'}
                     </button>
                   )}
                 </>
@@ -295,9 +294,9 @@ const Events = () => {
               {event.virtualLink && (
                 <button
                   onClick={handleJoin}
-                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                  className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700"
                 >
-                  Join Virtual Event
+                  Join
                 </button>
               )}
             </div>

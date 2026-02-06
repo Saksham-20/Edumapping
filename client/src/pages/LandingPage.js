@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Slider from 'react-slick';
 import WhatsAppChat from '../components/common/WhatsAppChat';
+import api from '../services/api';
+import { openMeetingLink } from '../utils/helpers';
+import { CalendarIcon, ClockIcon, MapPinIcon, BuildingOfficeIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import './LandingPage.css';
 
 // Carousel Settings
@@ -115,6 +118,46 @@ const LandingPage = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSchoolMode, setIsSchoolMode] = useState(false);
   const [showAudienceContent, setShowAudienceContent] = useState(false);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+
+  // Fetch upcoming global events
+  useEffect(() => {
+    const fetchGlobalEvents = async () => {
+      try {
+        setIsLoadingEvents(true);
+        const params = new URLSearchParams({
+          upcoming: 'true',
+          limit: '6',
+          status: 'scheduled'
+        });
+        const response = await api.get(`/events?${params}`);
+        const events = response.events || [];
+        // Filter for EduMapping (global) events only
+        const globalEvents = events.filter(event => 
+          event.organization && 
+          event.organization.name && 
+          event.organization.name.toLowerCase() === 'edumapping'
+        );
+        setUpcomingEvents(globalEvents);
+      } catch (error) {
+        console.error('Failed to fetch events:', error);
+        setUpcomingEvents([]);
+      } finally {
+        setIsLoadingEvents(false);
+      }
+    };
+    fetchGlobalEvents();
+  }, []);
+
+  const closeEventModal = () => setSelectedEvent(null);
+
+  const handleJoinFromLanding = (e, event) => {
+    e?.stopPropagation?.();
+    if (!event?.virtualLink) return;
+    openMeetingLink(event.virtualLink);
+  };
 
   // Scroll animations observer
   useEffect(() => {
@@ -385,6 +428,210 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
+      {/* Upcoming Global Events Section */}
+      {!isLoadingEvents && upcomingEvents.length > 0 && (
+        <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">Upcoming Events</h2>
+              <p className="text-xl text-gray-600">Join our global events and workshops</p>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-6 max-w-7xl mx-auto">
+              {upcomingEvents.map((event, idx) => {
+                const startDate = new Date(event.startTime);
+                const endDate = new Date(event.endTime);
+                const dateStr = startDate.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                });
+                const timeStr = `${startDate.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })} - ${endDate.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}`;
+
+                return (
+                  <motion.div
+                    key={event.id}
+                    className="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer w-full md:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] max-w-md"
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: idx * 0.1 }}
+                    whileHover={{ y: -5 }}
+                    onClick={() => setSelectedEvent(event)}
+                  >
+                    <div className="p-6">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {event.eventType?.replace('_', ' ').toUpperCase() || 'EVENT'}
+                          </span>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                            Global
+                          </span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 group-hover:bg-indigo-100 transition-colors">
+                          <CalendarIcon className="h-5 w-5 text-indigo-600" />
+                        </div>
+                      </div>
+
+                      <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-2">
+                        {event.title}
+                      </h3>
+
+                      <div className="flex items-center text-sm text-gray-700 mb-4">
+                        <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
+                        <span className="truncate">{event.organization?.name || 'EduMapping'}</span>
+                      </div>
+
+                      <div className="space-y-2 text-sm text-gray-600 mb-5">
+                        <div className="flex items-center">
+                          <CalendarIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{dateStr}</span>
+                        </div>
+                        
+                        <div className="flex items-center">
+                          <ClockIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{timeStr}</span>
+                        </div>
+                        
+                        {event.location && (
+                          <div className="flex items-center">
+                            <MapPinIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="truncate">{event.location}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-200 flex justify-end">
+                        {event.virtualLink ? (
+                          <button
+                            onClick={(e) => handleJoinFromLanding(e, event)}
+                            className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700"
+                          >
+                            Join Event
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-500">Details inside</span>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            <div className="text-center mt-12">
+              <Link
+                to="/events"
+                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              >
+                View All Events
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Landing Event Details Modal */}
+      <AnimatePresence>
+        {selectedEvent && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={closeEventModal}
+            />
+
+            <motion.div
+              className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+              initial={{ scale: 0.96, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.98, opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+            >
+              <div className="p-6 border-b border-gray-200 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                      Global
+                    </span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {selectedEvent.eventType?.replace('_', ' ').toUpperCase() || 'EVENT'}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900">{selectedEvent.title}</h3>
+                  <div className="flex items-center text-sm text-gray-700 mt-1">
+                    <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
+                    <span className="truncate">{selectedEvent.organization?.name || 'EduMapping'}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={closeEventModal}
+                  className="p-2 rounded-lg hover:bg-gray-100"
+                  aria-label="Close"
+                >
+                  <XMarkIcon className="h-5 w-5 text-gray-600" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700">
+                  <div className="flex items-center">
+                    <CalendarIcon className="h-4 w-4 mr-2 text-gray-400" />
+                    {new Date(selectedEvent.startTime).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </div>
+                  <div className="flex items-center">
+                    <ClockIcon className="h-4 w-4 mr-2 text-gray-400" />
+                    {new Date(selectedEvent.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} -{' '}
+                    {new Date(selectedEvent.endTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  {selectedEvent.location && (
+                    <div className="flex items-center sm:col-span-2">
+                      <MapPinIcon className="h-4 w-4 mr-2 text-gray-400" />
+                      {selectedEvent.location}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">About</h4>
+                  <p className="text-gray-700 whitespace-pre-line">{selectedEvent.description}</p>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+                <button
+                  onClick={closeEventModal}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200"
+                >
+                  Close
+                </button>
+                {selectedEvent.virtualLink && (
+                  <button
+                    onClick={(e) => handleJoinFromLanding(e, selectedEvent)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    Join Event
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Who We Work With Section */}
       <section className="py-20 bg-gray-50">
@@ -770,6 +1017,117 @@ const LandingPage = () => {
             </motion.div>
           </div>
         </section>
+
+        {/* Upcoming Global Events Section */}
+        {!isLoadingEvents && upcomingEvents.length > 0 && (
+          <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+            <div className="container mx-auto px-4">
+              <div className="text-center mb-16">
+                <h2 className="text-4xl font-bold text-gray-900 mb-4">Upcoming Events</h2>
+                <p className="text-xl text-gray-600">Join our global events and workshops</p>
+              </div>
+
+              <div className="flex flex-wrap justify-center gap-6 max-w-7xl mx-auto">
+                {upcomingEvents.map((event, idx) => {
+                  const startDate = new Date(event.startTime);
+                  const endDate = new Date(event.endTime);
+                  const dateStr = startDate.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  });
+                  const timeStr = `${startDate.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })} - ${endDate.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}`;
+
+                  return (
+                    <motion.div
+                      key={event.id}
+                      className="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer w-full md:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] max-w-md"
+                      initial={{ opacity: 0, y: 20 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ delay: idx * 0.1 }}
+                      whileHover={{ y: -5 }}
+                      onClick={() => setSelectedEvent(event)}
+                    >
+                      <div className="p-6">
+                        <div className="flex items-start justify-between gap-3 mb-4">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                              {event.eventType?.replace('_', ' ').toUpperCase() || 'EVENT'}
+                            </span>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                              Global
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 group-hover:bg-indigo-100 transition-colors">
+                            <CalendarIcon className="h-5 w-5 text-indigo-600" />
+                          </div>
+                        </div>
+
+                        <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-2">
+                          {event.title}
+                        </h3>
+
+                        <div className="flex items-center text-sm text-gray-700 mb-4">
+                          <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
+                          <span className="truncate">{event.organization?.name || 'EduMapping'}</span>
+                        </div>
+
+                        <div className="space-y-2 text-sm text-gray-600 mb-5">
+                          <div className="flex items-center">
+                            <CalendarIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="truncate">{dateStr}</span>
+                          </div>
+                          
+                          <div className="flex items-center">
+                            <ClockIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="truncate">{timeStr}</span>
+                          </div>
+                          
+                          {event.location && (
+                            <div className="flex items-center">
+                              <MapPinIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                              <span className="truncate">{event.location}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pt-4 border-t border-gray-200 flex justify-end">
+                          {event.virtualLink ? (
+                            <button
+                              onClick={(e) => handleJoinFromLanding(e, event)}
+                              className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700"
+                            >
+                              Join Event
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-500">Details inside</span>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+
+              <div className="text-center mt-12">
+                <Link
+                  to="/events"
+                  className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                >
+                  View All Events
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     );
   };
@@ -1034,6 +1392,117 @@ const LandingPage = () => {
           </motion.div>
         </div>
       </section>
+
+      {/* Upcoming Global Events Section */}
+      {!isLoadingEvents && upcomingEvents.length > 0 && (
+        <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">Upcoming Events</h2>
+              <p className="text-xl text-gray-600">Join our global events and workshops</p>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-6 max-w-7xl mx-auto">
+              {upcomingEvents.map((event, idx) => {
+                const startDate = new Date(event.startTime);
+                const endDate = new Date(event.endTime);
+                const dateStr = startDate.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                });
+                const timeStr = `${startDate.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })} - ${endDate.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}`;
+
+                return (
+                  <motion.div
+                    key={event.id}
+                    className="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer w-full md:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] max-w-md"
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: idx * 0.1 }}
+                    whileHover={{ y: -5 }}
+                    onClick={() => setSelectedEvent(event)}
+                  >
+                    <div className="p-6">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {event.eventType?.replace('_', ' ').toUpperCase() || 'EVENT'}
+                          </span>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                            Global
+                          </span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 group-hover:bg-indigo-100 transition-colors">
+                          <CalendarIcon className="h-5 w-5 text-indigo-600" />
+                        </div>
+                      </div>
+
+                      <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-2">
+                        {event.title}
+                      </h3>
+
+                      <div className="flex items-center text-sm text-gray-700 mb-4">
+                        <BuildingOfficeIcon className="h-4 w-4 mr-2 text-gray-400" />
+                        <span className="truncate">{event.organization?.name || 'EduMapping'}</span>
+                      </div>
+
+                      <div className="space-y-2 text-sm text-gray-600 mb-5">
+                        <div className="flex items-center">
+                          <CalendarIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{dateStr}</span>
+                        </div>
+                        
+                        <div className="flex items-center">
+                          <ClockIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{timeStr}</span>
+                        </div>
+                        
+                        {event.location && (
+                          <div className="flex items-center">
+                            <MapPinIcon className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="truncate">{event.location}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-200 flex justify-end">
+                        {event.virtualLink ? (
+                          <button
+                            onClick={(e) => handleJoinFromLanding(e, event)}
+                            className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700"
+                          >
+                            Join Event
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-500">Details inside</span>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            <div className="text-center mt-12">
+              <Link
+                to="/events"
+                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              >
+                View All Events
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 
