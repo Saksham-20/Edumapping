@@ -30,7 +30,8 @@ import {
   EyeIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
-  AcademicCapIcon
+  AcademicCapIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { preparePieChartData, prepareLineChartData, prepareBarChartData } from '../../utils/chartUtils';
 
@@ -101,6 +102,20 @@ const AdminDashboard = () => {
   const [showApprovalInfo, setShowApprovalInfo] = useState(false);
   const [approvalInfoType, setApprovalInfoType] = useState('');
 
+  // Recruiter permissions tab state
+  const [recruiters, setRecruiters] = useState([]);
+  const [institutions, setInstitutions] = useState([]);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [selectedRecruiter, setSelectedRecruiter] = useState(null);
+  const [selectedOrgIds, setSelectedOrgIds] = useState([]);
+  const [selectedYears, setSelectedYears] = useState([]);
+  const [selectedStreams, setSelectedStreams] = useState([]);
+  const [selectedRegions, setSelectedRegions] = useState([]);
+  const [selectedStates, setSelectedStates] = useState([]);
+  const [selectedCities, setSelectedCities] = useState([]);
+  const [permissionsSaving, setPermissionsSaving] = useState(false);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+
   const tabs = [
     { id: 'overview', label: 'Overview', icon: ChartBarIcon },
     { id: 'analytics', label: 'Analytics', icon: ChartBarIcon },
@@ -108,7 +123,8 @@ const AdminDashboard = () => {
     { id: 'tpos', label: 'TPOs', icon: AcademicCapIcon },
     { id: 'universities', label: 'Universities', icon: BuildingOfficeIcon },
     { id: 'companies', label: 'Companies', icon: BriefcaseIcon },
-    { id: 'schools', label: 'Schools', icon: AcademicCapIcon }
+    { id: 'schools', label: 'Schools', icon: AcademicCapIcon },
+    { id: 'recruiter-permissions', label: 'Recruiter permissions', icon: ShieldCheckIcon }
   ];
 
   useEffect(() => {
@@ -129,6 +145,9 @@ const AdminDashboard = () => {
       fetchCompanies();
     } else if (activeTab === 'schools') {
       fetchSchools();
+    } else if (activeTab === 'recruiter-permissions') {
+      fetchRecruiters();
+      fetchInstitutions();
     } else if (activeTab === 'analytics') {
       fetchAdvancedAnalytics();
       fetchTopPerformers();
@@ -324,6 +343,40 @@ const AdminDashboard = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchRecruiters = async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get('/users?role=recruiter&limit=200');
+      setRecruiters(response.users || []);
+    } catch (error) {
+      console.error('Failed to fetch recruiters:', error);
+      toast.error('Failed to load recruiters');
+      setRecruiters([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchInstitutions = async () => {
+    try {
+      const [uniRes, schoolRes, collegeRes] = await Promise.all([
+        adminService.getAllUniversities({ limit: 500 }),
+        adminService.getAllSchools({ limit: 500 }),
+        adminService.getAllColleges({ limit: 500 })
+      ]);
+      const list = [
+        ...(uniRes.universities || []).map((o) => ({ id: o.id, name: o.name, type: 'university', region: o.region, state: o.state, city: o.city })),
+        ...(schoolRes.schools || []).map((o) => ({ id: o.id, name: o.name, type: 'school', region: o.region, state: o.state, city: o.city })),
+        ...(collegeRes.colleges || []).map((o) => ({ id: o.id, name: o.name, type: 'college', region: o.region, state: o.state, city: o.city }))
+      ].sort((a, b) => a.name.localeCompare(b.name));
+      setInstitutions(list);
+    } catch (error) {
+      console.error('Failed to fetch institutions:', error);
+      toast.error('Failed to load institutions');
+      setInstitutions([]);
     }
   };
 
@@ -732,6 +785,91 @@ const AdminDashboard = () => {
       rejected: 'text-red-600 bg-red-100'
     };
     return colors[status] || 'text-gray-600 bg-gray-100';
+  };
+
+  // Recruiter permissions handlers
+  const handleOpenPermissions = async (recruiter) => {
+    setSelectedRecruiter(recruiter);
+    setSelectedOrgIds([]);
+    setSelectedYears([]);
+    setSelectedStreams([]);
+    setSelectedRegions([]);
+    setSelectedStates([]);
+    setSelectedCities([]);
+    setShowPermissionsModal(true);
+    setPermissionsLoading(true);
+    try {
+      const data = await adminService.getRecruiterPermissions(recruiter.id);
+      setSelectedOrgIds(data.allowedOrganizationIds || []);
+      setSelectedYears(Array.isArray(data.allowedYears) ? data.allowedYears.map((y) => Number(y)) : []);
+      setSelectedStreams(Array.isArray(data.allowedStreams) ? [...data.allowedStreams] : []);
+      setSelectedRegions(Array.isArray(data.allowedRegions) ? [...data.allowedRegions] : []);
+      setSelectedStates(Array.isArray(data.allowedStates) ? [...data.allowedStates] : []);
+      setSelectedCities(Array.isArray(data.allowedCities) ? [...data.allowedCities] : []);
+    } catch (err) {
+      console.error('Failed to load recruiter permissions:', err);
+      toast.error('Failed to load permissions');
+    } finally {
+      setPermissionsLoading(false);
+    }
+  };
+
+  const handlePermissionsToggle = (orgId) => {
+    setSelectedOrgIds((prev) =>
+      prev.includes(orgId) ? prev.filter((id) => id !== orgId) : [...prev, orgId]
+    );
+  };
+
+  const toggleYear = (year) => {
+    setSelectedYears((prev) =>
+      prev.includes(year) ? prev.filter((y) => y !== year) : [...prev, year].sort((a, b) => a - b)
+    );
+  };
+
+  const toggleRegion = (v) => {
+    setSelectedRegions((prev) => (prev.includes(v) ? prev.filter((r) => r !== v) : [...prev, v].sort()));
+  };
+  const toggleState = (v) => {
+    setSelectedStates((prev) => (prev.includes(v) ? prev.filter((s) => s !== v) : [...prev, v].sort()));
+  };
+  const toggleCity = (v) => {
+    setSelectedCities((prev) => (prev.includes(v) ? prev.filter((c) => c !== v) : [...prev, v].sort()));
+  };
+
+  const handleStreamInput = (e) => {
+    const raw = e.target.value || '';
+    const list = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    setSelectedStreams(list);
+  };
+
+  const handleSaveRecruiterPermissions = async (e) => {
+    e.preventDefault();
+    if (!selectedRecruiter) return;
+    try {
+      setPermissionsSaving(true);
+      await adminService.setRecruiterAllowedOrganizations(selectedRecruiter.id, {
+        organizationIds: selectedOrgIds,
+        allowedYears: selectedYears,
+        allowedStreams: selectedStreams,
+        allowedRegions: selectedRegions,
+        allowedStates: selectedStates,
+        allowedCities: selectedCities
+      });
+      toast.success('Recruiter permissions updated');
+      setShowPermissionsModal(false);
+      setSelectedRecruiter(null);
+      setSelectedOrgIds([]);
+      setSelectedYears([]);
+      setSelectedStreams([]);
+      setSelectedRegions([]);
+      setSelectedStates([]);
+      setSelectedCities([]);
+    } catch (error) {
+      const msg = error.response?.data?.message || error.message || 'Failed to update permissions';
+      toast.error(msg);
+    } finally {
+      setPermissionsSaving(false);
+    }
   };
 
   if (user?.role !== 'admin') {
@@ -1796,6 +1934,249 @@ const AdminDashboard = () => {
     );
   };
 
+  // Render Recruiter permissions tab
+  const renderRecruiterPermissionsTab = () => {
+    if (isLoading && recruiters.length === 0) {
+      return (
+        <div className="flex justify-center py-12">
+          <LoadingSpinner />
+        </div>
+      );
+    }
+    return (
+      <>
+        <div className="mb-6">
+          <h3 className="text-lg font-medium text-gray-900">Recruiter access</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Choose which recruiters can see students from which institutions. Recruiters can only access students from schools, colleges, or universities you allow.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {recruiters.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    No recruiters found.
+                  </td>
+                </tr>
+              ) : (
+                recruiters.map((r) => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {r.firstName} {r.lastName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{r.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {r.organization?.name || '—'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPermissions(r)}
+                        className="inline-flex items-center px-3 py-1.5 border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50"
+                      >
+                        <ShieldCheckIcon className="h-4 w-4 mr-1.5" />
+                        Set permissions
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <AdminModal
+          isOpen={showPermissionsModal}
+          onClose={() => {
+            setShowPermissionsModal(false);
+            setSelectedRecruiter(null);
+            setSelectedOrgIds([]);
+            setSelectedYears([]);
+            setSelectedStreams([]);
+            setSelectedRegions([]);
+            setSelectedStates([]);
+            setSelectedCities([]);
+          }}
+          title={selectedRecruiter ? `Permissions — ${selectedRecruiter.firstName} ${selectedRecruiter.lastName}` : 'Recruiter permissions'}
+        >
+          <form onSubmit={handleSaveRecruiterPermissions} className="space-y-4">
+            {permissionsLoading ? (
+              <div className="flex justify-center py-8"><LoadingSpinner size="medium" /></div>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600">
+                  Allowed institutions: select schools, colleges, and universities this recruiter can view students from. Optional filters below further restrict by region/state/city and by year/stream.
+                </p>
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-4">
+                  {['school', 'college', 'university'].map((type) => {
+                    const list = institutions.filter((i) => i.type === type);
+                    if (list.length === 0) return null;
+                    const label = type.charAt(0).toUpperCase() + type.slice(1) + 's';
+                    return (
+                      <div key={type}>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">{label}</h4>
+                        <ul className="space-y-1.5">
+                          {list.map((org) => (
+                            <li key={org.id} className="flex items-center">
+                              <input
+                                type="checkbox"
+                                id={`org-${org.id}`}
+                                checked={selectedOrgIds.includes(org.id)}
+                                onChange={() => handlePermissionsToggle(org.id)}
+                                className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                              />
+                              <label htmlFor={`org-${org.id}`} className="ml-2 text-sm text-gray-700 cursor-pointer">
+                                {org.name}
+                              </label>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+                {institutions.length === 0 && (
+                  <p className="text-sm text-gray-500">No schools, colleges, or universities in the system yet.</p>
+                )}
+
+                <div className="border-t border-gray-200 pt-4 space-y-4">
+                  <h4 className="text-sm font-semibold text-gray-800">Region / State / City (optional)</h4>
+                  <p className="text-xs text-gray-500">If set, only students from institutions in these locations are visible.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Regions</label>
+                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
+                        {[...new Set(institutions.map((i) => i.region).filter(Boolean))].sort().map((r) => (
+                          <label key={r} className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedRegions.includes(r)}
+                              onChange={() => toggleRegion(r)}
+                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{r}</span>
+                          </label>
+                        ))}
+                        {![...new Set(institutions.map((i) => i.region).filter(Boolean))].length && (
+                          <span className="text-xs text-gray-400">No regions in data</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">States</label>
+                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
+                        {[...new Set(institutions.map((i) => i.state).filter(Boolean))].sort().map((s) => (
+                          <label key={s} className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedStates.includes(s)}
+                              onChange={() => toggleState(s)}
+                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{s}</span>
+                          </label>
+                        ))}
+                        {![...new Set(institutions.map((i) => i.state).filter(Boolean))].length && (
+                          <span className="text-xs text-gray-400">No states in data</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Cities</label>
+                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
+                        {[...new Set(institutions.map((i) => i.city).filter(Boolean))].sort().map((c) => (
+                          <label key={c} className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedCities.includes(c)}
+                              onChange={() => toggleCity(c)}
+                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{c}</span>
+                          </label>
+                        ))}
+                        {![...new Set(institutions.map((i) => i.city).filter(Boolean))].length && (
+                          <span className="text-xs text-gray-400">No cities in data</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-800">Year & stream (optional)</h4>
+                  <p className="text-xs text-gray-500">If set, only students in these years or streams are visible.</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Years (1–6)</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[1, 2, 3, 4, 5, 6].map((y) => (
+                        <label key={y} className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedYears.includes(y)}
+                            onChange={() => toggleYear(y)}
+                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                          />
+                          <span className="ml-1.5 text-sm text-gray-700">Year {y}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Streams (comma- or space-separated)</label>
+                    <input
+                      type="text"
+                      value={selectedStreams.join(', ')}
+                      onChange={handleStreamInput}
+                      placeholder="e.g. CSE, ECE, Mechanical"
+                      className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="flex justify-end space-x-3 pt-2 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPermissionsModal(false);
+                  setSelectedRecruiter(null);
+                  setSelectedOrgIds([]);
+                  setSelectedYears([]);
+                  setSelectedStreams([]);
+                  setSelectedRegions([]);
+                  setSelectedStates([]);
+                  setSelectedCities([]);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={permissionsSaving || permissionsLoading}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {permissionsSaving ? 'Saving…' : 'Save permissions'}
+              </button>
+            </div>
+          </form>
+        </AdminModal>
+      </>
+    );
+  };
+
   // Render Companies Tab
   const renderCompaniesTab = () => {
     const companyColumns = [
@@ -2001,6 +2382,7 @@ const AdminDashboard = () => {
         {activeTab === 'universities' && renderUniversitiesTab()}
         {activeTab === 'companies' && renderCompaniesTab()}
         {activeTab === 'schools' && renderSchoolsTab()}
+        {activeTab === 'recruiter-permissions' && renderRecruiterPermissionsTab()}
       </div>
 
       {/* Approval Info Modal */}

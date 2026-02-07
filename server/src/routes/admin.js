@@ -128,6 +128,8 @@ router.get('/organizations', async (req, res, next) => {
       return adminOrganizationController.getAllCompanies(req, res, next);
     } else if (type === 'school') {
       return adminOrganizationController.getAllSchools(req, res, next);
+    } else if (type === 'college') {
+      return adminOrganizationController.getAllColleges(req, res, next);
     } else {
       // Get all organizations
       const { Organization } = require('../models');
@@ -254,6 +256,9 @@ router.patch('/organizations/:id/verify', adminOrganizationController.verifyOrga
  *       - bearerAuth: []
  */
 router.get('/organizations/:id', adminOrganizationController.getOrganizationById);
+
+router.get('/recruiters/:id/permissions', adminController.getRecruiterPermissions);
+router.put('/recruiters/:id/allowed-organizations', adminController.setRecruiterAllowedOrganizations);
 
 module.exports = router;
 

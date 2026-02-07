@@ -1,10 +1,33 @@
 // server/src/services/authService.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Organization } = require('../models');
+const { Op } = require('sequelize');
+const { User, Organization, OtpVerification } = require('../models');
+const emailService = require('./emailService');
 const logger = require('../utils/logger');
 
+const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10;
+const OTP_LENGTH = 6;
+
 class AuthService {
+  _generateOtp() {
+    const digits = '0123456789';
+    let otp = '';
+    for (let i = 0; i < OTP_LENGTH; i++) {
+      otp += digits[Math.floor(Math.random() * 10)];
+    }
+    return otp;
+  }
+
+  async _hashOtp(otp) {
+    const saltRounds = 10;
+    return await bcrypt.hash(otp, saltRounds);
+  }
+
+  async _verifyOtp(otp, otpHash) {
+    return await bcrypt.compare(otp, otpHash);
+  }
+
   async hashPassword(password) {
     const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
     return await bcrypt.hash(password, saltRounds);
@@ -55,12 +78,18 @@ class AuthService {
 
   async register(userData) {
     try {
-      const { email, password, role, organizationId, ...profileData } = userData;
-      
-      logger.debug('Registration attempt', { email, role, organizationId: organizationId || 'none' });
+      const { email, otp, password, role, organizationId, ...profileData } = userData;
+      const normalizedEmail = email && email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        throw new Error('Email is required');
+      }
+      if (otp) {
+        await this.verifyRegistrationOtp(normalizedEmail, otp);
+      }
+      logger.debug('Registration attempt', { email: normalizedEmail, role, organizationId: organizationId || 'none' });
 
   // Check if user exists
-  const existingUser = await User.findOne({ where: { email } });
+  const existingUser = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
   if (existingUser) {
     throw new Error('User already exists with this email');
   }
@@ -72,14 +101,12 @@ class AuthService {
       throw new Error('Invalid organization');
     }
     
-    // Students can belong to universities (colleges) or schools
-    // TPOs can only belong to universities (colleges)
-    // School roles (principal, teacher, school_admin, career_counselor) can only belong to schools
-    if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
-      throw new Error('Students can only belong to university or school organizations');
+    // Students: university, college, or school. TPOs: university or college. School roles: school only.
+    if (role === 'student' && !['university', 'college', 'school'].includes(organization.type)) {
+      throw new Error('Students can only belong to university, college, or school organizations');
     }
-    if (role === 'tpo' && organization.type !== 'university') {
-      throw new Error('TPOs can only belong to university organizations');
+    if (role === 'tpo' && organization.type !== 'university' && organization.type !== 'college') {
+      throw new Error('TPOs can only belong to university or college organizations');
     }
     
     // Recruiters must belong to company organizations
@@ -131,7 +158,7 @@ class AuthService {
     let user;
     try {
       user = await User.create({
-        email,
+        email: normalizedEmail,
         passwordHash,
         role,
         organizationId,
@@ -190,20 +217,30 @@ class AuthService {
     }
   }
 
-  async login(email, password) {
-    logger.auth('login', null, false, { email: logger.sanitize.email(email) });
+  /**
+   * Find user by identifier (email or phone). Supports legacy login with email only.
+   */
+  async _findUserByIdentifier(identifier) {
+    if (!identifier || typeof identifier !== 'string') return null;
+    const trimmed = identifier.trim();
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+    const where = isEmail
+      ? { email: { [Op.iLike]: trimmed } }
+      : { phone: trimmed };
+    return await User.findOne({
+      where,
+      include: [
+        { model: Organization, as: 'organization' }
+      ]
+    });
+  }
+
+  async login(identifierOrEmail, password) {
+    const identifier = identifierOrEmail && identifierOrEmail.trim();
+    logger.auth('login', null, false, { identifier: identifier ? (identifier.includes('@') ? logger.sanitize.email(identifier) : 'phone') : 'missing' });
     
     try {
-      // First, find user by email (regardless of isActive status)
-      const user = await User.findOne({
-        where: { email },
-        include: [
-          {
-            model: Organization,
-            as: 'organization'
-          }
-        ]
-      });
+      const user = await this._findUserByIdentifier(identifier);
       
       logger.debug('User lookup for login', { 
         found: !!user, 
@@ -272,23 +309,124 @@ class AuthService {
     return { message: 'Logged out successfully' };
   }
 
-  async forgotPassword(email) {
-    const user = await User.findOne({ where: { email } });
+  async sendRegistrationOtp(email) {
+    const normalizedEmail = email && email.trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      throw new Error('Valid email is required');
+    }
+    const existingUser = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
+    if (existingUser) {
+      return { message: 'If this email is not registered, you will receive an OTP shortly' };
+    }
+    const otp = this._generateOtp();
+    const otpHash = await this._hashOtp(otp);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    await OtpVerification.create({
+      identifier: normalizedEmail,
+      otpHash,
+      purpose: 'registration',
+      expiresAt
+    });
+    try {
+      await emailService.sendOtpEmail(normalizedEmail, otp, 'registration');
+    } catch (e) {
+      logger.error('Send registration OTP email failed', e, { email: logger.sanitize.email(normalizedEmail) });
+    }
+    return { message: 'If this email is not registered, you will receive an OTP shortly' };
+  }
+
+  async verifyRegistrationOtp(email, otp) {
+    const normalizedEmail = email && email.trim().toLowerCase();
+    if (!normalizedEmail || !otp || String(otp).length !== OTP_LENGTH) {
+      throw new Error('Invalid email or OTP');
+    }
+    const row = await OtpVerification.findOne({
+      where: {
+        identifier: normalizedEmail,
+        purpose: 'registration',
+        usedAt: null,
+        expiresAt: { [Op.gt]: new Date() }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    if (!row || !(await this._verifyOtp(String(otp).trim(), row.otpHash))) {
+      throw new Error('Invalid or expired OTP');
+    }
+    await row.update({ usedAt: new Date() });
+    return { verified: true, email: normalizedEmail };
+  }
+
+  async sendForgotPasswordOtp(email) {
+    const normalizedEmail = email && email.trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      throw new Error('Valid email is required');
+    }
+    const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
     if (!user) {
-      // Don't reveal if email exists
+      return { message: 'If the email exists, a reset OTP has been sent' };
+    }
+    const otp = this._generateOtp();
+    const otpHash = await this._hashOtp(otp);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    await OtpVerification.create({
+      identifier: normalizedEmail,
+      otpHash,
+      purpose: 'forgot_password',
+      expiresAt
+    });
+    try {
+      await emailService.sendOtpEmail(normalizedEmail, otp, 'forgot_password');
+    } catch (e) {
+      logger.error('Send forgot-password OTP email failed', e, { email: logger.sanitize.email(normalizedEmail) });
+    }
+    return { message: 'If the email exists, a reset OTP has been sent' };
+  }
+
+  async resetPasswordWithOtp(email, otp, newPassword) {
+    const normalizedEmail = email && email.trim().toLowerCase();
+    if (!normalizedEmail || !otp || !newPassword) {
+      throw new Error('Email, OTP and new password are required');
+    }
+    if (String(newPassword).length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
+    const row = await OtpVerification.findOne({
+      where: {
+        identifier: normalizedEmail,
+        purpose: 'forgot_password',
+        usedAt: null,
+        expiresAt: { [Op.gt]: new Date() }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    if (!row || !(await this._verifyOtp(String(otp).trim(), row.otpHash))) {
+      throw new Error('Invalid or expired OTP');
+    }
+    const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
+    if (!user) {
+      throw new Error('User not found');
+    }
+    await row.update({ usedAt: new Date() });
+    const passwordHash = await this.hashPassword(newPassword);
+    await user.update({ passwordHash });
+    return { message: 'Password reset successfully' };
+  }
+
+  async forgotPassword(email) {
+    const user = await User.findOne({ where: { email: { [Op.iLike]: (email || '').trim().toLowerCase() } } });
+    if (!user) {
       return { message: 'If the email exists, a reset link has been sent' };
     }
-
-    // Generate reset token (in production, save this in database with expiry)
     const resetToken = jwt.sign(
       { userId: user.id, type: 'password_reset' },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
-
-    // Send email (implement email service)
-    // await emailService.sendPasswordResetEmail(user.email, resetToken);
-
+    try {
+      await emailService.sendPasswordResetEmail(user.email, resetToken);
+    } catch (e) {
+      logger.error('Send password reset email failed', e, { email: logger.sanitize.email(user.email) });
+    }
     return { message: 'If the email exists, a reset link has been sent' };
   }
 

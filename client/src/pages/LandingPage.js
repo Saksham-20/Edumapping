@@ -634,23 +634,23 @@ const LandingPage = () => {
       </AnimatePresence>
 
       {/* Who We Work With Section */}
-      <section className="py-20 bg-gray-50">
+      <section className="py-12 sm:py-20 bg-gray-50">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-4">Who We Work With</h2>
-            <p className="text-xl text-gray-600">Partnering with educational institutions to empower students</p>
+          <div className="text-center mb-10 sm:mb-16">
+            <h2 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-4">Who We Work With</h2>
+            <p className="text-base sm:text-xl text-gray-600">Partnering with educational institutions to empower students</p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-12 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 max-w-5xl mx-auto">
             {/* Colleges */}
             <motion.div
-              className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100"
+              className="bg-white p-6 sm:p-8 rounded-3xl shadow-lg border border-gray-100 min-w-0"
               initial={{ opacity: 0, x: -20 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
             >
               <div className="text-5xl mb-6 text-center">🎓</div>
-              <h3 className="text-3xl font-bold mb-6 text-center text-gray-900">Colleges & Universities</h3>
+              <h3 className="text-2xl sm:text-3xl font-bold mb-6 text-center text-gray-900">Colleges & Universities</h3>
               <ul className="space-y-4">
                 <li className="flex items-start gap-3">
                   <span className="text-[#FF9933] text-xl mt-1">✓</span>
@@ -688,13 +688,13 @@ const LandingPage = () => {
 
             {/* Schools */}
             <motion.div
-              className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100"
+              className="bg-white p-6 sm:p-8 rounded-3xl shadow-lg border border-gray-100 min-w-0"
               initial={{ opacity: 0, x: 20 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
             >
               <div className="text-5xl mb-6 text-center">🏫</div>
-              <h3 className="text-3xl font-bold mb-6 text-center text-gray-900">Schools</h3>
+              <h3 className="text-2xl sm:text-3xl font-bold mb-6 text-center text-gray-900">Schools</h3>
               <ul className="space-y-4">
                 <li className="flex items-start gap-3">
                   <span className="text-[#138808] text-xl mt-1">✓</span>
@@ -742,18 +742,18 @@ const LandingPage = () => {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-4xl font-bold mb-6 text-gray-900">Ready to transform your institution?</h2>
-            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-4 sm:mb-6 text-gray-900 px-2">Ready to transform your institution?</h2>
+            <p className="text-base sm:text-xl text-gray-600 mb-8 sm:mb-10 max-w-2xl mx-auto px-2">
               Join hundreds of schools and colleges already using EduMapping to improve student outcomes.
             </p>
-            <div className="flex flex-wrap justify-center gap-4">
+            <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
               <button
                 onClick={() => {
                   setIsSchoolMode(false);
                   setShowAudienceContent(true);
                   window.scrollTo(0, 0);
                 }}
-                className="px-8 py-4 bg-gradient-to-r from-[#138808]/50 to-[#138808]/30 border border-[#138808]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#138808]/60 hover:to-[#138808]/40 transition-all transform hover:-translate-y-1"
+                className="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-[#138808]/50 to-[#138808]/30 border border-[#138808]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#138808]/60 hover:to-[#138808]/40 transition-all transform hover:-translate-y-1"
               >
                 View for Colleges
               </button>
@@ -763,14 +763,14 @@ const LandingPage = () => {
                   setShowAudienceContent(true);
                   window.scrollTo(0, 0);
                 }}
-                className="px-8 py-4 bg-gradient-to-r from-[#FF8C42]/50 to-[#FF8C42]/30 border border-[#FF8C42]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#FF8C42]/60 hover:to-[#FF8C42]/40 transition-all transform hover:-translate-y-1"
+                className="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-[#FF8C42]/50 to-[#FF8C42]/30 border border-[#FF8C42]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#FF8C42]/60 hover:to-[#FF8C42]/40 transition-all transform hover:-translate-y-1"
               >
                 View for Schools
               </button>
               <Link
                 to={isSchoolMode && showAudienceContent ? "/login/school" : "/login/college"}
                 state={{ from: { pathname: '/dashboard' } }}
-                className="px-8 py-4 bg-gradient-to-r from-[#138808]/50 to-[#138808]/30 border border-[#138808]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#138808]/60 hover:to-[#138808]/40 hover:shadow-xl transition-all transform hover:-translate-y-1"
+                className="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-[#138808]/50 to-[#138808]/30 border border-[#138808]/60 text-white rounded-full font-bold backdrop-blur-md shadow-lg hover:from-[#138808]/60 hover:to-[#138808]/40 hover:shadow-xl transition-all transform hover:-translate-y-1"
               >
                 Try Demo
               </Link>
@@ -2300,28 +2300,28 @@ const LandingPage = () => {
     <div className="font-sans text-gray-900">
       {/* Navigation */}
       <nav className={`fixed w-full z-50 transition-all duration-300 ${currentPage === 'home' ? 'bg-white/90 backdrop-blur-md shadow-sm' : 'bg-white shadow-sm'}`}>
-        <div className="container mx-auto px-4">
-          <div className="flex justify-between items-center h-20">
+        <div className="container mx-auto px-3 sm:px-4">
+          <div className="flex justify-between items-center min-h-[64px] sm:h-20 gap-2">
             <button
               onClick={() => {
                 handlePageChange('home');
                 setShowAudienceContent(false);
                 window.scrollTo(0, 0);
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-shrink"
             >
-              <img src="/logo.svg" alt="EduMapping" className="h-12 w-auto" />
-              <div className="flex flex-col items-center">
-                <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
+              <img src="/logo.svg" alt="EduMapping" className="h-8 sm:h-10 lg:h-12 w-auto flex-shrink-0" />
+              <div className="flex flex-col items-start min-w-0">
+                <span className="text-lg sm:text-xl lg:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm truncate max-w-[140px] sm:max-w-none">
                   EduMapping
                 </span>
-                <span className="text-[11px] sm:text-xs text-gray-600 font-medium leading-tight text-center">
+                <span className="text-[10px] sm:text-xs text-gray-600 font-medium leading-tight hidden sm:block">
                   Nurturing Young Minds
                 </span>
               </div>
             </button>
 
-            <div className="hidden md:flex items-center gap-6">
+            <div className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
               {['Home', 'Features', 'About', 'Connect with Us'].map((item) => (
                 <button
                   key={item}
@@ -2395,23 +2395,23 @@ const LandingPage = () => {
               </Link>
             </div>
 
-            {/* Mobile Menu Toggle */}
-            <button className="md:hidden text-gray-600" onClick={() => setIsMenuOpen(!isMenuOpen)}>
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {/* Mobile/Tablet Menu Toggle (burger) - visible on screens smaller than lg */}
+            <button type="button" className="lg:hidden flex-shrink-0 p-2 -m-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label={isMenuOpen ? 'Close menu' : 'Open menu'} aria-expanded={isMenuOpen}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* Mobile Menu */}
+        {/* Mobile/Tablet Menu (dropdown) */}
         <AnimatePresence>
           {isMenuOpen && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden bg-white border-t"
+              className="lg:hidden bg-white border-t border-gray-200 shadow-lg"
             >
               <div className="flex flex-col p-4 gap-4">
                 {['Home', 'Features', 'About', 'Connect with Us'].map((item) => (
@@ -2556,45 +2556,58 @@ const LandingPage = () => {
       {/* Footer */}
       <footer className="bg-gray-900 text-gray-300 py-12">
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div className="col-span-1 md:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+            <div className="sm:col-span-2">
               <div className="flex items-center gap-2 mb-6">
-                <img src="/logo.svg" alt="EduMapping" className="h-10" />
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808]">
+                <img src="/logo.svg" alt="EduMapping" className="h-10 w-auto flex-shrink-0" />
+                <div className="flex flex-col items-start min-w-0">
+                  <span className="text-xl sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FF9933] to-[#138808]">
                     EduMapping
                   </span>
-                  <span className="text-xs text-gray-400 font-medium text-center">Nurturing Young Minds</span>
+                  <span className="text-xs text-gray-400 font-medium">Nurturing Young Minds</span>
                 </div>
               </div>
               <p className="mb-4 max-w-sm">Making youth job-ready with essential employability skills.</p>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 mb-4">
                 Brand by <span className="text-[#FF9933]">eTraze</span>
               </p>
+              {/* Social links */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-gray-400 font-medium mr-1">Follow us:</span>
+                <a href="https://www.facebook.com/share/1Gm6idAExE/" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-gray-800 text-gray-300 hover:text-white hover:bg-[#1877F2] transition-colors" aria-label="Facebook">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                </a>
+                <a href="https://www.instagram.com/edumapping?igsh=MTBoYnFzZGVqZGEyZA==" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-gray-800 text-gray-300 hover:text-white hover:bg-gradient-to-br hover:from-[#f09433] hover:via-[#e6683c] hover:to-[#dc2743] transition-all" aria-label="Instagram">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.218 4.771 1.091 6.352 2.966a11.942 11.942 0 0 1 2.668 6.479c0 3.204-.012 3.584-.07 4.85-.059 3.28-1.082 4.771-2.966 6.352-1.195 1.188-2.586 2.124-4.193 2.614-1.61.494-3.31.54-4.885.54-3.204 0-3.584-.012-4.85-.07-3.26-.219-4.771-1.091-6.352-2.966a11.942 11.942 0 0 1-2.668-6.479c0-3.204.012-3.584.07-4.85.059-3.28 1.082-4.771 2.966-6.352 1.188-1.195 2.586-2.124 4.193-2.614 1.61-.494 3.31-.54 4.885-.54zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.88.2 4.358 2.618 6.78 6.98 6.98C8.333 23.914 8.741 24 12 24c3.259 0 3.668-.014 4.88-.072 4.358-.2 6.78-2.618 6.98-6.98.059-1.212.072-1.621.072-4.88 0-3.259-.014-3.667-.072-4.88-.2-4.358-2.618-6.78-6.98-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
+                </a>
+                <a href="https://www.linkedin.com/company/edumapping/" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-gray-800 text-gray-300 hover:text-white hover:bg-[#0A66C2] transition-colors" aria-label="LinkedIn">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.453C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                </a>
+              </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-white font-bold mb-4">Quick Links</h3>
-              <ul className="space-y-2">
+              <ul className="space-y-2 text-sm">
                 {['Home', 'Features', 'About', 'Connect with Us'].map((item) => (
                   <li key={item}>
-                    <button onClick={() => handlePageChange(item === 'Connect with Us' ? 'contact' : item.toLowerCase())} className="hover:text-white transition-colors">
+                    <button type="button" onClick={() => handlePageChange(item === 'Connect with Us' ? 'contact' : item.toLowerCase())} className="text-left w-full text-gray-400 hover:text-white transition-colors py-1 break-words">
                       {item}
                     </button>
                   </li>
                 ))}
               </ul>
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-white font-bold mb-4">Contact Info</h3>
-              <ul className="space-y-2 text-sm">
-                <li>hello@edumapping.com</li>
-                <li>www.edumapping.com</li>
-                <li>+91 9104991059</li>
+              <ul className="space-y-2 text-sm break-words">
+                <li><a href="mailto:hello@edumapping.com" className="hover:text-white transition-colors">hello@edumapping.com</a></li>
+                <li><a href="https://www.edumapping.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">www.edumapping.com</a></li>
+                <li><a href="tel:+919104991059" className="hover:text-white transition-colors">+91 9104991059</a></li>
               </ul>
             </div>
           </div>
-          <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 md:pr-28">
-            <p>&copy; {new Date().getFullYear()} EduMapping. All rights reserved. | <Link to="/privacy" className="hover:text-white underline">Privacy Policy</Link></p>
+          <div className="border-t border-gray-800 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <p className="text-center sm:text-left text-sm">&copy; {new Date().getFullYear()} EduMapping. All rights reserved. | <Link to="/privacy" className="hover:text-white underline">Privacy Policy</Link></p>
             <p className="text-sm">Developed by <span className="text-white font-medium">Globoniks</span></p>
           </div>
         </div>

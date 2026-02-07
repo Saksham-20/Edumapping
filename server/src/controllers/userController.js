@@ -1,7 +1,8 @@
 // server/src/controllers/userController.js
-const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job, File } = require('../models');
+const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job, File, AuditLog } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const recruiterAccessService = require('../services/recruiterAccessService');
 
 // Helper functions outside the class
 const sanitizeNumericField = (value) => {
@@ -175,15 +176,44 @@ class UserController {
 
   async getAllUsers(req, res, next) {
     try {
-      const { page = 1, limit = 10, role, organizationId, organizationType, isActive, search } = req.query;
-      const offset = (page - 1) * limit;
+      const {
+        page = 1,
+        limit = 10,
+        role,
+        organizationId,
+        organizationType,
+        institutionType,
+        isActive,
+        search,
+        year,
+        stream,
+        region,
+        state,
+        city,
+        zone
+      } = req.query;
+      const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+      const limitNum = Math.min(parseInt(limit, 10) || 10, 100);
 
       const whereClause = {};
       if (role) whereClause.role = role;
       if (organizationId) whereClause.organizationId = organizationId;
       if (isActive !== undefined) whereClause.isActive = isActive === 'true';
-      
-      // Search functionality
+
+      if (req.user.role === 'recruiter') {
+        const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
+        recruiterAccessService.applyRecruiterOrgScope(whereClause, allowedOrgIds);
+        AuditLog.create({
+          userId: req.user.id,
+          action: 'recruiter_student_list_access',
+          entityType: 'user_list',
+          entityId: null,
+          newValues: { endpoint: 'getAllUsers', filters: { role, page, limit }, allowedOrgCount: allowedOrgIds.length },
+          ipAddress: req.ip || req.connection?.remoteAddress,
+          userAgent: req.get('user-agent')
+        }).catch(() => {});
+      }
+
       if (search) {
         whereClause[Op.or] = [
           { firstName: { [Op.iLike]: `%${search}%` } },
@@ -192,39 +222,63 @@ class UserController {
         ];
       }
 
-      // Build include clause with organization type filter
+      const orgWhere = {};
+      const instType = institutionType || organizationType;
+      if (instType) orgWhere.type = instType;
+      if (region) orgWhere.region = { [Op.iLike]: `%${region}%` };
+      if (state) orgWhere.state = { [Op.iLike]: `%${state}%` };
+      if (city) orgWhere.city = { [Op.iLike]: `%${city}%` };
+      if (zone) orgWhere.zone = { [Op.iLike]: `%${zone}%` };
+
+      const studentProfileWhere = {};
+      if (year) studentProfileWhere.yearOfStudy = parseInt(year, 10);
+      if (stream) studentProfileWhere.branch = { [Op.iLike]: `%${stream}%` };
+
+      if (req.user.role === 'recruiter') {
+        const limits = await recruiterAccessService.getRecruiterFilterLimits(req.user.id);
+        if (limits.orgWhere && Object.keys(limits.orgWhere).length) {
+          Object.assign(orgWhere, limits.orgWhere);
+        }
+        if (limits.studentProfileWhere && Object.keys(limits.studentProfileWhere).length) {
+          Object.assign(studentProfileWhere, limits.studentProfileWhere);
+        }
+      }
+
+      const requireOrg = Object.keys(orgWhere).length > 0;
+      const requireStudentProfile = Object.keys(studentProfileWhere).length > 0;
       const includeClause = [
-        { 
-          model: Organization, 
+        {
+          model: Organization,
           as: 'organization',
-          required: false,
-          ...(organizationType ? { where: { type: organizationType } } : {})
+          required: requireOrg,
+          where: requireOrg ? orgWhere : undefined,
+          attributes: ['id', 'name', 'type', 'region', 'state', 'city', 'zone']
         },
-        { model: StudentProfile, as: 'studentProfile', required: false },
+        {
+          model: StudentProfile,
+          as: 'studentProfile',
+          required: requireStudentProfile,
+          where: requireStudentProfile ? studentProfileWhere : undefined
+        },
         { model: RecruiterProfile, as: 'recruiterProfile', required: false }
       ];
-
-      // If filtering by organization type, make organization required
-      if (organizationType) {
-        includeClause[0].required = true;
-      }
 
       const { count, rows: users } = await User.findAndCountAll({
         where: whereClause,
         include: includeClause,
         attributes: { exclude: ['passwordHash'] },
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit: limitNum,
+        offset,
         order: [['createdAt', 'DESC']],
-        distinct: true // Important when using includes with filters
+        distinct: true
       });
 
       res.json({
         message: 'Users retrieved successfully',
         users,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(count / limit),
+          currentPage: parseInt(page, 10),
+          totalPages: Math.ceil(count / limitNum),
           totalUsers: count,
           hasMore: offset + users.length < count
         }
@@ -237,25 +291,98 @@ class UserController {
   async getUsersByRole(req, res, next) {
     try {
       const { role } = req.params;
-      const { organizationId } = req.query;
+      const {
+        organizationId,
+        institutionType,
+        year,
+        stream,
+        region,
+        state,
+        city,
+        zone,
+        page = 1,
+        limit = 20
+      } = req.query;
 
       const whereClause = { role, isActive: true };
       if (organizationId) whereClause.organizationId = organizationId;
 
-      const users = await User.findAll({
+      if (req.user.role === 'recruiter') {
+        const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
+        recruiterAccessService.applyRecruiterOrgScope(whereClause, allowedOrgIds);
+        AuditLog.create({
+          userId: req.user.id,
+          action: 'recruiter_student_list_access',
+          entityType: 'user_list',
+          entityId: null,
+          newValues: { endpoint: 'getUsersByRole', role, filters: { page, limit }, allowedOrgCount: allowedOrgIds.length },
+          ipAddress: req.ip || req.connection?.remoteAddress,
+          userAgent: req.get('user-agent')
+        }).catch(() => {});
+      }
+
+      const orgWhere = {};
+      if (institutionType) orgWhere.type = institutionType;
+      if (region) orgWhere.region = { [Op.iLike]: `%${region}%` };
+      if (state) orgWhere.state = { [Op.iLike]: `%${state}%` };
+      if (city) orgWhere.city = { [Op.iLike]: `%${city}%` };
+      if (zone) orgWhere.zone = { [Op.iLike]: `%${zone}%` };
+
+      const studentProfileWhere = {};
+      if (year) studentProfileWhere.yearOfStudy = parseInt(year, 10);
+      if (stream) studentProfileWhere.branch = { [Op.iLike]: `%${stream}%` };
+
+      if (req.user.role === 'recruiter') {
+        const limits = await recruiterAccessService.getRecruiterFilterLimits(req.user.id);
+        if (limits.orgWhere && Object.keys(limits.orgWhere).length) {
+          Object.assign(orgWhere, limits.orgWhere);
+        }
+        if (limits.studentProfileWhere && Object.keys(limits.studentProfileWhere).length) {
+          Object.assign(studentProfileWhere, limits.studentProfileWhere);
+        }
+      }
+
+      const requireOrg = Object.keys(orgWhere).length > 0;
+      const requireStudentProfile = Object.keys(studentProfileWhere).length > 0;
+      const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+      const offset = (parseInt(page, 10) - 1) * limitNum;
+
+      const includeClause = [
+        {
+          model: Organization,
+          as: 'organization',
+          required: requireOrg,
+          where: requireOrg ? orgWhere : undefined,
+          attributes: ['id', 'name', 'type', 'region', 'state', 'city', 'zone']
+        },
+        {
+          model: StudentProfile,
+          as: 'studentProfile',
+          required: requireStudentProfile,
+          where: requireStudentProfile ? studentProfileWhere : undefined
+        },
+        { model: RecruiterProfile, as: 'recruiterProfile', required: false }
+      ];
+
+      const { count, rows: users } = await User.findAndCountAll({
         where: whereClause,
-        include: [
-          { model: Organization, as: 'organization' },
-          { model: StudentProfile, as: 'studentProfile' },
-          { model: RecruiterProfile, as: 'recruiterProfile' }
-        ],
+        include: includeClause,
         attributes: { exclude: ['passwordHash'] },
-        order: [['firstName', 'ASC']]
+        limit: limitNum,
+        offset,
+        order: [['firstName', 'ASC']],
+        distinct: true
       });
 
       res.json({
         message: `${role}s retrieved successfully`,
-        users
+        users,
+        pagination: {
+          currentPage: parseInt(page, 10),
+          totalPages: Math.ceil(count / limitNum),
+          totalUsers: count,
+          hasMore: offset + users.length < count
+        }
       });
     } catch (error) {
       next(error);
@@ -391,10 +518,24 @@ class UserController {
   async getTopCandidates(req, res, next) {
     try {
       const { limit = 10, organizationId } = req.query;
-      
-      // For recruiters, show top candidates who have applied to their jobs
       const targetOrgId = organizationId || req.user.organizationId;
-      
+      let allowedOrgIds = [];
+      if (req.user.role === 'recruiter') {
+        allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
+        if (allowedOrgIds.length === 0) {
+          return res.json({
+            message: 'Top candidates retrieved successfully',
+            candidates: []
+          });
+        }
+        if (targetOrgId && !allowedOrgIds.includes(parseInt(targetOrgId, 10))) {
+          return res.status(403).json({
+            error: 'Access Forbidden',
+            message: 'You do not have access to this organization'
+          });
+        }
+      }
+
       if (!targetOrgId) {
         return res.status(400).json({
           error: 'Organization Required',
@@ -402,7 +543,6 @@ class UserController {
         });
       }
 
-      // Get all jobs from this organization
       const jobs = await Job.findAll({
         where: { organizationId: targetOrgId },
         attributes: ['id']
@@ -416,12 +556,16 @@ class UserController {
         });
       }
 
-      // Get top candidates who have applied to jobs from this organization
+      const candidateWhere = {
+        role: 'student',
+        isActive: true
+      };
+      if (req.user.role === 'recruiter') {
+        candidateWhere.organizationId = { [Op.in]: allowedOrgIds };
+      }
+
       const candidates = await User.findAll({
-        where: {
-          role: 'student',
-          isActive: true
-        },
+        where: candidateWhere,
         include: [
           {
             model: StudentProfile,

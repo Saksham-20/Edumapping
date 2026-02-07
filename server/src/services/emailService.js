@@ -101,6 +101,23 @@ class EmailService {
     return this.sendEmail(email, subject, html, text);
   }
 
+  async sendOtpEmail(to, otp, purpose) {
+    const subject = purpose === 'forgot_password'
+      ? 'Your password reset OTP - EduMapping'
+      : 'Your verification OTP - EduMapping';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #2563eb;">${purpose === 'forgot_password' ? 'Password Reset' : 'Verify your email'}</h1>
+        <p>Your OTP is: <strong style="font-size: 24px; letter-spacing: 4px;">${otp}</strong></p>
+        <p>This code expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes. Do not share it.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+        <p>Best regards,<br>The EduMapping Team</p>
+      </div>
+    `;
+    const text = `Your OTP: ${otp}. Expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.`;
+    return this.sendEmail(to, subject, html, text);
+  }
+
   async sendApplicationStatusUpdate(application, newStatus) {
     const user = application.student;
     const job = application.job;

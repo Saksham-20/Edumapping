@@ -44,6 +44,8 @@ db.AssessmentResult = require('./AssessmentResult')(sequelize, Sequelize.DataTyp
 db.Notification = require('./Notification')(sequelize, Sequelize.DataTypes);
 db.File = require('./File')(sequelize, Sequelize.DataTypes);
 db.AuditLog = require('./AuditLog')(sequelize, Sequelize.DataTypes);
+db.OtpVerification = require('./OtpVerification')(sequelize, Sequelize.DataTypes);
+db.RecruiterAllowedOrganization = require('./RecruiterAllowedOrganization')(sequelize, Sequelize.DataTypes);
 
 // Define associations
 Object.keys(db).forEach(modelName => {

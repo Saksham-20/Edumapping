@@ -44,6 +44,18 @@ const passwordResetLimiter = rateLimit({
   }
 });
 
+// OTP send limiter (registration + forgot-password) - prevent enumeration and abuse
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.OTP_RATE_LIMIT_MAX, 10) || 5,
+  message: {
+    error: 'Too Many OTP Requests',
+    message: 'Too many OTP requests. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // File upload limiter
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -117,6 +129,7 @@ module.exports = {
   generalLimiter,
   authLimiter,
   passwordResetLimiter,
+  otpSendLimiter,
   uploadLimiter,
   applicationLimiter,
   searchLimiter,

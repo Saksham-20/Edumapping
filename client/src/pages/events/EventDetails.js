@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+// client/src/pages/events/EventDetails.js
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -7,197 +8,261 @@ import toast from 'react-hot-toast';
 import { openMeetingLink, shareUrl } from '../../utils/helpers';
 import {
   CalendarIcon,
-  ClockIcon,
   MapPinIcon,
   UserGroupIcon,
-  PencilSquareIcon,
+  BuildingOfficeIcon,
   ArrowLeftIcon,
-  ShareIcon
+  PencilSquareIcon,
+  ShareIcon,
+  LinkIcon
 } from '@heroicons/react/24/outline';
 
 const EventDetails = () => {
-  const { id } = useParams();
   const navigate = useNavigate();
+  const { id } = useParams();
   const { user } = useAuth();
-
   const [event, setEvent] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const eventUrl = useMemo(() => `${window.location.origin}/events/${id}`, [id]);
+  useEffect(() => {
+    if (id) fetchEvent();
+  }, [id]);
 
   const fetchEvent = async () => {
     try {
       setIsLoading(true);
-      const res = await api.get(`/events/${id}`);
-      setEvent(res.event);
-      setIsRegistered(Boolean(res.event?.userRegistration));
-    } catch (e) {
-      console.error('Failed to fetch event:', e);
-      toast.error('Failed to load event');
+      const response = await api.get(`/events/${id}`);
+      setEvent(response.event || null);
+      setIsRegistered(Boolean(response.event?.userRegistration));
+    } catch (error) {
+      console.error('Failed to fetch event:', error);
+      toast.error('Event not found');
       navigate('/events');
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchEvent();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  const getEventTypeColor = (type) => {
+    const colors = {
+      campus_drive: 'bg-blue-100 text-blue-800',
+      info_session: 'bg-green-100 text-green-800',
+      workshop: 'bg-purple-100 text-purple-800',
+      seminar: 'bg-yellow-100 text-yellow-800',
+      job_fair: 'bg-red-100 text-red-800',
+      other: 'bg-gray-100 text-gray-800'
+    };
+    return colors[type] || colors.other;
+  };
+
+  const formatEventTime = (startTime, endTime) => {
+    if (!startTime || !endTime) return { dateStr: '', timeStr: '' };
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const dateStr = start.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const timeStr = `${start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    return { dateStr, timeStr };
+  };
+
+  const isEventFull = () => {
+    return event?.maxParticipants && (event.registrationCount || 0) >= event.maxParticipants;
+  };
+
+  const isRegistrationOpen = () => {
+    if (!event) return false;
+    if (event.registrationDeadline) {
+      return new Date() <= new Date(event.registrationDeadline);
+    }
+    return new Date() < new Date(event.startTime);
+  };
+
+  const canEdit = user && user.role !== 'student' && event?.organizationId === (user.organizationId || event?.organizationId);
+
+  const handleRegister = async (register = true) => {
+    if (!event?.id) return;
+    try {
+      setActionLoading(true);
+      if (register) {
+        await api.post(`/events/${event.id}/register`);
+        setIsRegistered(true);
+        toast.success('Successfully registered for this event!');
+      } else {
+        await api.post(`/events/${event.id}/cancel`);
+        setIsRegistered(false);
+        toast.success('Registration cancelled');
+      }
+      fetchEvent();
+    } catch (error) {
+      console.error('Register/cancel failed:', error);
+      toast.error(register ? 'Failed to register' : 'Failed to cancel registration');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleShare = async () => {
+    const url = `${window.location.origin}/events/${event?.id}`;
     const result = await shareUrl({
       title: event?.title || 'Campus Event',
       text: event?.title ? `Join: ${event.title}` : 'Check out this event',
-      url: eventUrl
+      url
     });
-
-    if (result.shared) toast.success('Shared');
-    else if (result.copied) toast.success('Link copied');
+    if (result?.shared) toast.success('Shared');
+    else if (result?.copied) toast.success('Link copied');
     else toast.error('Could not share');
   };
 
-  const handleJoin = () => {
+  const handleJoinMeeting = () => {
     if (!event?.virtualLink) return;
     const ok = openMeetingLink(event.virtualLink);
     if (!ok) toast.error('Invalid meeting link');
   };
 
-  const handleRegistration = async (register = true) => {
-    try {
-      if (!user || user.role !== 'student') return;
-      if (register) await api.post(`/events/${id}/register`);
-      else await api.post(`/events/${id}/cancel`);
-      toast.success(register ? 'Registered successfully' : 'Registration cancelled');
-      fetchEvent();
-    } catch (e) {
-      console.error('Registration error:', e);
-      toast.error(register ? 'Failed to register' : 'Failed to cancel registration');
-    }
-  };
-
-  if (isLoading) {
+  if (isLoading || !event) {
     return (
-      <div className="flex justify-center py-12">
-        <LoadingSpinner size="large" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <LoadingSpinner />
       </div>
     );
   }
 
-  if (!event) return null;
-
-  const start = new Date(event.startTime);
-  const end = new Date(event.endTime);
+  const { dateStr, timeStr } = formatEventTime(event.startTime, event.endTime);
+  const full = isEventFull();
+  const registrationOpen = isRegistrationOpen();
+  const canRegister = user?.role === 'student' && registrationOpen && !full;
   const isGlobal = (event.organization?.name || '').toLowerCase() === 'edumapping';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <div className="mb-6">
           <button
             onClick={() => navigate('/events')}
-            className="inline-flex items-center text-sm font-medium text-gray-700 hover:text-gray-900"
+            className="inline-flex items-center text-gray-600 hover:text-gray-900"
           >
-            <ArrowLeftIcon className="h-4 w-4 mr-2" />
-            Back to Events
+            <ArrowLeftIcon className="h-5 w-5 mr-2" />
+            Back to events
           </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleShare}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <ShareIcon className="h-4 w-4 mr-2" />
-              Share
-            </button>
-
-            {user?.role !== 'student' && (
-              <Link
-                to={`/events/${id}/edit`}
-                className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <PencilSquareIcon className="h-4 w-4 mr-2" />
-                Edit
-              </Link>
-            )}
-          </div>
         </div>
 
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200">
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{event.title}</h1>
-                <div className="mt-1 flex items-center gap-2">
-                  <p className="text-sm text-gray-600">{event.organization?.name}</p>
-                  {isGlobal && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                      Global
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center text-sm text-gray-600">
-                <UserGroupIcon className="h-4 w-4 mr-1 text-gray-400" />
-                {event.registrationCount || 0}
-                {event.maxParticipants && ` / ${event.maxParticipants}`}
-              </div>
-            </div>
-          </div>
-
-          <div className="p-6 space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-700">
-              <div className="flex items-center">
-                <CalendarIcon className="h-4 w-4 mr-2 text-gray-400" />
-                {start.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </div>
-              <div className="flex items-center">
-                <ClockIcon className="h-4 w-4 mr-2 text-gray-400" />
-                {start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} -{' '}
-                {end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </div>
-              {event.location && (
-                <div className="flex items-center sm:col-span-2">
-                  <MapPinIcon className="h-4 w-4 mr-2 text-gray-400" />
-                  {event.location}
-                </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 sm:p-8">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${getEventTypeColor(event.eventType)}`}>
+                {event.eventType?.replace('_', ' ').toUpperCase()}
+              </span>
+              {isGlobal && (
+                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                  Global
+                </span>
+              )}
+              {event.status && event.status !== 'scheduled' && (
+                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                  {event.status}
+                </span>
               )}
             </div>
 
-            <div>
-              <h2 className="text-sm font-semibold text-gray-900 mb-2">About</h2>
-              <p className="text-gray-700 whitespace-pre-line">{event.description}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+              {event.title}
+            </h1>
+            {event.organization?.name && (
+              <div className="flex items-center text-gray-600 mb-6">
+                <BuildingOfficeIcon className="h-5 w-5 mr-2 text-gray-400" />
+                <span>{event.organization.name}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 mb-6">
+              {dateStr && (
+                <div className="flex items-start">
+                  <CalendarIcon className="h-5 w-5 mr-3 text-gray-400 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-gray-900">{dateStr}</p>
+                    {timeStr && <p className="text-gray-600">{timeStr}</p>}
+                  </div>
+                </div>
+              )}
+              {event.location && (
+                <div className="flex items-start">
+                  <MapPinIcon className="h-5 w-5 mr-3 text-gray-400 mt-0.5" />
+                  <p className="text-gray-700">{event.location}</p>
+                </div>
+              )}
+              <div className="flex items-center text-gray-600">
+                <UserGroupIcon className="h-5 w-5 mr-3 text-gray-400" />
+                <span>
+                  {event.registrationCount ?? 0}
+                  {event.maxParticipants ? ` / ${event.maxParticipants} registered` : ' registered'}
+                  {full && <span className="ml-2 text-red-600 font-semibold">(Full)</span>}
+                </span>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 pt-2">
-              {event.virtualLink && (
+            {event.description && (
+              <div className="prose prose-gray max-w-none mb-6">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Description</h3>
+                <p className="text-gray-700 whitespace-pre-wrap">{event.description}</p>
+              </div>
+            )}
+
+            {(event.contactEmail || event.contactPhone) && (
+              <div className="text-sm text-gray-600 mb-6">
+                {event.contactEmail && <p>Contact: {event.contactEmail}</p>}
+                {event.contactPhone && <p>Phone: {event.contactPhone}</p>}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
+              {canRegister && (
                 <button
-                  onClick={handleJoin}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+                  onClick={() => handleRegister(true)}
+                  disabled={actionLoading || isRegistered}
+                  className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Join Event
+                  {isRegistered ? 'Registered' : 'Register for this event'}
                 </button>
               )}
-
-              {user?.role === 'student' && (
-                <>
-                  {isRegistered ? (
-                    <button
-                      onClick={() => handleRegistration(false)}
-                      className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
-                    >
-                      Cancel Registration
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleRegistration(true)}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-                    >
-                      Register
-                    </button>
-                  )}
-                </>
+              {user?.role === 'student' && isRegistered && registrationOpen && (
+                <button
+                  onClick={() => handleRegister(false)}
+                  disabled={actionLoading}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel registration
+                </button>
+              )}
+              {event.virtualLink && (
+                <button
+                  onClick={handleJoinMeeting}
+                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <LinkIcon className="h-5 w-5 mr-2" />
+                  Join meeting
+                </button>
+              )}
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                <ShareIcon className="h-5 w-5 mr-2" />
+                Share
+              </button>
+              {canEdit && (
+                <button
+                  onClick={() => navigate(`/events/${event.id}/edit`)}
+                  className="inline-flex items-center px-4 py-2 border border-indigo-600 text-indigo-600 rounded-lg hover:bg-indigo-50"
+                >
+                  <PencilSquareIcon className="h-5 w-5 mr-2" />
+                  Edit event
+                </button>
               )}
             </div>
           </div>
@@ -208,4 +273,3 @@ const EventDetails = () => {
 };
 
 export default EventDetails;
-

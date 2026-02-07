@@ -1,5 +1,5 @@
 // server/src/controllers/adminController.js
-const { User, Organization, StudentProfile, RecruiterProfile } = require('../models');
+const { User, Organization, StudentProfile, RecruiterProfile, RecruiterAllowedOrganization, AuditLog } = require('../models');
 const authService = require('../services/authService');
 const { Op } = require('sequelize');
 
@@ -37,19 +37,17 @@ class AdminController {
         }
 
         // Enforce role-organization rules
-        // Students can belong to universities (colleges) or schools
-        // TPOs can only belong to universities (colleges)
-        // School roles (principal, teacher, school_admin, career_counselor) can only belong to schools
-        if (role === 'student' && organization.type !== 'university' && organization.type !== 'school') {
+        // Students: university, college, or school. TPOs: university or college.
+        if (role === 'student' && !['university', 'college', 'school'].includes(organization.type)) {
           return res.status(400).json({
             error: 'Invalid Organization Type',
-            message: 'Students can only belong to university or school organizations'
+            message: 'Students can only belong to university, college, or school organizations'
           });
         }
-        if (role === 'tpo' && organization.type !== 'university') {
+        if (role === 'tpo' && organization.type !== 'university' && organization.type !== 'college') {
           return res.status(400).json({
             error: 'Invalid Organization Type',
-            message: 'TPOs can only belong to university organizations'
+            message: 'TPOs can only belong to university or college organizations'
           });
         }
 
@@ -169,10 +167,10 @@ class AdminController {
           }
 
           // Enforce role-organization rules
-          if ((user.role === 'student' || user.role === 'tpo') && organization.type !== 'university') {
+          if ((user.role === 'student' || user.role === 'tpo') && organization.type !== 'university' && organization.type !== 'college') {
             return res.status(400).json({
               error: 'Invalid Organization Type',
-              message: 'Students and TPOs can only belong to university organizations'
+              message: 'Students and TPOs can only belong to university or college organizations'
             });
           }
 
@@ -399,10 +397,10 @@ class AdminController {
         });
       }
 
-      if (organization.type !== 'university') {
+      if (organization.type !== 'university' && organization.type !== 'college') {
         return res.status(400).json({
           error: 'Invalid Organization Type',
-          message: 'TPOs can only belong to university organizations'
+          message: 'TPOs can only belong to university or college organizations'
         });
       }
 
@@ -481,10 +479,10 @@ class AdminController {
             });
           }
 
-          if (organization.type !== 'university') {
+          if (organization.type !== 'university' && organization.type !== 'college') {
             return res.status(400).json({
               error: 'Invalid Organization Type',
-              message: 'TPOs can only belong to university organizations'
+              message: 'TPOs can only belong to university or college organizations'
             });
           }
         }
@@ -564,6 +562,142 @@ class AdminController {
           message: 'TPO deactivated successfully'
         });
       }
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRecruiterPermissions(req, res, next) {
+    try {
+      const recruiterUserId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(recruiterUserId) || recruiterUserId < 1) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Recruiter ID must be a positive integer'
+        });
+      }
+      const user = await User.findOne({
+        where: { id: recruiterUserId, role: 'recruiter' },
+        include: [{ model: RecruiterProfile, as: 'recruiterProfile' }]
+      });
+      if (!user || !user.recruiterProfile) {
+        return res.status(404).json({
+          error: 'Recruiter Not Found',
+          message: 'Recruiter or recruiter profile not found'
+        });
+      }
+      const profile = user.recruiterProfile;
+      const allowedOrgs = await RecruiterAllowedOrganization.findAll({
+        where: { recruiterProfileId: profile.id },
+        attributes: ['organizationId']
+      });
+      res.json({
+        allowedOrganizationIds: allowedOrgs.map((r) => r.organizationId),
+        allowedYears: profile.allowedYears || [],
+        allowedStreams: profile.allowedStreams || [],
+        allowedRegions: profile.allowedRegions || [],
+        allowedStates: profile.allowedStates || [],
+        allowedCities: profile.allowedCities || []
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setRecruiterAllowedOrganizations(req, res, next) {
+    try {
+      const recruiterUserId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(recruiterUserId) || recruiterUserId < 1) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Recruiter ID must be a positive integer'
+        });
+      }
+      const {
+        organizationIds,
+        allowedYears,
+        allowedStreams,
+        allowedRegions,
+        allowedStates,
+        allowedCities
+      } = req.body;
+      if (!Array.isArray(organizationIds)) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'organizationIds must be an array of organization IDs'
+        });
+      }
+      const user = await User.findOne({
+        where: { id: recruiterUserId, role: 'recruiter' },
+        include: [{ model: RecruiterProfile, as: 'recruiterProfile' }]
+      });
+      if (!user || !user.recruiterProfile) {
+        return res.status(404).json({
+          error: 'Recruiter Not Found',
+          message: 'Recruiter or recruiter profile not found'
+        });
+      }
+      const profile = user.recruiterProfile;
+      const validIds = organizationIds.filter((n) => Number.isInteger(Number(n)) && Number(n) > 0);
+      const orgs = await Organization.findAll({
+        where: { id: { [Op.in]: validIds } },
+        attributes: ['id', 'type']
+      });
+      const institutionTypes = ['school', 'college', 'university'];
+      const allowedIds = orgs
+        .filter((o) => institutionTypes.includes(o.type))
+        .map((o) => o.id);
+      await RecruiterAllowedOrganization.destroy({
+        where: { recruiterProfileId: profile.id }
+      });
+      if (allowedIds.length) {
+        await RecruiterAllowedOrganization.bulkCreate(
+          allowedIds.map((organizationId) => ({
+            recruiterProfileId: profile.id,
+            organizationId
+          }))
+        );
+      }
+      const profileUpdates = {};
+      if (Array.isArray(allowedYears)) {
+        profileUpdates.allowedYears = allowedYears.filter((n) => Number.isInteger(Number(n)) && Number(n) >= 1 && Number(n) <= 6);
+      }
+      if (Array.isArray(allowedStreams)) {
+        profileUpdates.allowedStreams = allowedStreams.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
+      }
+      if (Array.isArray(allowedRegions)) {
+        profileUpdates.allowedRegions = allowedRegions.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
+      }
+      if (Array.isArray(allowedStates)) {
+        profileUpdates.allowedStates = allowedStates.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
+      }
+      if (Array.isArray(allowedCities)) {
+        profileUpdates.allowedCities = allowedCities.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
+      }
+      if (Object.keys(profileUpdates).length) {
+        await profile.update(profileUpdates);
+      }
+      await AuditLog.create({
+        userId: req.user.id,
+        action: 'recruiter_allowed_organizations_updated',
+        entityType: 'recruiter_profile',
+        entityId: profile.id,
+        newValues: {
+          recruiterUserId,
+          organizationIds: allowedIds,
+          ...(Object.keys(profileUpdates).length ? profileUpdates : {})
+        },
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.get('user-agent')
+      });
+      const updated = await RecruiterAllowedOrganization.findAll({
+        where: { recruiterProfileId: profile.id },
+        attributes: ['organizationId']
+      });
+      res.json({
+        message: 'Recruiter allowed organizations updated',
+        allowedOrganizationIds: updated.map((r) => r.organizationId)
+      });
     } catch (error) {
       next(error);
     }

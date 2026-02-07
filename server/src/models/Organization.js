@@ -15,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     type: {
-      type: DataTypes.ENUM('university', 'company', 'school'),
+      type: DataTypes.ENUM('university', 'company', 'school', 'college'),
       allowNull: false
     },
     domain: {
@@ -74,6 +74,26 @@ module.exports = (sequelize, DataTypes) => {
     approvalNotes: {
       type: DataTypes.TEXT,
       field: 'approval_notes'
+    },
+    region: {
+      type: DataTypes.STRING(100)
+    },
+    state: {
+      type: DataTypes.STRING(100)
+    },
+    city: {
+      type: DataTypes.STRING(100)
+    },
+    zone: {
+      type: DataTypes.STRING(100)
+    },
+    workMode: {
+      type: DataTypes.STRING(20),
+      field: 'work_mode'
+    },
+    locations: {
+      type: DataTypes.JSON,
+      defaultValue: []
     }
   }, {
     tableName: 'organizations',

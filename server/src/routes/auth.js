@@ -3,6 +3,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const authService = require('../services/authService');
 const { authenticateToken } = require('../middleware/auth');
+const { authLimiter, otpSendLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ const validateRegistration = [
   body('firstName').trim().isLength({ min: 1, max: 100 }),
   body('lastName').trim().isLength({ min: 1, max: 100 }),
   body('role').isIn(['student', 'recruiter', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor']),
+  body('otp').optional().isLength({ min: 6, max: 6 }).isNumeric(),
   body('organizationId')
     .optional({ values: 'falsy' })
     .custom((value) => {
@@ -24,9 +26,19 @@ const validateRegistration = [
     .withMessage('Organization ID must be a valid integer')
 ];
 
+// Login: identifier = email OR phone (backward compat: email still accepted)
 const validateLogin = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty()
+  body('identifier').optional().trim(),
+  body('email').optional().trim(),
+  body('password').notEmpty(),
+  (req, res, next) => {
+    const id = req.body.identifier || req.body.email;
+    if (!id || !String(id).trim()) {
+      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'identifier or email is required' }] });
+    }
+    req.body._loginId = String(id).trim();
+    next();
+  }
 ];
 
 /**
@@ -71,7 +83,20 @@ const validateLogin = [
  *       409:
  *         description: User already exists
  */
-router.post('/register', validateRegistration, async (req, res, next) => {
+router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
+  try {
+    const email = req.body.email && String(req.body.email).trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'Valid email is required' }] });
+    }
+    const result = await authService.sendRegistrationOtp(email);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/register', authLimiter, validateRegistration, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -120,7 +145,7 @@ router.post('/register', validateRegistration, async (req, res, next) => {
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', validateLogin, async (req, res, next) => {
+router.post('/login', authLimiter, validateLogin, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -130,8 +155,9 @@ router.post('/login', validateLogin, async (req, res, next) => {
       });
     }
 
-    const { email, password } = req.body;
-    const result = await authService.login(email, password);
+    const identifier = req.body._loginId;
+    const { password } = req.body;
+    const result = await authService.login(identifier, password);
     
     res.json({
       message: 'Login successful',
@@ -230,6 +256,41 @@ router.get('/me', authenticateToken, async (req, res) => {
   res.json({
     user: req.user
   });
+});
+
+router.post('/forgot-password/send-otp', otpSendLimiter, async (req, res, next) => {
+  try {
+    const email = req.body.email && String(req.body.email).trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'Valid email is required' }] });
+    }
+    const result = await authService.sendForgotPasswordOtp(email);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/forgot-password/reset-with-otp', async (req, res, next) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        details: [{ msg: 'email, otp and newPassword are required' }]
+      });
+    }
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        details: [{ msg: 'Password must be at least 8 characters' }]
+      });
+    }
+    const result = await authService.resetPasswordWithOtp(email, otp, newPassword);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
 });
 
 module.exports = router;

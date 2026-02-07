@@ -10,6 +10,22 @@
   transform: translateY(0);
 }
 
+/* Responsive: prevent nav/footer text from glitching on narrow screens */
+@media (max-width: 1023px) {
+  .font-sans nav .flex.items-center.gap-1 {
+    min-width: 0;
+  }
+}
+
+/* Footer: ensure Quick Links and contact text don’t collapse or clip */
+footer ul li {
+  word-break: break-word;
+}
+footer .space-y-2 button {
+  white-space: normal;
+  text-align: left;
+}
+
 /* Ensure slick carousel dots are visible */
 .slick-dots {
   bottom: 25px !important;

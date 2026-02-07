@@ -62,6 +62,11 @@ class AdminService {
     return await api.get(`/admin/organizations/schools?${queryParams}`);
   }
 
+  async getAllColleges(params = {}) {
+    const queryParams = new URLSearchParams(params).toString();
+    return await api.get(`/admin/organizations?type=college&${queryParams}`);
+  }
+
   async createOrganization(orgData) {
     return await api.post('/admin/organizations', orgData);
   }
@@ -99,6 +104,36 @@ class AdminService {
 
   async getTopPerformers(limit = 10) {
     return await api.get(`/statistics/analytics/top-performers?limit=${limit}`);
+  }
+
+  // Recruiter permissions: institutions + geographic (region/state/city) and academic (year/stream) filters
+  async getRecruiterPermissions(recruiterId) {
+    const res = await api.get(`/admin/recruiters/${recruiterId}/permissions`);
+    return res;
+  }
+
+  async setRecruiterAllowedOrganizations(recruiterId, payload) {
+    const normalized = Array.isArray(payload)
+      ? { organizationIds: payload }
+      : typeof payload === 'object' && payload !== null
+        ? payload
+        : { organizationIds: [] };
+    const {
+      organizationIds = [],
+      allowedYears,
+      allowedStreams,
+      allowedRegions,
+      allowedStates,
+      allowedCities
+    } = normalized;
+    return await api.put(`/admin/recruiters/${recruiterId}/allowed-organizations`, {
+      organizationIds: Array.isArray(organizationIds) ? organizationIds : [],
+      ...(Array.isArray(allowedYears) && { allowedYears }),
+      ...(Array.isArray(allowedStreams) && { allowedStreams }),
+      ...(Array.isArray(allowedRegions) && { allowedRegions }),
+      ...(Array.isArray(allowedStates) && { allowedStates }),
+      ...(Array.isArray(allowedCities) && { allowedCities })
+    });
   }
 }
 

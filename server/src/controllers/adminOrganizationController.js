@@ -387,6 +387,47 @@ class AdminOrganizationController {
     }
   }
 
+  // Get all colleges
+  async getAllColleges(req, res, next) {
+    try {
+      const { page = 1, limit = 20, search, verified } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const whereClause = { type: 'college' };
+
+      if (search) {
+        whereClause[Op.or] = [
+          { name: { [Op.iLike]: `%${search}%` } },
+          { domain: { [Op.iLike]: `%${search}%` } }
+        ];
+      }
+
+      if (verified !== undefined) {
+        whereClause.isVerified = verified === 'true';
+      }
+
+      const { count, rows: colleges } = await Organization.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        order: [['name', 'ASC']]
+      });
+
+      res.json({
+        message: 'Colleges retrieved successfully',
+        colleges,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / parseInt(limit)),
+          totalItems: count,
+          hasMore: offset + colleges.length < count
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // Get all schools
   async getAllSchools(req, res, next) {
     try {
