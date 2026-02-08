@@ -429,6 +429,157 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* For Recruiters & Employers Section */}
+      <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">Built for Recruiters & Employers</h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              Reach the right talent from 100+ verified colleges and schools. Post jobs, manage applications, view candidate profiles and resumes, and run placement drives—all in one place.
+            </p>
+            <p className="text-sm text-gray-600 mt-3 max-w-2xl mx-auto">
+              Get a dedicated recruiter dashboard with real-time stats, filters by institution and geography, application pipeline and bulk actions, top-candidate discovery, event scheduling, and direct coordination with TPOs—so you hire faster and build your employer brand on campus.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-12 items-center mb-16">
+            <motion.div
+              className="space-y-6"
+              initial={{ opacity: 0, x: -20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+            >
+              <h3 className="text-2xl font-bold text-gray-900">Why recruiters choose EduMapping</h3>
+              <ul className="space-y-4">
+                {[
+                  {
+                    title: "Target the right talent by institution, region & profile",
+                    desc: "Reach pre-verified students from our partner schools, colleges, and universities. Filter by region, state, city, year of study, and stream so you only see candidates that match your hiring needs."
+                  },
+                  {
+                    title: "Post jobs & manage applications in one place",
+                    desc: "Create rich job listings with requirements, skills, salary range, work mode (remote/hybrid/onsite), locations, and application deadlines. Receive and manage all applications in a single dashboard—shortlist, track status, and move candidates through your pipeline with bulk updates."
+                  },
+                  {
+                    title: "Full candidate visibility & resumes",
+                    desc: "View detailed candidate profiles—course, branch, CGPA, year, graduation, and skills. Access resumes with one click and discover top candidates tailored to your company. Application pipeline shows applied, screening, shortlisted, interviewed, and selected at a glance."
+                  },
+                  {
+                    title: "Direct connection with TPOs",
+                    desc: "Coordinate placement drives with placement officers seamlessly. Schedule events, share drive details, and collaborate on campus hiring without back-and-forth emails."
+                  },
+                  {
+                    title: "Events & campus engagement",
+                    desc: "Join or host workshops, info sessions, and recruitment events. Use virtual meeting links and shared calendars to engage students and strengthen your employer brand."
+                  },
+                  {
+                    title: "Real-time hiring insights",
+                    desc: "Your recruiter dashboard shows total jobs, active jobs, applications, shortlisted candidates, job views, and application conversion rate—so you can see what's working and hire faster."
+                  }
+                ].map((item, idx) => (
+                  <li key={idx} className="flex gap-4">
+                    <span className="flex-shrink-0 w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">{idx + 1}</span>
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{item.title}</h4>
+                      <p className="text-gray-600 text-sm mt-1">{item.desc}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+            <motion.div
+              className="rounded-3xl bg-white border border-gray-100 shadow-xl p-8"
+              initial={{ opacity: 0, x: 20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+            >
+              <h3 className="text-xl font-bold text-gray-900 mb-6">Recruiter benefits at a glance</h3>
+              <ul className="space-y-4">
+                {[
+                  "Access pre-verified student profiles from 100+ partner institutions",
+                  "Filter candidates by year, stream, and location (region, state, city)",
+                  "Post jobs with work mode (remote, hybrid, onsite), multiple locations, and salary range",
+                  "Set eligibility (e.g. min CGPA, experience) and application deadlines",
+                  "Manage all applications in one place—shortlist, update status, and bulk actions",
+                  "View candidate resumes and full profiles (course, skills, graduation) in one dashboard",
+                  "See application pipeline: applied → screening → shortlisted → interviewed → selected",
+                  "Discover top candidates and track job views plus application conversion rate",
+                  "Connect with TPOs and run placement drives without back-and-forth emails",
+                  "Join or host events, workshops, and info sessions with virtual meeting links",
+                  "Schedule recruitment events and build your employer brand on campus",
+                  "Reduce time-to-hire with structured applications and shared event calendars"
+                ].map((benefit, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-bold">✓</span>
+                    <span className="text-gray-700">{benefit}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-8 pt-6 border-t border-gray-100 flex flex-wrap gap-3">
+                <Link
+                  to="/register"
+                  className="inline-flex items-center px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                >
+                  Register as Recruiter
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange('contact')}
+                  className="inline-flex items-center px-5 py-2.5 rounded-lg text-sm font-semibold text-indigo-600 border border-indigo-600 hover:bg-indigo-50 transition-colors"
+                >
+                  Contact for partnership
+                </button>
+              </div>
+            </motion.div>
+          </div>
+
+          <motion.div
+            className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            {[
+              { value: "50+", label: "Partner companies" },
+              { value: "100+", label: "Institutions" },
+              { value: "2,300+", label: "Placements" },
+              { value: "12,500+", label: "Students reached" }
+            ].map((stat, i) => (
+              <div key={i} className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <div className="text-2xl font-bold text-indigo-600">{stat.value}</div>
+                <div className="text-sm text-gray-600">{stat.label}</div>
+              </div>
+            ))}
+          </motion.div>
+
+          <motion.div
+            className="mt-16 p-8 rounded-3xl bg-white border border-gray-100 shadow-lg"
+            initial={{ opacity: 0, y: 15 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">How it works for recruiters</h3>
+            <div className="grid md:grid-cols-3 gap-8">
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold mx-auto mb-3">1</div>
+                <h4 className="font-semibold text-gray-900 mb-1">Register & get verified</h4>
+                <p className="text-sm text-gray-600">Sign up as a recruiter, add your company details, and complete admin verification. Once approved, you get access to the recruiter dashboard.</p>
+              </div>
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold mx-auto mb-3">2</div>
+                <h4 className="font-semibold text-gray-900 mb-1">Get access to institutions</h4>
+                <p className="text-sm text-gray-600">Get matched with partner institutions and use filters by region, state, city, year, and stream so you see only the talent that fits your hiring needs.</p>
+              </div>
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold mx-auto mb-3">3</div>
+                <h4 className="font-semibold text-gray-900 mb-1">Post jobs & hire</h4>
+                <p className="text-sm text-gray-600">Post jobs with salary range and eligibility, browse and shortlist candidates, manage applications with status updates and bulk actions, and coordinate with TPOs for placement drives and events—all from your dashboard.</p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Upcoming Global Events Section */}
       {!isLoadingEvents && upcomingEvents.length > 0 && (
         <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -1551,7 +1702,7 @@ const LandingPage = () => {
               {
                 icon: "🤝",
                 title: "Recruiter Connect",
-                desc: "Seamless communication channel between TPOs and recruiters for efficient drive management.",
+                desc: "Target talent by institution, region, year, and stream. Post jobs, manage applications, view candidate resumes and profiles, and coordinate placement drives with TPOs—all in one place.",
                 color: "from-blue-400 to-blue-600"
               },
               {

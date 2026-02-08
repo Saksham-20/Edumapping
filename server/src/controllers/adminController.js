@@ -2,6 +2,7 @@
 const { User, Organization, StudentProfile, RecruiterProfile, RecruiterAllowedOrganization, AuditLog } = require('../models');
 const authService = require('../services/authService');
 const { Op } = require('sequelize');
+const XLSX = require('xlsx');
 
 class AdminController {
   // Create a new user
@@ -324,6 +325,182 @@ class AdminController {
       res.json({
         message: `${affectedRows} user(s) updated successfully`,
         affectedRows
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Import students from Excel file (Admin only).
+   * Expects multipart/form-data: file (xlsx/xls), organizationId.
+   * Sheet: first row = headers. Required: email. Optional: first name, last name, phone, student id, course, branch, year of study, graduation year, gender, cgpa, percentage, date of birth.
+   */
+  async importStudentsFromExcel(req, res, next) {
+    try {
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Please upload an Excel file (.xlsx or .xls)'
+        });
+      }
+
+      const organizationId = req.body.organizationId ? parseInt(req.body.organizationId, 10) : null;
+      if (!organizationId) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Organization is required. Select a university, college, or school.'
+        });
+      }
+
+      const organization = await Organization.findByPk(organizationId);
+      if (!organization) {
+        return res.status(400).json({
+          error: 'Invalid Organization',
+          message: 'Organization not found'
+        });
+      }
+      if (!['university', 'college', 'school'].includes(organization.type)) {
+        return res.status(400).json({
+          error: 'Invalid Organization Type',
+          message: 'Students can only be imported into university, college, or school organizations'
+        });
+      }
+
+      const defaultPassword = process.env.BULK_IMPORT_DEFAULT_PASSWORD || 'Student@123';
+      const passwordHash = await authService.hashPassword(defaultPassword);
+
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      const headerMap = (rawKey) => {
+        const k = String(rawKey).trim().toLowerCase().replace(/\s+/g, '_');
+        const map = {
+          email: 'email',
+          first_name: 'firstName',
+          firstname: 'firstName',
+          last_name: 'lastName',
+          lastname: 'lastName',
+          phone: 'phone',
+          student_id: 'studentId',
+          studentid: 'studentId',
+          course: 'course',
+          branch: 'branch',
+          year: 'yearOfStudy',
+          year_of_study: 'yearOfStudy',
+          yearofstudy: 'yearOfStudy',
+          graduation_year: 'graduationYear',
+          graduationyear: 'graduationYear',
+          gender: 'gender',
+          cgpa: 'cgpa',
+          percentage: 'percentage',
+          date_of_birth: 'dateOfBirth',
+          dob: 'dateOfBirth',
+          dateofbirth: 'dateOfBirth'
+        };
+        return map[k] || null;
+      };
+
+      const created = [];
+      const skipped = [];
+      const errors = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const raw = rows[i];
+        const rowNum = i + 2; // 1-based + header
+        const get = (key) => {
+          const k = Object.keys(raw).find(kk => headerMap(kk) === key);
+          return k != null ? (raw[k] != null ? String(raw[k]).trim() : '') : '';
+        };
+
+        const email = (get('email') || '').toLowerCase();
+        if (!email) {
+          errors.push({ row: rowNum, message: 'Missing email' });
+          continue;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          errors.push({ row: rowNum, email, message: 'Invalid email format' });
+          continue;
+        }
+
+        const existingUser = await User.findOne({ where: { email: { [Op.iLike]: email } } });
+        if (existingUser) {
+          skipped.push({ row: rowNum, email, reason: 'Email already exists' });
+          continue;
+        }
+
+        const firstName = get('firstName') || get('lastName') || 'Student';
+        const lastName = get('lastName') || get('firstName') || 'User';
+        const phone = get('phone') || null;
+        const studentId = get('studentId') || null;
+        const course = get('course') || null;
+        const branch = get('branch') || null;
+        const yearOfStudyRaw = get('yearOfStudy') ? parseInt(get('yearOfStudy'), 10) : null;
+        let graduationYear = get('graduationYear') ? parseInt(get('graduationYear'), 10) : null;
+        let yearOfStudy = null;
+        if (yearOfStudyRaw != null && !Number.isNaN(yearOfStudyRaw)) {
+          if (yearOfStudyRaw >= 1 && yearOfStudyRaw <= 6) {
+            yearOfStudy = yearOfStudyRaw;
+          } else if (yearOfStudyRaw >= 1900 && yearOfStudyRaw <= 2100) {
+            graduationYear = graduationYear || yearOfStudyRaw;
+          }
+        }
+        const genderRaw = (get('gender') || '').toLowerCase();
+        const gender = ['male', 'female', 'other'].includes(genderRaw) ? genderRaw : null;
+        const cgpaVal = get('cgpa');
+        const cgpa = cgpaVal !== '' && !Number.isNaN(Number(cgpaVal)) ? parseFloat(cgpaVal) : null;
+        const pctVal = get('percentage');
+        const percentage = pctVal !== '' && !Number.isNaN(Number(pctVal)) ? parseFloat(pctVal) : null;
+        const dateOfBirth = get('dateOfBirth') || null;
+
+        try {
+          const user = await User.create({
+            email,
+            passwordHash,
+            role: 'student',
+            organizationId,
+            firstName,
+            lastName,
+            phone: phone || null,
+            approvalStatus: 'approved',
+            isActive: true,
+            isVerified: true,
+            approvedBy: req.user.id,
+            approvedAt: new Date()
+          });
+
+          await StudentProfile.create({
+            userId: user.id,
+            studentId,
+            course,
+            branch,
+            yearOfStudy,
+            graduationYear,
+            gender,
+            cgpa,
+            percentage,
+            dateOfBirth
+          });
+
+          created.push({ row: rowNum, email, name: `${firstName} ${lastName}` });
+        } catch (err) {
+          errors.push({ row: rowNum, email, message: err.message || 'Failed to create user' });
+        }
+      }
+
+      res.json({
+        message: 'Import completed',
+        summary: {
+          total: rows.length,
+          created: created.length,
+          skipped: skipped.length,
+          errors: errors.length
+        },
+        created,
+        skipped,
+        errors
       });
     } catch (error) {
       next(error);

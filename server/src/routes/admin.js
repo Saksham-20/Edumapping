@@ -4,8 +4,15 @@ const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const adminController = require('../controllers/adminController');
 const adminOrganizationController = require('../controllers/adminOrganizationController');
+const { createUploadMiddleware, FILE_TYPES, handleMulterError } = require('../config/multer');
 
 const router = express.Router();
+
+const uploadExcel = createUploadMiddleware('file', {
+  maxSize: 5 * 1024 * 1024,
+  allowedTypes: FILE_TYPES.SPREADSHEETS.mimeTypes,
+  allowedExtensions: FILE_TYPES.SPREADSHEETS.extensions
+});
 
 // All admin routes require authentication and admin role
 router.use(authenticateToken);
@@ -65,6 +72,17 @@ router.get('/users/:id', adminController.getUserById);
  *       - bearerAuth: []
  */
 router.post('/users/bulk', adminController.bulkUpdateUsers);
+
+/**
+ * @swagger
+ * /api/admin/students/import:
+ *   post:
+ *     summary: Import students from Excel (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/students/import', uploadExcel, handleMulterError, adminController.importStudentsFromExcel);
 
 /**
  * @swagger

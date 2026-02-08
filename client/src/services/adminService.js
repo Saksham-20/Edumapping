@@ -23,6 +23,20 @@ class AdminService {
     return await api.post('/admin/users/bulk', { userIds, updates });
   }
 
+  /**
+   * Import students from Excel file (Admin only).
+   * @param {File} file - Excel file (.xlsx or .xls)
+   * @param {number} organizationId - University, college, or school ID
+   */
+  async importStudentsExcel(file, organizationId) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('organizationId', String(organizationId));
+    return await api.post('/admin/students/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  }
+
   // TPO Management
   async getAllTPOs(params = {}) {
     const queryParams = new URLSearchParams(params).toString();

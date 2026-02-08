@@ -31,7 +31,8 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   AcademicCapIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ArrowUpTrayIcon
 } from '@heroicons/react/24/outline';
 import { preparePieChartData, prepareLineChartData, prepareBarChartData } from '../../utils/chartUtils';
 
@@ -116,10 +117,17 @@ const AdminDashboard = () => {
   const [permissionsSaving, setPermissionsSaving] = useState(false);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
 
+  // Import Students tab state (Admin only)
+  const [importFile, setImportFile] = useState(null);
+  const [importOrganizationId, setImportOrganizationId] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
   const tabs = [
     { id: 'overview', label: 'Overview', icon: ChartBarIcon },
     { id: 'analytics', label: 'Analytics', icon: ChartBarIcon },
     { id: 'users', label: 'Users', icon: UsersIcon, badge: stats.users?.total },
+    { id: 'import-students', label: 'Import Students', icon: ArrowUpTrayIcon },
     { id: 'tpos', label: 'TPOs', icon: AcademicCapIcon },
     { id: 'universities', label: 'Universities', icon: BuildingOfficeIcon },
     { id: 'companies', label: 'Companies', icon: BriefcaseIcon },
@@ -148,6 +156,8 @@ const AdminDashboard = () => {
     } else if (activeTab === 'recruiter-permissions') {
       fetchRecruiters();
       fetchInstitutions();
+    } else if (activeTab === 'import-students') {
+      setImportResult(null);
     } else if (activeTab === 'analytics') {
       fetchAdvancedAnalytics();
       fetchTopPerformers();
@@ -1934,6 +1944,112 @@ const AdminDashboard = () => {
     );
   };
 
+  // Import Students tab (Admin only) – upload Excel and select organization
+  const studentOrgs = organizations.filter(o => o.type === 'university' || o.type === 'college' || o.type === 'school');
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    if (!importFile || !importOrganizationId) {
+      toast.error('Please select an Excel file and an organization.');
+      return;
+    }
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await adminService.importStudentsExcel(importFile, parseInt(importOrganizationId, 10));
+      setImportResult(res);
+      toast.success(`Import completed: ${res.summary?.created ?? 0} created, ${res.summary?.skipped ?? 0} skipped, ${res.summary?.errors ?? 0} errors.`);
+      setImportFile(null);
+      if (document.getElementById('import-file-input')) document.getElementById('import-file-input').value = '';
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Import failed';
+      toast.error(msg);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const renderImportStudentsTab = () => {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-medium text-gray-900">Import students from Excel</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Upload an Excel file (.xlsx or .xls). First row must be headers. Required column: <strong>Email</strong>. Optional: First Name, Last Name, Phone, Student ID, Course, Branch, Year, Graduation Year, Gender, CGPA, Percentage, Date of Birth.
+          </p>
+        </div>
+
+        <form onSubmit={handleImportSubmit} className="bg-white rounded-lg shadow p-6 space-y-4 max-w-2xl">
+          <div>
+            <label htmlFor="import-org" className="block text-sm font-medium text-gray-700">Organization (University / College / School)</label>
+            <select
+              id="import-org"
+              value={importOrganizationId}
+              onChange={(e) => setImportOrganizationId(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 shadow-sm py-2 px-3 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              required
+            >
+              <option value="">Select organization</option>
+              {studentOrgs.map((org) => (
+                <option key={org.id} value={org.id}>{org.name} ({org.type})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Excel file</label>
+            <input
+              id="import-file-input"
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+              className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={importing || !importFile || !importOrganizationId}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importing ? <LoadingSpinner size="small" className="mr-2 inline" /> : <ArrowUpTrayIcon className="w-4 h-4 mr-2" />}
+            {importing ? 'Importing…' : 'Import students'}
+          </button>
+        </form>
+
+        {importResult && (
+          <div className="bg-white rounded-lg shadow p-6 space-y-4">
+            <h4 className="font-medium text-gray-900">Import result</h4>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="bg-green-50 rounded p-3"><span className="font-medium text-green-800">Created:</span> {Number(importResult.summary?.created) || 0}</div>
+              <div className="bg-amber-50 rounded p-3"><span className="font-medium text-amber-800">Skipped:</span> {Number(importResult.summary?.skipped) || 0}</div>
+              <div className="bg-red-50 rounded p-3"><span className="font-medium text-red-800">Errors:</span> {Number(importResult.summary?.errors) || 0}</div>
+            </div>
+            {Number(importResult.summary?.skipped) > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-3">
+                <p className="text-sm font-medium text-amber-800 mb-1">Why skipped?</p>
+                <p className="text-sm text-amber-700">
+                  Rows are skipped when a student with that <strong>email</strong> already exists. Your 140 rows were skipped because those emails are already in the database (e.g. from a previous import). No new accounts were created.
+                </p>
+                {(importResult.skipped?.length > 0) && (
+                  <p className="text-sm text-amber-700 mt-2">Example: {importResult.skipped.slice(0, 3).map(s => s.email).join(', ')}…</p>
+                )}
+              </div>
+            )}
+            {importResult.errors?.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-1">Error details (first 10):</p>
+                <ul className="text-sm text-red-600 list-disc list-inside">
+                  {(importResult.errors.slice(0, 10)).map((err, idx) => (
+                    <li key={idx}>Row {err.row}: {err.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Render Recruiter permissions tab
   const renderRecruiterPermissionsTab = () => {
     if (isLoading && recruiters.length === 0) {
@@ -2378,6 +2494,7 @@ const AdminDashboard = () => {
         {activeTab === 'overview' && renderOverviewTab()}
         {activeTab === 'analytics' && renderAnalyticsTab()}
         {activeTab === 'users' && renderUsersTab()}
+        {activeTab === 'import-students' && renderImportStudentsTab()}
         {activeTab === 'tpos' && renderTPOsTab()}
         {activeTab === 'universities' && renderUniversitiesTab()}
         {activeTab === 'companies' && renderCompaniesTab()}
