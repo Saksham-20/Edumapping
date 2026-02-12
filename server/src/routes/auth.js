@@ -252,10 +252,14 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
  *       401:
  *         description: Authentication required
  */
-router.get('/me', authenticateToken, async (req, res) => {
-  res.json({
-    user: req.user
-  });
+router.get('/me', authenticateToken, async (req, res, next) => {
+  try {
+    res.json({
+      user: req.user
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post('/forgot-password/send-otp', otpSendLimiter, async (req, res, next) => {

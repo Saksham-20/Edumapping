@@ -4,6 +4,12 @@ const { User, Organization } = require('../models');
 
 const authenticateToken = async (req, res, next) => {
   try {
+    if (!process.env.JWT_SECRET) {
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Server configuration error: authentication not configured'
+      });
+    }
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -75,7 +81,7 @@ const optionalAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (token) {
+    if (token && process.env.JWT_SECRET) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findByPk(decoded.userId, {
         include: [{ model: Organization, as: 'organization' }],

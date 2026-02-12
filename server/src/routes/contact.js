@@ -4,7 +4,7 @@ const emailService = require('../services/emailService');
 const logger = require('../utils/logger');
 
 // POST /api/contact
-router.post('/', async (req, res) => {
+router.post('/', async (req, res, next) => {
     try {
         const { name, email, message } = req.body;
 
@@ -21,7 +21,7 @@ router.post('/', async (req, res) => {
         <p><strong>Email:</strong> ${email}</p>
         <p><strong>Message:</strong></p>
         <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px;">
-          ${message.replace(/\n/g, '<br>')}
+          ${String(message).replace(/\n/g, '<br>')}
         </div>
       </div>
     `;
@@ -32,7 +32,7 @@ router.post('/', async (req, res) => {
         res.json({ success: true, message: 'Message sent successfully' });
     } catch (error) {
         logger.error('Contact form error', error);
-        res.status(500).json({ error: 'Failed to send message' });
+        next(error);
     }
 });
 

@@ -68,6 +68,12 @@ app.use(cors({
       'http://127.0.0.1:3002',
       'http://127.0.0.1:3003'
     ];
+    const defaultProdOrigins = [
+      'https://edumapping.com',
+      'https://www.edumapping.com',
+      'http://edumapping.com',
+      'http://www.edumapping.com'
+    ];
     // Support multiple frontend URLs (comma-separated) and individual URLs
     const frontendUrls = process.env.FRONTEND_URL
       ? process.env.FRONTEND_URL.split(',').map(url => url.trim()).filter(Boolean)
@@ -75,7 +81,7 @@ app.use(cors({
 
     const allowed = new Set([
       ...frontendUrls,
-      ...(process.env.NODE_ENV === 'development' ? defaultDevOrigins : [])
+      ...(process.env.NODE_ENV === 'development' ? defaultDevOrigins : defaultProdOrigins)
     ].filter(Boolean));
 
     if (!origin) return callback(null, true); // allow non-browser clients
@@ -83,6 +89,10 @@ app.use(cors({
     
     // In development, allow any localhost origin
     if (process.env.NODE_ENV === 'development' && origin && origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    // In production, allow same-domain (e.g. subdomains or alternate domains)
+    if (process.env.NODE_ENV === 'production' && origin && (origin.endsWith('edumapping.com') || origin.includes('.edumapping.com'))) {
       return callback(null, true);
     }
     
@@ -212,6 +222,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Request timeout for API - prevent proxy 502 when backend hangs (e.g. slow DB)
+const API_TIMEOUT_MS = parseInt(process.env.API_TIMEOUT_MS, 10) || 25000;
+app.use('/api', (req, res, next) => {
+  const timer = setTimeout(() => {
+    if (res.headersSent) return;
+    logger.warn('Request timeout', { method: req.method, path: req.path, timeoutMs: API_TIMEOUT_MS });
+    res.status(504).json({
+      error: 'Gateway Timeout',
+      message: 'The request took too long. Please try again.'
+    });
+  }, API_TIMEOUT_MS);
+  res.on('finish', () => clearTimeout(timer));
+  next();
+});
+
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -257,14 +282,26 @@ const swaggerOptions = {
 const specs = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
-// Health check endpoint
+// Database ready state - set to true when connectDB() succeeds (avoids 502 when DB is slow/unavailable)
+let dbReady = false;
+
+// Health check endpoint - returns 200 when DB is ready, 503 when still connecting (so proxies don't 502)
 app.get('/api/health', (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: 'Database is connecting',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV
+    });
+  }
   res.json({
     status: 'OK',
     message: 'EduMapping API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
-    version: '1.0.0'
+    version: '1.0.0',
+    db: 'connected'
   });
 });
 
@@ -497,6 +534,19 @@ app.post('/api/debug/test-login', async (req, res) => {
 });
 }
 
+// Return 503 for API routes (except health) when DB is not ready - prevents 502 from proxy/timeouts
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health' || req.path === '/health/') return next();
+  if (!dbReady) {
+    return res.status(503).json({
+      error: 'Service Unavailable',
+      message: 'Database is connecting. Please try again in a moment.',
+      timestamp: new Date().toISOString()
+    });
+  }
+  next();
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -553,7 +603,7 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 // Global error handler
 app.use(errorHandler);
 
-// Database connection with retry logic
+// Database connection with retry logic - does NOT exit process on failure so server stays up (returns 503 until DB ready)
 const connectDB = async (retries = 5, delay = 5000) => {
   for (let i = 0; i < retries; i++) {
     try {
@@ -569,6 +619,8 @@ const connectDB = async (retries = 5, delay = 5000) => {
         await sequelize.sync({ alter: true });
         logger.info('Database synchronized');
       }
+
+      dbReady = true;
       return; // Success, exit the retry loop
 
     } catch (error) {
@@ -578,8 +630,8 @@ const connectDB = async (retries = 5, delay = 5000) => {
       });
 
       if (i === retries - 1) {
-        logger.error('All database connection attempts failed', error);
-        process.exit(1);
+        logger.error('All database connection attempts failed - API will return 503 until DB is available', error);
+        throw error; // Let caller handle - do NOT process.exit(1) so server keeps listening
       }
 
       logger.debug(`Waiting ${delay}ms before retry`);

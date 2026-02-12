@@ -117,11 +117,22 @@ if (process.env.DB_PASSWORD && process.env.DB_USERNAME) {
   // Fall back to DATABASE_URL if individual vars not available
   productionConfig = parseDatabaseUrl();
 } else {
-  throw new Error('Either DB_PASSWORD/DB_USERNAME or DATABASE_URL must be set');
+  // Don't throw at load time - use placeholder so server can start and return 503 until DB is configured
+  productionConfig = {
+    username: 'unconfigured',
+    password: 'unconfigured',
+    database: 'unconfigured',
+    host: 'localhost',
+    port: 5432,
+    dialect: 'postgres',
+    logging: false,
+    pool: { max: 2, min: 0, acquire: 5000, idle: 5000 }
+  };
+  logger.warn('Production DB not configured - set DATABASE_URL or DB_* env vars. API will return 503 until then.');
 }
 
-// Validate production config has required fields
-if (!productionConfig.password || productionConfig.password === '') {
+// Validate production config has required fields (skip for placeholder when DB not configured)
+if (productionConfig.database !== 'unconfigured' && (!productionConfig.password || productionConfig.password === '')) {
   logger.error('Database password is missing or empty', new Error('Database password is required'));
   throw new Error('Database password is required');
 }

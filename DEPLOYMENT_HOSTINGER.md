@@ -440,9 +440,9 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Proxy API requests to backend
+    # Proxy API requests to backend (avoid 502: increase timeouts and buffers)
     location /api {
-        proxy_pass http://localhost:5000;
+        proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -451,6 +451,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_buffering off;
     }
 
     # Static assets caching

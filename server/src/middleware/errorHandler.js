@@ -2,6 +2,14 @@
 const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
+  // Avoid "Cannot set headers after they are sent" - can crash process and cause 502
+  if (res.headersSent) {
+    return next();
+  }
+  if (!err) {
+    return next();
+  }
+
   // Log full error details for debugging
   console.error('=== ERROR HANDLER ===');
   console.error('Error Name:', err.name);

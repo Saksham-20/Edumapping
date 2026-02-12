@@ -6,7 +6,9 @@ class NotificationController {
   async getNotifications(req, res, next) {
     try {
       const { page = 1, limit = 20, isRead } = req.query;
-      const offset = (page - 1) * limit;
+      const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const offset = (pageNum - 1) * limitNum;
       const whereClause = { userId: req.user.id };
 
       if (isRead !== undefined) {
@@ -21,8 +23,8 @@ class NotificationController {
 
       const { count, rows: notifications } = await Notification.findAndCountAll({
         where: whereClause,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit: limitNum,
+        offset,
         order: [['createdAt', 'DESC']]
       });
 
@@ -30,8 +32,8 @@ class NotificationController {
         message: 'Notifications retrieved successfully',
         notifications,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(count / limit),
+          currentPage: pageNum,
+          totalPages: Math.ceil(count / limitNum),
           totalNotifications: count,
           hasMore: offset + notifications.length < count
         }
