@@ -13,7 +13,7 @@ const validateRegistration = [
   body('password').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/),
   body('firstName').trim().isLength({ min: 1, max: 100 }),
   body('lastName').trim().isLength({ min: 1, max: 100 }),
-  body('role').isIn(['student', 'recruiter', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor']),
+  body('role').isIn(['student', 'recruiter', 'tpo', ]),
   body('otp').optional().isLength({ min: 6, max: 6 }).isNumeric(),
   body('organizationId')
     .optional({ values: 'falsy' })

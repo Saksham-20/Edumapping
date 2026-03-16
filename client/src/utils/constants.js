@@ -9,11 +9,7 @@ export const USER_ROLES = {
   STUDENT: 'student',
   RECRUITER: 'recruiter',
   TPO: 'tpo',
-  ADMIN: 'admin',
-  PRINCIPAL: 'principal',
-  TEACHER: 'teacher',
-  SCHOOL_ADMIN: 'school_admin',
-  CAREER_COUNSELOR: 'career_counselor'
+  ADMIN: 'admin'
 };
 
 // Approval Status
@@ -310,12 +306,12 @@ export const STATUS_COLORS = {
 export const DEFAULT_AVATAR_URL = (name) => 
   `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=156395&color=fff&size=128`;
 
-// Local Storage Keys
+// Storage Keys
 export const STORAGE_KEYS = {
-  AUTH_TOKENS: 'campusconnect_tokens',
-  USER_PREFERENCES: 'campusconnect_preferences',
-  THEME: 'campusconnect_theme',
-  LANGUAGE: 'campusconnect_language'
+  AUTH_TOKENS: 'collegeplacements_tokens',
+  USER_PREFERENCES: 'collegeplacements_preferences',
+  THEME: 'collegeplacements_theme',
+  LANGUAGE: 'collegeplacements_language'
 };
 
 // Date Formats
@@ -390,14 +386,14 @@ export const FEATURES = {
 
 // App Configuration
 export const APP_CONFIG = {
-  NAME: 'CampusConnect',
+  NAME: 'College Placements',
   VERSION: '1.0.0',
-  COMPANY: 'CampusConnect Inc.',
-  SUPPORT_EMAIL: 'support@campusconnect.com',
+  COMPANY: 'Globoniks',
+  SUPPORT_EMAIL: 'support@college-placements.globoniks.com',
   PRIVACY_POLICY_URL: '/privacy',
   TERMS_OF_SERVICE_URL: '/terms',
-  GITHUB_URL: 'https://github.com/campusconnect',
-  DOCUMENTATION_URL: 'https://docs.campusconnect.com'
+  GITHUB_URL: 'https://github.com/globoniks',
+  DOCUMENTATION_URL: 'https://college-placements.globoniks.com/docs'
 };
 
 export default {

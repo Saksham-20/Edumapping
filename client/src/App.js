@@ -13,18 +13,11 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/auth/Login';
 import CollegeLogin from './pages/auth/CollegeLogin';
-import SchoolLogin from './pages/auth/SchoolLogin';
 import Register from './pages/auth/Register';
 import CollegeRegister from './pages/auth/CollegeRegister';
-import SchoolRegister from './pages/auth/SchoolRegister';
 import PendingApproval from './pages/auth/PendingApproval';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import StudentDashboard from './pages/dashboard/StudentDashboard';
-import SchoolDashboard from './pages/dashboard/SchoolDashboard';
-import PrincipalDashboard from './pages/dashboard/PrincipalDashboard';
-import TeacherDashboard from './pages/dashboard/TeacherDashboard';
-import SchoolAdminDashboard from './pages/dashboard/SchoolAdminDashboard';
-import CareerCounselorDashboard from './pages/dashboard/CareerCounselorDashboard';
 import RecruiterDashboard from './pages/dashboard/RecruiterDashboard';
 import TPODashboard from './pages/dashboard/TPODashboard';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
@@ -48,25 +41,6 @@ const DashboardRouter = () => {
   const { user } = useAuth();
   
   if (!user) return <Navigate to="/login" replace />;
-  
-  // Check if student belongs to a school organization
-  if (user.role === 'student' && user.organization?.type === 'school') {
-    return <SchoolDashboard />;
-  }
-  
-  // Route school staff roles to their respective dashboards
-  if (user.organization?.type === 'school') {
-    switch (user.role) {
-      case 'principal':
-        return <PrincipalDashboard />;
-      case 'teacher':
-        return <TeacherDashboard />;
-      case 'school_admin':
-        return <SchoolAdminDashboard />;
-      case 'career_counselor':
-        return <CareerCounselorDashboard />;
-    }
-  }
   
   switch (user.role) {
     case 'student':
@@ -151,10 +125,8 @@ function App() {
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/login/college" element={<CollegeLogin />} />
-              <Route path="/login/school" element={<SchoolLogin />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register/college" element={<CollegeRegister />} />
-              <Route path="/register/school" element={<SchoolRegister />} />
               <Route path="/pending-approval" element={<PendingApproval />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "EduMapping frontend - React app for campus recruitment platform",
   "private": true,
-  "proxy": "http://localhost:5000",
+  "proxy": "https://college-placements.globoniks.com/api",
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
@@ -66,3 +66,4 @@
     ]
   }
 }
+
