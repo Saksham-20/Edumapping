@@ -1,5 +1,5 @@
 // client/src/App.js
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster, toast as toastLib } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext'; // Add useAuth import here
@@ -42,6 +42,12 @@ import EventDetails from './pages/events/EventDetails';
 
 import './styles/index.css';
 import './styles/carousel.css';
+
+// Code-split: the conference room drags in livekit-client and the LiveKit
+// React components (~hundreds of kB). Loading it eagerly would put that in
+// the main bundle and make every landing-page visitor pay for a route only
+// signed-in users in a live class ever reach.
+const ConferenceRoom = lazy(() => import('./pages/conference/ConferenceRoom'));
 
 // Dashboard router component to redirect based on user role
 const DashboardRouter = () => {
@@ -257,6 +263,28 @@ function App() {
                 </ProtectedRoute>
               } />
               
+              {/* Live class / conference room.
+                  Deliberately rendered WITHOUT <Header /> — the room is a
+                  full-viewport surface and the app chrome would steal height
+                  from the video stage. */}
+              <Route path="/conference/:id" element={
+                <ProtectedRoute>
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-screen items-center justify-center bg-ink-950">
+                        <div
+                          role="status"
+                          aria-label="Loading the live class"
+                          className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-saffron-500"
+                        />
+                      </div>
+                    }
+                  >
+                    <ConferenceRoom />
+                  </Suspense>
+                </ProtectedRoute>
+              } />
+
               {/* Catch all route */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -1,0 +1,45 @@
+# deploy/livekit/livekit.service
+# Install to /etc/systemd/system/livekit.service
+#
+# Scoped deliberately: this unit touches nothing but LiveKit. Do not add
+# dependencies on nginx/postgres restarts — other production sites share
+# this host and must not be disturbed when LiveKit is restarted.
+
+[Unit]
+Description=LiveKit SFU (EduMapping live classes)
+Documentation=https://docs.livekit.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=livekit
+Group=livekit
+ExecStart=/usr/local/bin/livekit-server --config /etc/livekit/livekit.yaml
+Restart=on-failure
+RestartSec=5
+
+# The SFU opens a socket per subscriber; the default 1024 is far too low.
+LimitNOFILE=65536
+
+# This box has ONE vCPU shared with Postgres, the Node API and nginx.
+# Cap LiveKit so a busy class cannot starve the rest of the stack — losing
+# video is recoverable, taking the website down is not.
+CPUQuota=70%
+MemoryMax=1200M
+
+# Hardening. LiveKit needs no write access outside its own state.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/livekit
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=append:/var/log/livekit/livekit.log
+StandardError=append:/var/log/livekit/livekit.err
+
+[Install]
+WantedBy=multi-user.target

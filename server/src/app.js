@@ -31,6 +31,8 @@ const statisticsRoutes = require('./routes/statistics');
 const approvalRoutes = require('./routes/approvals');
 const adminRoutes = require('./routes/admin');
 const contactRoutes = require('./routes/contact');
+const conferenceRoutes = require('./routes/conferences');
+const conferenceController = require('./controllers/conferenceController');
 
 
 const app = express();
@@ -141,6 +143,12 @@ const limiter = rateLimit({
     if (req.path === '/api/health') {
       return true;
     }
+    // LiveKit fires a webhook per participant join/leave/track event. A single
+    // large class would otherwise exhaust the window. These requests are
+    // authenticated by a signed Authorization header, not by session.
+    if (req.path === '/api/conferences/webhook') {
+      return true;
+    }
     // Skip rate limiting for localhost in development
     if (process.env.NODE_ENV === 'development') {
       const ip = req.ip || req.connection.remoteAddress || '';
@@ -236,6 +244,15 @@ app.use('/api', (req, res, next) => {
   res.on('finish', () => clearTimeout(timer));
   next();
 });
+
+// LiveKit webhooks must be verified against the RAW request body, so this
+// route is mounted before the JSON body parser below. It authenticates via
+// the signed Authorization header, not a user session.
+app.post(
+  '/api/conferences/webhook',
+  express.raw({ type: ['application/webhook+json', 'application/json'], limit: '1mb' }),
+  (req, res) => conferenceController.handleWebhook(req, res)
+);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -563,6 +580,7 @@ app.use('/api/statistics', statisticsRoutes);
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/conferences', conferenceRoutes);
 
 // Serve static files from React app in production (only if enabled)
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false') {
