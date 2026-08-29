@@ -1,7 +1,9 @@
 // client/src/components/common/WhatsAppChat.js
 import React from 'react';
+import { useReducedMotion } from 'framer-motion';
 
 const WhatsAppChat = () => {
+  const reduce = useReducedMotion();
   const phoneNumber = '919104991059';
   const message = 'Hello! I would like to know more about EduMapping.';
   const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
@@ -14,7 +16,9 @@ const WhatsAppChat = () => {
       className="fixed bottom-6 right-6 z-50 bg-[#25D366] hover:bg-[#20BA5A] text-white rounded-full p-4 shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110"
       style={{
         boxShadow: '0 10px 30px rgba(37, 211, 102, 0.4)',
-        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+        // The pulse is purely decorative. It is set inline, so no stylesheet
+        // rule can override it — the preference has to be honoured here.
+        ...(reduce ? {} : { animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' })
       }}
       aria-label="Chat with us on WhatsApp"
     >

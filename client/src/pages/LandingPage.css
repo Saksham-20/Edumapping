@@ -1,43 +1,215 @@
-/* Landing Page Animations */
-.animate-on-scroll {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+/* client/src/pages/LandingPage.css
+   Landing-page-only styles. Everything is scoped under an .lp- prefix or sits
+   inside the landing tree, so nothing can leak into the dashboards. */
+
+/* ------------------------------------------------------------------ canvas */
+/* Fine printed-grid texture. Sits behind the light sections at very low
+   contrast to stop large bone-coloured areas from looking like dead space. */
+.lp-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(11, 12, 14, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 12, 14, 0.045) 1px, transparent 1px);
+  background-size: 72px 72px;
+  pointer-events: none;
 }
 
-.animate-fade-in {
-  opacity: 1;
-  transform: translateY(0);
+/* Same grid, inverted, for the dark bands. */
+.lp-grid--dark {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
 }
 
-/* Responsive: prevent nav/footer text from glitching on narrow screens */
+/* Fades the grid out toward the edges so it never ends on a hard line. */
+.lp-grid--fade {
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 25%, transparent 80%);
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 25%, transparent 80%);
+}
+
+/* Film grain. Kills banding on the large flat colour fields. */
+.lp-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ------------------------------------------------------------- typography */
+.lp-balance {
+  text-wrap: balance;
+}
+
+/* Hand-drawn highlighter swipe behind a word in a headline. Drawn as a
+   background layer anchored to the baseline so it sits *behind* the glyphs
+   rather than boxing them in. */
+.lp-mark {
+  position: relative;
+  display: inline-block;
+  isolation: isolate;
+}
+
+.lp-mark::before {
+  content: '';
+  position: absolute;
+  left: -0.08em;
+  right: -0.08em;
+  bottom: 0.04em;
+  height: 0.34em;
+  z-index: -1;
+  background: #FF9933;
+  opacity: 0.85;
+  border-radius: 0.06em;
+  transform: rotate(-0.6deg);
+}
+
+/* Underline that draws itself in on hover. transform-only, so no reflow. */
+.lp-link {
+  position: relative;
+}
+
+.lp-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1.5px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lp-link:hover::after,
+.lp-link:focus-visible::after {
+  transform: scaleX(1);
+}
+
+/* ---------------------------------------------------------------- marquee */
+.lp-marquee {
+  display: flex;
+  width: max-content;
+}
+
+.lp-marquee__track {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Soft edges so items enter and leave instead of popping at the viewport. */
+.lp-marquee-mask {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+/* Pausing on hover lets someone actually read a logo they spotted. */
+.lp-marquee-hover:hover .lp-marquee {
+  animation-play-state: paused;
+}
+
+/* -------------------------------------------------------- product preview */
+/* The hero's app mock. Built in markup rather than as a screenshot so it
+   always matches the real product colours and stays crisp at any density. */
+.lp-preview {
+  transform: perspective(2000px) rotateY(-9deg) rotateX(4deg) translateZ(0);
+  transform-style: preserve-3d;
+}
+
 @media (max-width: 1023px) {
-  .font-sans nav .flex.items-center.gap-1 {
-    min-width: 0;
+  .lp-preview {
+    transform: none;
   }
 }
 
-/* Footer: ensure Quick Links and contact text don’t collapse or clip */
+/* Sweeping highlight across the preview glass. */
+.lp-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+
+/* --------------------------------------------------------- kinetic headline */
+/* Reserves the width of the longest rotating word so the headline never
+   reflows as the word swaps. */
+.lp-rotator {
+  display: inline-grid;
+  vertical-align: bottom;
+}
+
+.lp-rotator > * {
+  grid-area: 1 / 1;
+}
+
+/* ----------------------------------------------------------------- slick */
+.slick-dots {
+  bottom: 16px !important;
+}
+
+.slick-dots li button:before {
+  font-size: 9px !important;
+  color: #0B0C0E !important;
+  opacity: 0.25 !important;
+  transition: opacity 200ms ease;
+}
+
+.slick-dots li.slick-active button:before {
+  color: #FF9933 !important;
+  opacity: 1 !important;
+}
+
+.lp-equal .slick-track {
+  display: flex !important;
+}
+
+.lp-equal .slick-slide {
+  height: inherit !important;
+}
+
+.lp-equal .slick-slide > div {
+  height: 100%;
+}
+
+/* ------------------------------------------------------------ footer fixes */
 footer ul li {
   word-break: break-word;
 }
-footer .space-y-2 button {
+
+footer .lp-footer-links button {
   white-space: normal;
   text-align: left;
 }
 
-/* Ensure slick carousel dots are visible */
-.slick-dots {
-  bottom: 25px !important;
-}
+/* --------------------------------------------------- motion safety (a11y) */
+/* Decorative movement stops when the OS asks for reduced motion. Content
+   still renders — only the movement is removed, never the element. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-marquee,
+  .lp-sheen,
+  .animate-marquee,
+  .animate-marquee-slow,
+  .animate-float,
+  .animate-sheen,
+  .animate-pulse-dot {
+    animation: none !important;
+    transition: none !important;
+  }
 
-.slick-dots li button:before {
-  font-size: 12px !important;
-  color: #156395 !important;
-  opacity: 0.5 !important;
-}
+  .lp-preview {
+    transform: none !important;
+  }
 
-.slick-dots li.slick-active button:before {
-  color: #156395 !important;
-  opacity: 1 !important;
+  .lp-link::after {
+    transition: none !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
 }

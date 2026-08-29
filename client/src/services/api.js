@@ -61,9 +61,12 @@ api.interceptors.response.use(
                         error.message || 
                         'An unexpected error occurred';
 
-    // Don't show toast for certain errors
+    // Don't show toast for certain errors.
+    // A caller can also opt out per request with `{ silent: true }` — the
+    // public landing page handles its own failures and must never throw an
+    // error toast at a logged-out visitor who is just reading the page.
     const silentErrors = [401, 403];
-    if (!silentErrors.includes(error.response?.status)) {
+    if (!silentErrors.includes(error.response?.status) && !error.config?.silent) {
       toast.error(errorMessage);
     }
 
