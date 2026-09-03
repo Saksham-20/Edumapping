@@ -34,9 +34,17 @@ export const PageShell = ({ children, className = '', width = 'default' }) => {
   };
   return (
     <div className={cx('min-h-screen bg-bone-50', className)}>
-      <div className={cx('mx-auto w-full px-4 py-8 sm:px-6 sm:py-10 lg:px-8', widths[width])}>
+      {/* A real <main> landmark, and the target for the header's skip link.
+          Every signed-in page renders through here, and none of them had one:
+          the page was nothing but nested divs, so a screen-reader user had no
+          way to jump past the navigation and a keyboard user had to tab through
+          the whole header on every page. The landing page already does this. */}
+      <main
+        id="app-main"
+        className={cx('mx-auto w-full px-4 py-8 sm:px-6 sm:py-10 lg:px-8', widths[width])}
+      >
         {children}
-      </div>
+      </main>
     </div>
   );
 };

@@ -252,7 +252,14 @@ const RecruiterDashboard = () => {
         api.get('/applications', { params: { ...params, limit: 10 }, silent: true }),
         api.get('/events', { params: { ...params, upcoming: true, limit: 5 }, silent: true }),
         api.get('/jobs/stats', { params, silent: true }),
-        api.get('/users/top-candidates', { params: { ...params, limit: 5 }, silent: true })
+        // Deliberately without `organizationId`. For every other endpoint here
+        // that parameter means "my company"; on top-candidates it means "which
+        // institution to draw candidates from" and is checked against the
+        // recruiter's allowed-institution list, which never contains their own
+        // company — so passing it returned 403 and the panel was always empty.
+        // Omitted, the server uses this recruiter's own jobs and their full
+        // allow-list, which is what this panel is asking for.
+        api.get('/users/top-candidates', { params: { limit: 5 }, silent: true })
       ]);
 
       const value = (i) => (results[i].status === 'fulfilled' ? results[i].value : null);

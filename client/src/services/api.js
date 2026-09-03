@@ -39,8 +39,19 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // Endpoints where a 401 is the answer, not an expired session.
+    //
+    // A failed sign-in returns 401, and so does a refresh with a dead refresh
+    // token. Treating those as "the access token expired" sent the interceptor
+    // off to refresh, fail, clear the tokens and hard-redirect to /login —
+    // which discarded the error before the login form's own catch could read
+    // it. The user typed a wrong password and got a silently reloaded, blank
+    // login page with no message at all.
+    const url = originalRequest?.url || '';
+    const isAuthChallenge = /\/auth\/(login|register|refresh)\b/.test(url);
+
     // Handle 401 errors (token expired)
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthChallenge) {
       originalRequest._retry = true;
 
       try {

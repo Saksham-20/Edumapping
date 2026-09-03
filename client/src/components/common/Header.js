@@ -191,6 +191,15 @@ const Header = () => {
 
   return (
     <>
+      {/* Lets a keyboard user jump straight to the page body instead of tabbing
+          through the whole navigation on every route. Targets the <main> that
+          PageShell renders. Visible only while focused. */}
+      <a
+        href="#app-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-full focus:border focus:border-ink-950 focus:bg-saffron-500 focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-ink-950"
+      >
+        Skip to content
+      </a>
       <header
         className="fixed inset-x-0 top-0 z-50 border-b border-ink-950/10 bg-bone-50/95 backdrop-blur-md"
         style={{ height: BAR_HEIGHT }}
@@ -253,7 +262,12 @@ const Header = () => {
             horizontal scroll nobody would discover. Every narrower viewport
             still gets the search in the mobile drawer.
           */}
-          {searchField('desktop', 'hidden w-full max-w-xs shrink-0 2xl:block')}
+          {/* Shown from xl, the same breakpoint that reveals the inline nav.
+              Gating it at 2xl left every viewport between 1280 and 1535 — a
+              14" laptop among them — with the nav visible, no menu button, and
+              no way to reach search at all. It shares the row with the nav, so
+              it stays narrow and is allowed to shrink rather than push. */}
+          {searchField('desktop', 'hidden w-full min-w-0 max-w-[11rem] shrink xl:block 2xl:max-w-xs')}
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <div className="relative">
