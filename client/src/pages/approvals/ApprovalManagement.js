@@ -1,6 +1,6 @@
 // client/src/pages/approvals/ApprovalManagement.js
 //
-// A TPO's queue of companies and recruiters waiting to be let into their
+// A TPO's queue of companies, recruiters and job postings waiting on their
 // campus. The file never parsed before it was routed, so nothing here had ever
 // executed until now.
 //
@@ -8,6 +8,7 @@
 // a 403 — this page says so rather than showing an empty queue and implying
 // there is nothing to approve.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -29,6 +30,7 @@ import {
   Modal
 } from '../../components/ui';
 import {
+  BriefcaseIcon,
   BuildingOfficeIcon,
   UserGroupIcon,
   CheckCircleIcon,
@@ -55,6 +57,10 @@ const ApprovalManagement = () => {
   const isTpo = user?.role === 'tpo';
 
   const [pending, setPending] = useState({ organizations: [], recruiters: [], total: 0 });
+  // Job postings waiting to be published. Recruiters are approved but their
+  // postings were not, so this queue is the step between an approved company
+  // and a listing reaching every eligible student.
+  const [pendingJobs, setPendingJobs] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -70,12 +76,14 @@ const ApprovalManagement = () => {
     setLoading(true);
     setError(null);
     try {
-      const [approvals, statsBody] = await Promise.all([
+      const [approvals, statsBody, jobQueue] = await Promise.all([
         api.get('/approvals/pending', { silent: true }),
-        api.get('/approvals/stats', { silent: true })
+        api.get('/approvals/stats', { silent: true }),
+        api.get('/jobs/pending-review', { params: { limit: 100 }, silent: true })
       ]);
       setPending(approvals.data || { organizations: [], recruiters: [], total: 0 });
       setStats(statsBody.stats || null);
+      setPendingJobs(jobQueue.jobs || []);
       setSelected([]);
     } catch (err) {
       setError(err?.message || 'Could not load the approval queue.');
@@ -108,7 +116,12 @@ const ApprovalManagement = () => {
     const { action, scope, type, item } = confirm;
     setWorking(true);
     try {
-      if (scope === 'one') {
+      if (scope === 'one' && type === 'posting') {
+        // A posting review lives on the job itself, not under /approvals, since
+        // approving it publishes the job and fans the alert out to students.
+        await api.patch(`/jobs/${item.id}/review`, { action, notes }, { silent: true });
+        toast.success(action === 'approve' ? 'Posting published' : 'Posting sent back');
+      } else if (scope === 'one') {
         const path =
           type === 'organization'
             ? `/approvals/organizations/${item.id}`
@@ -141,9 +154,10 @@ const ApprovalManagement = () => {
   const tabs = useMemo(
     () => [
       { value: 'organizations', label: 'Companies', icon: BuildingOfficeIcon, count: orgs.length },
-      { value: 'recruiters', label: 'Recruiters', icon: UserGroupIcon, count: recruiters.length }
+      { value: 'recruiters', label: 'Recruiters', icon: UserGroupIcon, count: recruiters.length },
+      { value: 'postings', label: 'Job postings', icon: BriefcaseIcon, count: pendingJobs.length }
     ],
-    [orgs.length, recruiters.length]
+    [orgs.length, recruiters.length, pendingJobs.length]
   );
 
   if (!isTpo) {
@@ -166,8 +180,8 @@ const ApprovalManagement = () => {
         title="Approval queue"
         lead={
           user?.organization?.name
-            ? `Companies and recruiters asking for access to ${user.organization.name}.`
-            : 'Companies and recruiters asking for access to your institution.'
+            ? `Companies, recruiters and job postings waiting on ${user.organization.name}.`
+            : 'Companies, recruiters and job postings waiting on your institution.'
         }
       />
 
@@ -188,8 +202,11 @@ const ApprovalManagement = () => {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Waiting"
-              value={pending.total ?? 0}
-              hint="Companies and recruiters combined"
+              // The postings queue is part of this queue, so it belongs in the
+              // headline count. Leaving it out meant the tab could read 1 while
+              // the tile above it read 0.
+              value={(pending.total ?? 0) + pendingJobs.length}
+              hint="Companies, recruiters and postings"
               icon={InboxStackIcon}
               accent="saffron"
             />
@@ -361,6 +378,58 @@ const ApprovalManagement = () => {
                 ))}
               </ul>
             ))}
+
+          {tab === 'postings' &&
+            (pendingJobs.length === 0 ? (
+              <EmptyState
+                icon={BriefcaseIcon}
+                title="No postings waiting"
+                description="Every job a recruiter submitted has been reviewed. Approved postings go live to eligible students immediately."
+              />
+            ) : (
+              <ul className="space-y-3">
+                {pendingJobs.map((j) => (
+                  <li key={j.id}>
+                    <Card className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-display text-base font-bold text-ink-950">
+                          <Link to={`/jobs/${j.id}`} className="underline-offset-2 hover:underline">
+                            {j.title}
+                          </Link>
+                        </h3>
+                        <p className="truncate text-sm text-ink-600">
+                          {j.organization?.name}
+                          {j.location ? ` · ${j.location}` : ''}
+                          {j.jobType ? ` · ${j.jobType.replace('_', ' ')}` : ''}
+                        </p>
+                        <p className="truncate text-xs text-ink-500">
+                          Submitted by {j.creator?.firstName} {j.creator?.lastName}
+                        </p>
+                        <p className="mt-2 line-clamp-2 text-sm text-ink-700">{j.description}</p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="success"
+                          icon={CheckIcon}
+                          onClick={() => openConfirm('approve', 'one', 'posting', j)}
+                        >
+                          Publish
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          icon={XMarkIcon}
+                          onClick={() => openConfirm('reject', 'one', 'posting', j)}
+                        >
+                          Send back
+                        </Button>
+                      </div>
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            ))}
         </>
       )}
 
@@ -375,12 +444,18 @@ const ApprovalManagement = () => {
                   ? `${selected.length} compan${selected.length === 1 ? 'y' : 'ies'}`
                   : confirm.type === 'organization'
                   ? confirm.item?.name
+                  : confirm.type === 'posting'
+                  ? confirm.item?.title
                   : `${confirm.item?.firstName} ${confirm.item?.lastName}`
               }?`
             : ''
         }
         description={
-          confirm?.action === 'approve'
+          confirm?.type === 'posting'
+            ? confirm?.action === 'approve'
+              ? 'The posting goes live and every eligible student is notified.'
+              : 'The posting returns to the recruiter as a draft. Your note is sent with it.'
+            : confirm?.action === 'approve'
             ? 'They will immediately gain access to your institution.'
             : 'They will be told the request was declined. A reason helps.'
         }

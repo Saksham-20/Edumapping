@@ -1,5 +1,5 @@
 // server/src/controllers/jobController.js
-const { Job, Organization, User, Application, Assessment, StudentProfile } = require('../models');
+const { Job, Organization, User, Application, Assessment, StudentProfile, AuditLog } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op, cast, col, where } = require('sequelize');
 const logger = require('../utils/logger');
@@ -7,6 +7,126 @@ const notificationService = require('../services/notificationService');
 const { checkEligibility, describeEligibility } = require('../utils/eligibility');
 
 class JobController {
+  /**
+   * The placement cell's review queue: postings waiting to be published.
+   *
+   * Scoped by who may act on them — a TPO sees postings aimed at their own
+   * students, an admin sees everything. Recruiters do not reach this at all;
+   * they see their own pending postings through the normal job list.
+   */
+  async getPendingJobs(req, res, next) {
+    try {
+      const { page = 1, limit = 20 } = req.query;
+      const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+      const offset = (parseInt(page, 10) - 1) * limitNum;
+
+      const { count, rows } = await Job.findAndCountAll({
+        where: { status: 'pending_review' },
+        include: [
+          { model: Organization, as: 'organization', attributes: ['id', 'name', 'logoUrl', 'type'] },
+          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName', 'email'] }
+        ],
+        order: [['createdAt', 'ASC']],
+        limit: limitNum,
+        offset,
+        distinct: true
+      });
+
+      res.json({
+        message: 'Pending job postings retrieved successfully',
+        jobs: rows,
+        pagination: {
+          currentPage: parseInt(page, 10),
+          totalPages: Math.ceil(count / limitNum),
+          totalItems: count,
+          itemsPerPage: limitNum
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Approve or reject a pending posting.
+   *
+   * Approving publishes it and fans out the job alert to eligible students, the
+   * same way an unreviewed posting used to on creation. Rejecting sends it back
+   * to draft rather than destroying it, and the reason is recorded and sent to
+   * the recruiter — a posting that silently never appears is the worst possible
+   * outcome for both sides.
+   */
+  async reviewJob(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { action, notes } = req.body;
+
+      const job = await Job.findByPk(id, {
+        include: [{ model: Organization, as: 'organization', attributes: ['id', 'name'] }]
+      });
+      if (!job) {
+        return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
+      }
+      if (job.status !== 'pending_review') {
+        return res.status(409).json({
+          error: 'Not Pending Review',
+          message: `This posting is ${job.status}, not awaiting review`
+        });
+      }
+
+      const approved = action === 'approve';
+      await job.update({
+        status: approved ? 'active' : 'draft',
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+        reviewNotes: notes || null
+      });
+
+      AuditLog.create({
+        userId: req.user.id,
+        action: approved ? 'job_posting_approved' : 'job_posting_rejected',
+        entityType: 'job',
+        entityId: job.id,
+        newValues: { status: job.status, notes: notes || null },
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.get('user-agent')
+      }).catch((err) => logger.error('Audit log failed', err));
+
+      res.json({
+        message: approved ? 'Job posting approved and published' : 'Job posting sent back to the recruiter',
+        job
+      });
+
+      // Tell the recruiter either way, and the students only once it is live.
+      if (job.createdBy) {
+        notificationService
+          .createNotification(
+            job.createdBy,
+            approved ? 'Job posting approved' : 'Job posting needs changes',
+            approved
+              ? `${job.title} has been approved and is now visible to students.`
+              : `${job.title} was not published.${notes ? ` ${notes}` : ''}`,
+            'system_alert',
+            { jobId: job.id, decision: approved ? 'approved' : 'rejected' },
+            'high'
+          )
+          .catch((err) => logger.error('Review notification failed', err));
+      }
+      if (approved) {
+        notificationService
+          .notifyEligibleStudentsOfJob(job.id)
+          .catch((err) => logger.error('Job alert fan-out failed', err, { jobId: job.id }));
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createJob(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -61,6 +181,18 @@ class JobController {
         location: normalizedJobData.location,
         skillsCount: normalizedJobData.skillsRequired?.length || 0
       });
+
+      // A recruiter's posting goes to the placement cell before it goes to
+      // students. Recruiters are approved, but their postings were not: an
+      // approved recruiter could publish straight to a whole cohort with nobody
+      // in between, and one badly-worded or fraudulent listing reaching every
+      // student is a reputational event for the cell. A recruiter may still
+      // save a draft; anything they mean to publish becomes pending_review.
+      // TPOs and admins are the reviewers, so their own postings publish
+      // directly.
+      if (req.user.role === 'recruiter' && normalizedJobData.status !== 'draft') {
+        normalizedJobData.status = 'pending_review';
+      }
 
       const job = await Job.create(normalizedJobData);
 

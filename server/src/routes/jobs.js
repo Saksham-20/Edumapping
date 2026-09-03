@@ -111,6 +111,23 @@ router.get('/stats', authenticateToken, jobController.getJobStats);
 
 /**
  * @swagger
+ * /api/jobs/pending-review:
+ *   get:
+ *     summary: Job postings awaiting the placement cell's approval
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ */
+// Before /:id, like the other named routes above, or "pending-review" is read
+// as a job id.
+router.get('/pending-review',
+  authenticateToken,
+  requireRole('tpo', 'admin'),
+  jobController.getPendingJobs
+);
+
+/**
+ * @swagger
  * /api/jobs/{id}:
  *   get:
  *     summary: Get job by ID
@@ -163,6 +180,25 @@ router.patch('/:id/status',
   authenticateToken, 
   requireRole('recruiter', 'tpo', 'admin'),
   jobController.toggleJobStatus
+);
+
+/**
+ * @swagger
+ * /api/jobs/{id}/review:
+ *   patch:
+ *     summary: Approve or reject a pending job posting
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/:id(\\d+)/review',
+  authenticateToken,
+  requireRole('tpo', 'admin'),
+  [
+    body('action').isIn(['approve', 'reject']).withMessage('action must be approve or reject'),
+    body('notes').optional().isString().trim().isLength({ max: 2000 })
+  ],
+  jobController.reviewJob
 );
 
 module.exports = router;

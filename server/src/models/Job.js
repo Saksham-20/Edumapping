@@ -66,8 +66,22 @@ module.exports = (sequelize, DataTypes) => {
       field: 'application_deadline'
     },
     status: {
-      type: DataTypes.ENUM('draft', 'active', 'closed', 'cancelled'),
+      type: DataTypes.ENUM('draft', 'pending_review', 'active', 'closed', 'cancelled'),
       defaultValue: 'draft'
+    },
+    // Who cleared this posting for publication, and why they did or did not.
+    reviewedBy: {
+      type: DataTypes.INTEGER,
+      field: 'reviewed_by',
+      references: { model: 'users', key: 'id' }
+    },
+    reviewedAt: {
+      type: DataTypes.DATE,
+      field: 'reviewed_at'
+    },
+    reviewNotes: {
+      type: DataTypes.TEXT,
+      field: 'review_notes'
     },
     eligibilityCriteria: {
       type: DataTypes.JSON,
