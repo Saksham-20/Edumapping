@@ -606,19 +606,34 @@ class StatisticsController {
   }
 
   // Get placement analytics
+  /**
+   * Placements over time.
+   *
+   * The daily series used to bucket each student on the date their ACCOUNT was
+   * created, and filtered the whole query on that date too — so a chart
+   * labelled "placements" actually plotted signups, coloured by each student's
+   * current placement status. A student placed today appeared on the day they
+   * registered, months earlier, and a cohort that all signed up in one week
+   * produced a single spike no matter when they were hired.
+   *
+   * The daily series is now built from `applications.result_at` — the moment a
+   * selection was recorded — which is the only date in the schema that means
+   * "this is when the placement happened". The headline totals stay a snapshot
+   * of the current roster, since "how many of our students are placed" is a
+   * question about now, not about a window.
+   */
   async getPlacementAnalytics(startDate, endDate) {
     const students = await StudentProfile.findAll({
-      include: [{
-        model: User,
-        as: 'user',
-        where: {
-          createdAt: {
-            [Op.between]: [startDate, endDate]
-          }
-        },
-        attributes: ['createdAt']
-      }],
-      attributes: ['placementStatus', 'createdAt']
+      include: [{ model: User, as: 'user', attributes: ['id'] }],
+      attributes: ['placementStatus']
+    });
+
+    const selections = await Application.findAll({
+      where: {
+        status: 'selected',
+        resultAt: { [Op.between]: [startDate, endDate] }
+      },
+      attributes: ['resultAt']
     });
 
     const dailyData = {};
@@ -627,17 +642,14 @@ class StatisticsController {
 
     while (current <= end) {
       const key = current.toISOString().split('T')[0];
-      dailyData[key] = { date: key, placed: 0, unplaced: 0, deferred: 0 };
+      dailyData[key] = { date: key, placed: 0 };
       current.setDate(current.getDate() + 1);
     }
 
-    students.forEach(student => {
-      if (student.user && student.user.createdAt) {
-        const key = new Date(student.user.createdAt).toISOString().split('T')[0];
-        if (dailyData[key]) {
-          dailyData[key][student.placementStatus] = (dailyData[key][student.placementStatus] || 0) + 1;
-        }
-      }
+    selections.forEach((application) => {
+      if (!application.resultAt) return;
+      const key = new Date(application.resultAt).toISOString().split('T')[0];
+      if (dailyData[key]) dailyData[key].placed += 1;
     });
 
     const totalPlaced = students.filter(s => s.placementStatus === 'placed').length;
