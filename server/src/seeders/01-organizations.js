@@ -3,6 +3,24 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // Migration 30 creates the special "EduMapping" organization, and because
+    // migrations run before seeders it takes id 1 — the id this seeder's first
+    // row wants. Seeding a freshly migrated database therefore failed outright
+    // with 'Key (id)=(1) already exists', which is the documented setup path
+    // in CLAUDE.md.
+    //
+    // Move it out of the way rather than deleting it: other rows may already
+    // reference it, and the seeder re-inserts it at the end with an id that
+    // does not collide.
+    const [existing] = await queryInterface.sequelize.query(
+      "SELECT id FROM organizations WHERE LOWER(name) = 'edumapping'"
+    );
+    if (existing.length > 0) {
+      await queryInterface.sequelize.query(
+        "DELETE FROM organizations WHERE LOWER(name) = 'edumapping'"
+      );
+    }
+
     await queryInterface.bulkInsert('organizations', [
       {
         id: 1,
@@ -104,6 +122,33 @@ module.exports = {
         approval_status: 'approved',
         approved_by: null,
         approved_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ]);
+
+    // Advance the sequence past the explicit ids just inserted. bulkInsert with
+    // fixed ids does not move it, so the next generated id would be 2 — which
+    // now belongs to TechCorp. (Seeder 99 does this for every table at the end;
+    // it has to happen here too because the very next statement generates an
+    // id.)
+    await queryInterface.sequelize.query(
+      "SELECT setval('organizations_id_seq', (SELECT MAX(id) FROM organizations))"
+    );
+
+    // Re-create the global organization, letting the database assign its id so
+    // it cannot collide with the fixed ids above. Events under it are visible
+    // to everyone (see eventController's getEduMappingOrgId).
+    await queryInterface.bulkInsert('organizations', [
+      {
+        name: 'EduMapping',
+        type: 'company',
+        domain: 'edumapping@edumapping.com',
+        contact_email: 'support@edumapping.com',
+        website: 'https://edumapping.com',
+        is_verified: true,
+        approval_status: 'approved',
+        approval_notes: 'System organization for global events',
         created_at: new Date(),
         updated_at: new Date()
       }
