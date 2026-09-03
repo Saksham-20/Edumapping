@@ -18,9 +18,11 @@ import {
   Pagination,
   PageHeader,
   PageShell,
+  Modal,
   Select,
   SkeletonCard,
-  StatusBadge
+  StatusBadge,
+  Textarea
 } from '../../components/ui';
 import {
   DocumentTextIcon,
@@ -29,6 +31,7 @@ import {
   MagnifyingGlassIcon,
   CalendarIcon,
   BuildingOfficeIcon,
+  ClipboardDocumentListIcon,
   UserIcon
 } from '@heroicons/react/24/outline';
 
@@ -87,12 +90,61 @@ const Applications = () => {
   const [selectedApplications, setSelectedApplications] = useState([]);
   const [jobs, setJobs] = useState([]);
 
+  // Bulk shortlisting by pasted roll numbers. The recruiter's reply arrives as
+  // an Excel column, so the paste box is the primary affordance — matching it
+  // row by row against the table is the job this replaces. `preview` holds the
+  // server's dry-run report; nothing is written until it has been shown.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteStatus, setPasteStatus] = useState('shortlisted');
+  const [preview, setPreview] = useState(null);
+  const [pasteBusy, setPasteBusy] = useState(false);
+
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters((prev) => (prev.search === searchDraft ? prev : { ...prev, search: searchDraft }));
     }, 350);
     return () => clearTimeout(t);
   }, [searchDraft]);
+
+  // Split on any of the separators a pasted column or a copied cell range can
+  // carry — newlines, commas, tabs, semicolons — rather than assuming one.
+  const parseIdentifiers = (text) =>
+    String(text || '')
+      .split(/[\s,;]+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+  const runPaste = async (dryRun) => {
+    const identifiers = parseIdentifiers(pasteText);
+    if (identifiers.length === 0) {
+      toast.error('Paste at least one roll number or email address');
+      return;
+    }
+    try {
+      setPasteBusy(true);
+      const res = await api.post(`/applications/job/${filters.jobId}/bulk-by-identifier`, {
+        identifiers,
+        status: pasteStatus,
+        dryRun
+      });
+      if (dryRun) {
+        setPreview(res);
+      } else {
+        toast.success(res.message);
+        setPasteOpen(false);
+        setPasteText('');
+        setPreview(null);
+        fetchApplications();
+      }
+    } catch (error) {
+      // The interceptor stays quiet on 4xx here because this panel reports the
+      // outcome itself; anything else it has already toasted.
+      toast.error(error.response?.data?.message || 'Could not update those applications');
+    } finally {
+      setPasteBusy(false);
+    }
+  };
 
   const fetchApplications = useCallback(
     async (page = 1) => {
@@ -399,6 +451,24 @@ const Applications = () => {
           </div>
         )}
 
+        {!isStudent && (
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-ink-950/10 pt-4">
+            <Button
+              variant="secondary"
+              disabled={!filters.jobId}
+              onClick={() => { setPreview(null); setPasteOpen(true); }}
+            >
+              <ClipboardDocumentListIcon aria-hidden="true" className="h-4 w-4" />
+              Shortlist by roll number
+            </Button>
+            <span className="text-sm text-ink-500">
+              {filters.jobId
+                ? 'Paste the roll numbers or emails the recruiter sent back.'
+                : 'Pick a single job above to paste a shortlist into it.'}
+            </span>
+          </div>
+        )}
+
         {!isStudent && selectedApplications.length > 0 && (
           <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-ink-950/10 pt-4">
             <span className="pb-2.5 text-sm font-medium text-ink-800">
@@ -467,6 +537,87 @@ const Applications = () => {
           }
         />
       )}
+
+      <Modal
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        title="Shortlist by roll number"
+        description="Paste roll numbers or email addresses, one per line. Preview first — anyone who cannot be matched is listed before anything changes."
+        size="lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPasteOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" loading={pasteBusy} onClick={() => runPaste(true)}>
+              Preview
+            </Button>
+            <Button
+              variant="saffron"
+              loading={pasteBusy}
+              disabled={!preview || preview.matched === 0}
+              onClick={() => runPaste(false)}
+            >
+              {preview ? `Move ${preview.matched} to ${pasteStatus}` : 'Preview first'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <Textarea
+            label="Roll numbers or emails"
+            rows={7}
+            value={pasteText}
+            onChange={(e) => { setPasteText(e.target.value); setPreview(null); }}
+            placeholder={'TU2021001\nTU2021002\nalice.wilson@techuniversity.edu'}
+            help="Separated by new lines, commas, tabs or semicolons. Duplicates and blank lines are ignored."
+          />
+          <Select
+            label="Move matched applicants to"
+            value={pasteStatus}
+            onChange={(e) => { setPasteStatus(e.target.value); setPreview(null); }}
+            options={BULK_ACTION_OPTIONS.filter((o) => o.value)}
+          />
+
+          {preview && (
+            <div className="rounded-xl border border-ink-950/15 bg-bone-50 p-4">
+              <p className="text-sm font-semibold text-ink-950">
+                {preview.matched} of {preview.requested} will be moved to {pasteStatus}
+              </p>
+              {preview.details.notApplied.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Found, but never applied to this job ({preview.details.notApplied.length})
+                  </p>
+                  <p className="mt-1 text-sm text-ink-700">
+                    {preview.details.notApplied.map((n) => `${n.name} (${n.identifier})`).join(', ')}
+                  </p>
+                </div>
+              )}
+              {preview.details.unknown.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Matched nobody ({preview.details.unknown.length})
+                  </p>
+                  <p className="mt-1 text-sm text-ink-700">{preview.details.unknown.join(', ')}</p>
+                </div>
+              )}
+              {preview.matched > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Will be updated ({preview.matched})
+                  </p>
+                  <p className="mt-1 text-sm text-ink-700">
+                    {preview.details.matched
+                      .map((m) => `${m.name} (${m.currentStatus})`)
+                      .join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
     </PageShell>
   );
 };

@@ -1,7 +1,7 @@
 // server/src/controllers/applicationController.js
-const { Application, Job, User, StudentProfile, Organization } = require('../models');
+const { Application, Job, User, StudentProfile, Organization, AuditLog } = require('../models');
 const { validationResult } = require('express-validator');
-const { Op } = require('sequelize');
+const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { checkEligibility } = require('../utils/eligibility');
@@ -617,6 +617,164 @@ class ApplicationController {
           recent: recentApplications
         }
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Resolve a pasted list of roll numbers or email addresses into applications
+   * for one job, and optionally move them all to a new status.
+   *
+   * This is the shape placement work actually arrives in: the recruiter replies
+   * with an Excel column of roll numbers, and the officer previously had to find
+   * and click each row. Identifiers are matched against the roll number on the
+   * student profile and against the account email, both case-insensitively.
+   *
+   * `dryRun` returns the same report without writing, so the caller can show
+   * exactly who matched — and, more importantly, who did not — before anything
+   * changes. Unmatched input is never silently dropped: an identifier that names
+   * nobody, and a student who exists but never applied to this job, are reported
+   * separately, because they mean different things to the person pasting.
+   */
+  async bulkUpdateByIdentifier(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+
+      const { jobId } = req.params;
+      const { identifiers, status, feedback, dryRun } = req.body;
+
+      const job = await Job.findByPk(jobId);
+      if (!job) {
+        return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
+      }
+      // A recruiter may only touch their own organisation's postings. TPOs and
+      // admins are scoped below, by student, the same way the id-based bulk
+      // update scopes them.
+      if (req.user.role === 'recruiter' && job.organizationId !== req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only update applications for your own organization\'s jobs'
+        });
+      }
+
+      // Normalise once. Pasted columns arrive with stray whitespace, blank
+      // lines and duplicates, and the same student may be named twice.
+      const cleaned = [...new Set(
+        identifiers.map((raw) => String(raw).trim()).filter(Boolean)
+      )];
+      if (cleaned.length === 0) {
+        return res.status(400).json({
+          error: 'Invalid Data',
+          message: 'Provide at least one roll number or email address'
+        });
+      }
+      const lowered = cleaned.map((v) => v.toLowerCase());
+
+      const candidates = await User.findAll({
+        where: {
+          role: 'student',
+          [Op.or]: [
+            sequelizeWhere(fn('lower', col('User.email')), { [Op.in]: lowered }),
+            sequelizeWhere(fn('lower', col('studentProfile.student_id')), { [Op.in]: lowered })
+          ]
+        },
+        include: [{ model: StudentProfile, as: 'studentProfile', required: false }],
+        attributes: ['id', 'firstName', 'lastName', 'email', 'organizationId']
+      });
+
+      // A TPO acts for their own institution only.
+      const inScope = req.user.role === 'tpo'
+        ? candidates.filter((c) => c.organizationId === req.user.organizationId)
+        : candidates;
+
+      const byIdentifier = new Map();
+      for (const user of inScope) {
+        if (user.email) byIdentifier.set(user.email.toLowerCase(), user);
+        const roll = user.studentProfile?.studentId;
+        if (roll) byIdentifier.set(String(roll).toLowerCase(), user);
+      }
+
+      const applications = await Application.findAll({
+        where: { jobId, studentId: { [Op.in]: inScope.map((u) => u.id) } },
+        attributes: ['id', 'studentId', 'status']
+      });
+      const appByStudent = new Map(applications.map((a) => [a.studentId, a]));
+
+      const matched = [];
+      const notApplied = [];
+      const unknown = [];
+      for (const identifier of cleaned) {
+        const user = byIdentifier.get(identifier.toLowerCase());
+        if (!user) { unknown.push(identifier); continue; }
+        const application = appByStudent.get(user.id);
+        const who = {
+          identifier,
+          studentId: user.id,
+          name: [user.firstName, user.lastName].filter(Boolean).join(' '),
+          email: user.email
+        };
+        if (!application) { notApplied.push(who); continue; }
+        matched.push({ ...who, applicationId: application.id, currentStatus: application.status });
+      }
+
+      const report = {
+        requested: cleaned.length,
+        matched: matched.length,
+        notApplied: notApplied.length,
+        unknown: unknown.length,
+        details: { matched, notApplied, unknown }
+      };
+
+      if (dryRun) {
+        return res.json({ message: 'Preview only — nothing was changed', dryRun: true, ...report });
+      }
+
+      if (matched.length > 0) {
+        const now = new Date();
+        const updateData = { status };
+        if (feedback !== undefined) updateData.feedback = feedback;
+        if (status === 'shortlisted') updateData.shortlistedAt = now;
+        if (status === 'interviewed') updateData.interviewedAt = now;
+        if (status === 'selected' || status === 'rejected') updateData.resultAt = now;
+
+        await Application.update(updateData, {
+          where: { id: { [Op.in]: matched.map((m) => m.applicationId) } }
+        });
+
+        // Same follow-through as the id-based bulk update: tell each student,
+        // and re-derive placement status, which only 'selected' can change.
+        for (const m of matched) {
+          notificationService
+            .createNotification({
+              userId: m.studentId,
+              title: 'Application status updated',
+              message: `Your application for ${job.title} is now ${status}.`,
+              type: 'application_status',
+              relatedEntityType: 'application',
+              relatedEntityId: m.applicationId
+            })
+            .catch((err) => logger.error('Bulk status notification failed', err));
+          syncPlacementStatus(m.studentId).catch((err) =>
+            logger.error('Placement sync failed after bulk update', err)
+          );
+        }
+
+        AuditLog.create({
+          userId: req.user.id,
+          action: 'application_bulk_status_by_identifier',
+          entityType: 'job',
+          entityId: parseInt(jobId, 10),
+          newValues: { status, applicationIds: matched.map((m) => m.applicationId) },
+          ipAddress: req.ip || req.connection?.remoteAddress,
+          userAgent: req.get('user-agent')
+        }).catch((err) => logger.error('Audit log failed', err));
+      }
+
+      res.json({ message: `${matched.length} application(s) moved to ${status}`, ...report });
     } catch (error) {
       next(error);
     }

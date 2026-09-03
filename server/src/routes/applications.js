@@ -61,8 +61,38 @@ router.get('/stats', authenticateToken, applicationController.getApplicationStat
  */
 router.patch('/bulk/update', 
   authenticateToken, 
-  requireRole('recruiter', 'admin'),
+  // The controller already scopes TPOs to their own students and handles the
+  // role explicitly, but the guard here excluded them, so that branch was
+  // unreachable and a placement officer got a 403 on their own institution.
+  requireRole('recruiter', 'tpo', 'admin'),
   applicationController.bulkUpdateApplications
+);
+
+/**
+ * @swagger
+ * /api/applications/job/{jobId}/bulk-by-identifier:
+ *   post:
+ *     summary: Shortlist or reject applicants by pasted roll numbers or emails
+ *     tags: [Applications]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/job/:jobId(\\d+)/bulk-by-identifier',
+  authenticateToken,
+  requireRole('recruiter', 'tpo', 'admin'),
+  [
+    body('identifiers').isArray({ min: 1, max: 2000 })
+      .withMessage('Provide between 1 and 2000 roll numbers or email addresses'),
+    // Blank entries are allowed through deliberately: a pasted column carries
+    // empty lines and trailing whitespace, and the controller strips them. A
+    // validation error on a blank line would reject the ordinary paste.
+    body('identifiers.*').isString().trim().isLength({ max: 190 }),
+    body('status').isIn(['screening', 'shortlisted', 'interviewed', 'selected', 'rejected'])
+      .withMessage('status must be one of: screening, shortlisted, interviewed, selected, rejected'),
+    body('feedback').optional().isString().trim().isLength({ max: 2000 }),
+    body('dryRun').optional().isBoolean()
+  ],
+  applicationController.bulkUpdateByIdentifier
 );
 
 /**
