@@ -101,12 +101,26 @@ class AnalyticsController {
 
       // Get student analytics
       const [totalStudents, placedStudents, studentsByBranch] = await Promise.all([
-        User.count({
-          where: {
-            role: 'student',
-            organizationId: user.organizationId,
-            isActive: true
-          }
+        // The denominator has to be the same population as the numerator and
+        // the branch breakdown, which both count StudentProfile rows. Counting
+        // User rows instead made a student with no profile deflate the
+        // headline rate while the branch table stayed correct, so one screen
+        // showed two different placement rates. Worse, it ignored
+        // `studentFilters` — filtering by branch divided that branch's placed
+        // count by every student in the institution.
+        StudentProfile.count({
+          where: studentFilters,
+          include: [
+            {
+              model: User,
+              as: 'user',
+              where: {
+                organizationId: user.organizationId,
+                isActive: true
+              },
+              attributes: []
+            }
+          ]
         }),
 
         StudentProfile.count({
