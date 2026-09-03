@@ -8,7 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { readMinCGPA } from '../../utils/eligibility';
+import { readAllowedBranches, readGraduationYears, readMinCGPA } from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Badge,
@@ -29,6 +29,7 @@ import {
   CurrencyRupeeIcon,
   BuildingOfficeIcon,
   CheckCircleIcon,
+  ExclamationTriangleIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
 
@@ -210,6 +211,17 @@ const JobDetail = () => {
   const deadline = formatDate(job.applicationDeadline);
   const posted = formatDate(job.createdAt);
 
+  // `GET /api/jobs/:id` returns the student's own verdict against this job's
+  // criteria. Without it the page showed an enabled Apply button to everyone
+  // and the student found out they were ineligible only from the error toast
+  // the rejected request produced.
+  const eligibility = job.eligibility;
+  const ineligible =
+    user?.role === 'student' && eligibility ? eligibility.meetsCriteria === false : false;
+  const eligibilityReasons = ineligible ? eligibility.reasons || [] : [];
+  const allowedBranches = readAllowedBranches(job.eligibilityCriteria);
+  const graduationYears = readGraduationYears(job.eligibilityCriteria);
+
   return (
     <PageShell width="narrow">
       <PageHeader
@@ -224,12 +236,51 @@ const JobDetail = () => {
               Applied
             </Badge>
           ) : (
-            <Button variant="saffron" loading={applying} onClick={handleApply}>
+            <Button
+              variant="saffron"
+              loading={applying}
+              disabled={ineligible}
+              onClick={handleApply}
+              title={ineligible ? 'You do not meet this role\u2019s eligibility criteria' : undefined}
+            >
               Apply now
             </Button>
           ))
         }
       />
+
+      {ineligible && (
+        <Card className="mb-6 border-saffron-500/40 bg-saffron-50">
+          <div className="flex gap-3">
+            <ExclamationTriangleIcon
+              aria-hidden="true"
+              className="h-5 w-5 shrink-0 text-saffron-800"
+            />
+            <div>
+              <h2 className="text-sm font-semibold text-saffron-800">
+                You are not eligible for this role
+              </h2>
+              <ul className="mt-1.5 space-y-1 text-sm text-ink-700">
+                {eligibilityReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              {eligibility?.profileComplete === false && (
+                <p className="mt-2 text-sm text-ink-700">
+                  Some of this is judged on your profile.{' '}
+                  <Link
+                    to="/profile"
+                    className="font-medium text-ink-950 underline underline-offset-2 hover:text-saffron-800"
+                  >
+                    Complete your profile
+                  </Link>{' '}
+                  so it can be checked properly.
+                </p>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5">
@@ -322,6 +373,12 @@ const JobDetail = () => {
               </DetailRow>
               <DetailRow label="Openings">{job.totalPositions}</DetailRow>
               <DetailRow label="Minimum CGPA">{readMinCGPA(job.eligibilityCriteria)}</DetailRow>
+              <DetailRow label="Eligible branches">
+                {allowedBranches.length > 0 ? allowedBranches.join(', ') : null}
+              </DetailRow>
+              <DetailRow label="Graduating batches">
+                {graduationYears.length > 0 ? graduationYears.join(', ') : null}
+              </DetailRow>
               <DetailRow label="Applications">{job.applicationCount ?? 0}</DetailRow>
             </dl>
           </Card>
