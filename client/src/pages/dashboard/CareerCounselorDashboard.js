@@ -1,241 +1,397 @@
 // client/src/pages/dashboard/CareerCounselorDashboard.js
-import React, { useState, useEffect } from 'react';
+//
+// The career counsellor's screen: the material they point students at, and the
+// sessions they run themselves.
+//
+// Endpoints this role is permitted to call, verified against the running API:
+//   GET /api/jobs           — optionalAuth; the opportunity landscape
+//   GET /api/events         — scoped to the school with organizationId
+//   GET /api/assessments    — what a student can be assessed on
+//   GET /api/conferences    — counselling sessions (this role may host)
+//
+// A counsellor's most important view — the students they advise, and how those
+// students are progressing — has no endpoint behind it. `GET /api/users` is
+// admin/TPO only, `GET /api/applications` returns only the caller's own
+// applications for a non-recruiter, and `GET /api/achievements` has no
+// organization filter, only `userId`. The students panel says so instead of
+// listing strangers from other institutions.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import toast from 'react-hot-toast';
 import {
-  UserGroupIcon,
+  EVENT_TYPE_LABELS,
+  formatEventWhen,
+  isUpcomingEvent,
+  listAssessments,
+  listConferences,
+  listEvents,
+  toErrorState
+} from '../../services/school';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  PageShell,
+  SectionBlock,
+  SkeletonCard,
+  StatTile,
+  StatusBadge,
+  Tabs
+} from '../../components/ui';
+import {
+  BriefcaseIcon,
   CalendarIcon,
   ClipboardDocumentCheckIcon,
-  BeakerIcon,
-  BriefcaseIcon,
-  LightBulbIcon,
-  ChartBarIcon
+  ClockIcon,
+  MapPinIcon,
+  PlusIcon,
+  SignalIcon,
+  UserGroupIcon,
+  VideoCameraIcon
 } from '@heroicons/react/24/outline';
+
+const TABS = [
+  { value: 'jobs', label: 'Opportunities', icon: BriefcaseIcon },
+  { value: 'events', label: 'School events', icon: CalendarIcon },
+  { value: 'sessions', label: 'Counselling sessions', icon: VideoCameraIcon },
+  { value: 'students', label: 'Students', icon: UserGroupIcon }
+];
 
 const CareerCounselorDashboard = () => {
   const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('counseling');
+  const orgId = user?.organizationId;
 
-  const tabs = [
-    { id: 'counseling', label: 'Career Counseling', icon: LightBulbIcon },
-    { id: 'students', label: 'Students', icon: UserGroupIcon },
-    { id: 'assessments', label: 'Assessments', icon: ClipboardDocumentCheckIcon },
-    { id: 'workshops', label: 'Workshops', icon: BeakerIcon },
-    { id: 'events', label: 'Events', icon: CalendarIcon },
-    { id: 'analytics', label: 'Analytics', icon: ChartBarIcon }
-  ];
+  const [tab, setTab] = useState('jobs');
+  const [loading, setLoading] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [jobs, setJobs] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [conferences, setConferences] = useState([]);
+  const [assessments, setAssessments] = useState([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErrors({});
+
+    const [jobsRes, eventsRes, confRes, assessRes] = await Promise.allSettled([
+      api.get('/jobs', { params: { limit: 50, status: 'active' }, silent: true }),
+      listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
+      listConferences(),
+      listAssessments()
+    ]);
+
+    const nextErrors = {};
+
+    if (jobsRes.status === 'fulfilled') {
+      setJobs(jobsRes.value.jobs || []);
+    } else {
+      nextErrors.jobs = toErrorState(jobsRes.reason, 'Could not load opportunities');
+    }
+
+    if (eventsRes.status === 'fulfilled') {
+      setEvents(
+        (eventsRes.value.events || []).sort(
+          (a, b) => new Date(b.startTime) - new Date(a.startTime)
+        )
+      );
+    } else {
+      nextErrors.events = toErrorState(eventsRes.reason, 'Could not load school events');
+    }
+
+    if (confRes.status === 'fulfilled') {
+      setConferences(confRes.value.conferences || []);
+    } else {
+      nextErrors.sessions =
+        confRes.reason?.response?.status === 503
+          ? {
+              title: 'Live sessions are not switched on yet',
+              description: 'This server has no LiveKit connection configured.'
+            }
+          : toErrorState(confRes.reason, 'Could not load counselling sessions');
+    }
+
+    if (assessRes.status === 'fulfilled') {
+      setAssessments((assessRes.value.assessments || []).filter((a) => a.isActive !== false));
+    } else {
+      nextErrors.assessments = toErrorState(assessRes.reason, 'Could not load assessments');
+    }
+
+    setErrors(nextErrors);
+    setLoading(false);
+  }, [orgId]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [activeTab]);
+    load();
+  }, [load]);
 
-  const fetchDashboardData = async () => {
-    try {
-      setIsLoading(true);
-      // TODO: Implement API calls for dashboard data
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-      toast.error('Failed to load data. Please try again.');
-    } finally {
-      setIsLoading(false);
+  const upcomingEvents = useMemo(() => events.filter(isUpcomingEvent), [events]);
+  const mySessions = useMemo(
+    () => conferences.filter((c) => c.host?.id === user?.id),
+    [conferences, user?.id]
+  );
+
+  const jobsPanel = () => {
+    if (errors.jobs) return <ErrorState {...errors.jobs} onRetry={load} />;
+    if (!jobs.length) {
+      return (
+        <EmptyState
+          icon={BriefcaseIcon}
+          title="No open opportunities right now"
+          description="Roles posted by recruiters and placement officers appear here for you to discuss with students."
+          action={
+            <Button as={Link} to="/jobs" variant="secondary">
+              Browse all roles
+            </Button>
+          }
+        />
+      );
     }
-  };
-
-  const renderCounselingTab = () => (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-[#FF9933]/10 to-[#138808]/10 rounded-xl p-6 border border-[#FF9933]/20">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0">
-            <LightBulbIcon className="h-8 w-8 text-[#FF8C42]" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Career Counseling</h3>
-            <p className="text-gray-700 leading-relaxed">
-              Provide comprehensive career guidance to students, helping them discover their interests, 
-              strengths, and career paths. Conduct psychometric assessments, organize career workshops, 
-              and guide students in making informed decisions about their future.
-            </p>
-            <p className="text-gray-700 leading-relaxed mt-3">
-              Through personalized counseling sessions, you can help students understand various career 
-              options, plan their academic journey, and prepare for higher education or professional opportunities.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-          <h4 className="font-semibold text-gray-900 mb-2">Scheduled Sessions</h4>
-          <p className="text-gray-600 text-sm">View and manage upcoming counseling sessions with students.</p>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-          <h4 className="font-semibold text-gray-900 mb-2">Career Resources</h4>
-          <p className="text-gray-600 text-sm">Access career information, industry insights, and educational resources.</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderStudentsTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Student Counseling</h3>
-        <p className="text-gray-600">Manage student counseling sessions and track their career development progress.</p>
-      </div>
-    </div>
-  );
-
-  const renderAssessmentsTab = () => (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-[#FF9933]/10 to-[#138808]/10 rounded-xl p-6 border border-[#FF9933]/20">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0">
-            <ClipboardDocumentCheckIcon className="h-8 w-8 text-[#FF8C42]" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Psychometric Assessments</h3>
-            <p className="text-gray-700 leading-relaxed">
-              Conduct and manage psychometric tests to help students understand their personality traits, 
-              interests, aptitudes, and career preferences. These assessments provide valuable insights 
-              for career guidance and decision-making.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-        <p className="text-gray-600">Assessment management features will be available here.</p>
-      </div>
-    </div>
-  );
-
-  const renderWorkshopsTab = () => (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-[#FF9933]/10 to-[#138808]/10 rounded-xl p-6 border border-[#FF9933]/20">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0">
-            <BeakerIcon className="h-8 w-8 text-[#FF8C42]" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Career Workshops & Industrial Training</h3>
-            <p className="text-gray-700 leading-relaxed">
-              Organize and manage career development workshops and industrial training programs. These 
-              sessions help students gain practical knowledge about various industries, understand career 
-              requirements, and develop essential skills for their professional journey.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-        <p className="text-gray-600">Workshop management features will be available here.</p>
-      </div>
-    </div>
-  );
-
-  const renderEventsTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Career Events</h3>
-        <p className="text-gray-600">Manage career fairs, industry visits, and other career-related events.</p>
-      </div>
-    </div>
-  );
-
-  const renderAnalyticsTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Counseling Analytics</h3>
-        <p className="text-gray-600">View insights and statistics about student counseling sessions and career development.</p>
-      </div>
-    </div>
-  );
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'counseling':
-        return renderCounselingTab();
-      case 'students':
-        return renderStudentsTab();
-      case 'assessments':
-        return renderAssessmentsTab();
-      case 'workshops':
-        return renderWorkshopsTab();
-      case 'events':
-        return renderEventsTab();
-      case 'analytics':
-        return renderAnalyticsTab();
-      default:
-        return renderCounselingTab();
-    }
-  };
-
-  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <LoadingSpinner size="large" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {jobs.map((job) => (
+          <Card key={job.id} className="flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-display text-base font-bold text-ink-950">{job.title}</h3>
+                <p className="mt-1 text-xs text-ink-600">
+                  {job.organization?.name || 'Unknown employer'}
+                </p>
+              </div>
+              <StatusBadge status={job.status} />
+            </div>
+            <dl className="mt-3 space-y-1.5 text-xs text-ink-500">
+              {job.location && (
+                <div className="flex items-center gap-1.5">
+                  <MapPinIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  <dt className="sr-only">Location</dt>
+                  <dd className="truncate">{job.location}</dd>
+                </div>
+              )}
+              {job.jobType && (
+                <div className="flex items-center gap-1.5">
+                  <dt>Type</dt>
+                  <dd>{String(job.jobType).replace(/_/g, ' ')}</dd>
+                </div>
+              )}
+              {job.applicationDeadline && (
+                <div className="flex items-center gap-1.5">
+                  <ClockIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  <dt className="sr-only">Applications close</dt>
+                  <dd>Closes {new Date(job.applicationDeadline).toLocaleDateString()}</dd>
+                </div>
+              )}
+            </dl>
+            <div className="mt-5">
+              <Button as={Link} to={`/jobs/${job.id}`} size="sm" variant="secondary">
+                Open role
+              </Button>
+            </div>
+          </Card>
+        ))}
       </div>
     );
-  }
+  };
+
+  const eventsPanel = () => {
+    if (errors.events) return <ErrorState {...errors.events} onRetry={load} />;
+    if (!events.length) {
+      return (
+        <EmptyState
+          icon={CalendarIcon}
+          title="Your school has no events yet"
+          description="Career talks, drives and workshops you schedule under your school will be listed here."
+          action={
+            <Button as={Link} to="/events/new" icon={PlusIcon}>
+              Schedule a career session
+            </Button>
+          }
+        />
+      );
+    }
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {events.map((e) => (
+          <Card key={e.id} className="flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-display text-base font-bold text-ink-950">{e.title}</h3>
+              <Badge tone="neutral">{EVENT_TYPE_LABELS[e.eventType] || e.eventType}</Badge>
+            </div>
+            {e.description && (
+              <p className="mt-2 line-clamp-2 text-sm text-ink-600">{e.description}</p>
+            )}
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-500">
+              <ClockIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              {formatEventWhen(e.startTime) || 'No scheduled time'}
+            </p>
+            <p className="mt-1.5 text-xs text-ink-600 tabular-nums">
+              {e.registrationCount} registered
+              {e.maxParticipants ? ` of ${e.maxParticipants}` : ''}
+            </p>
+            <div className="mt-5">
+              <Button as={Link} to={`/events/${e.id}`} size="sm" variant="secondary">
+                Open event
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  };
+
+  const sessionsPanel = () => {
+    if (errors.sessions) return <ErrorState {...errors.sessions} onRetry={load} />;
+    if (!conferences.length) {
+      return (
+        <EmptyState
+          icon={VideoCameraIcon}
+          title="No counselling sessions scheduled"
+          description="Your role can host live sessions. Create one and every student at your school will be able to join it."
+          action={
+            <Button as={Link} to="/conferences" icon={PlusIcon}>
+              Create a session
+            </Button>
+          }
+        />
+      );
+    }
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {conferences.map((c) => (
+          <Card key={c.id} className="flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
+              <Badge
+                tone={c.status === 'live' ? 'danger' : c.status === 'ended' ? 'neutral' : 'info'}
+                dot
+              >
+                {c.status}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs text-ink-600">
+              {c.host?.id === user?.id
+                ? 'You are the host'
+                : c.host
+                  ? `${c.host.firstName} ${c.host.lastName}`
+                  : 'Unknown host'}
+            </p>
+            <p className="mt-3 text-xs text-ink-500">
+              {formatEventWhen(c.scheduledStart) || 'No scheduled time'}
+            </p>
+            <div className="mt-5">
+              <Button
+                as={Link}
+                to={`/conference/${c.id}`}
+                size="sm"
+                variant={c.status === 'live' ? 'saffron' : 'secondary'}
+                icon={c.status === 'live' ? SignalIcon : VideoCameraIcon}
+                disabled={c.status === 'ended'}
+              >
+                {c.status === 'live' ? 'Join now' : c.status === 'ended' ? 'Ended' : 'Open room'}
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  };
+
+  const studentsPanel = () => (
+    <EmptyState
+      icon={UserGroupIcon}
+      title="Student caseloads need a school-scoped endpoint"
+      description={
+        'Listing the students at your school, their applications or their achievements is not ' +
+        'possible from this role today. GET /api/users is restricted to admins and placement ' +
+        'officers, GET /api/applications returns only your own applications, and achievements can ' +
+        'only be fetched one known user at a time. Nothing is shown here rather than a list ' +
+        'assembled from other institutions.'
+      }
+      action={
+        <Button as={Link} to="/events" variant="secondary">
+          Reach students through events
+        </Button>
+      }
+    />
+  );
+
+  const panels = {
+    jobs: jobsPanel,
+    events: eventsPanel,
+    sessions: sessionsPanel,
+    students: studentsPanel
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome, {user?.firstName || 'Counselor'}!
-          </h1>
-          <p className="text-gray-600">
-            {user?.organization?.name || 'School'} - Career Counselor Dashboard
-          </p>
-        </div>
-
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex -mb-px" aria-label="Tabs">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`
-                      flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors
-                      ${isActive
-                        ? 'border-[#FF8C42] text-[#FF8C42]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }
-                    `}
-                  >
-                    <Icon className="h-5 w-5" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+    <PageShell>
+      <PageHeader
+        eyebrow={user?.organization?.name || 'School'}
+        title="Career guidance"
+        lead="Open roles, your school's career events, and the sessions you run."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button as={Link} to="/events/new" variant="secondary" icon={PlusIcon}>
+              New event
+            </Button>
+            <Button as={Link} to="/conferences" icon={VideoCameraIcon}>
+              Sessions
+            </Button>
           </div>
-        </div>
+        }
+      />
 
-        {/* Tab Content */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <LoadingSpinner />
-            </div>
-          ) : (
-            renderTabContent()
-          )}
+      <SectionBlock>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTile
+            label="Open roles"
+            value={errors.jobs ? '—' : jobs.length}
+            icon={BriefcaseIcon}
+            loading={loading}
+            to="/jobs"
+          />
+          <StatTile
+            label="Upcoming school events"
+            value={errors.events ? '—' : upcomingEvents.length}
+            icon={CalendarIcon}
+            accent="india"
+            loading={loading}
+            to="/events"
+          />
+          <StatTile
+            label="Sessions you host"
+            value={errors.sessions ? '—' : mySessions.length}
+            icon={VideoCameraIcon}
+            accent="azure"
+            loading={loading}
+            to="/conferences"
+          />
+          <StatTile
+            label="Assessments published"
+            value={errors.assessments ? '—' : assessments.length}
+            icon={ClipboardDocumentCheckIcon}
+            accent="saffron"
+            loading={loading}
+            hint="Platform-wide"
+          />
         </div>
-      </div>
-    </div>
+      </SectionBlock>
+
+      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : (
+        panels[tab]()
+      )}
+    </PageShell>
   );
 };
 
 export default CareerCounselorDashboard;
-

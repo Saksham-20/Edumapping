@@ -1,21 +1,56 @@
 // client/src/pages/events/EventDetails.js
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
 import { openMeetingLink, shareUrl } from '../../utils/helpers';
 import {
+  Badge,
+  Button,
+  Card,
+  DetailRow,
+  Divider,
+  PageHeader,
+  PageShell,
+  PageLoader,
+  StatusBadge
+} from '../../components/ui';
+import {
   CalendarIcon,
-  MapPinIcon,
   UserGroupIcon,
-  BuildingOfficeIcon,
-  ArrowLeftIcon,
   PencilSquareIcon,
   ShareIcon,
-  LinkIcon
+  LinkIcon,
+  CheckIcon
 } from '@heroicons/react/24/outline';
+
+/** Event type → badge tone. Mirrors the table on the events list. */
+const TYPE_TONES = {
+  campus_drive: 'info',
+  info_session: 'success',
+  workshop: 'purple',
+  seminar: 'warning',
+  job_fair: 'danger',
+  other: 'neutral'
+};
+
+const formatEventTime = (startTime, endTime) => {
+  if (!startTime || !endTime) return { dateStr: '', timeStr: '' };
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const dateStr = start.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  const timeStr = `${start.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+  return { dateStr, timeStr };
+};
 
 const EventDetails = () => {
   const navigate = useNavigate();
@@ -26,64 +61,35 @@ const EventDetails = () => {
   const [isRegistered, setIsRegistered] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  useEffect(() => {
-    if (id) fetchEvent();
-  }, [id]);
-
-  const fetchEvent = async () => {
+  const fetchEvent = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await api.get(`/events/${id}`);
       setEvent(response.event || null);
       setIsRegistered(Boolean(response.event?.userRegistration));
     } catch (error) {
-      console.error('Failed to fetch event:', error);
       toast.error('Event not found');
       navigate('/events');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id, navigate]);
 
-  const getEventTypeColor = (type) => {
-    const colors = {
-      campus_drive: 'bg-blue-100 text-blue-800',
-      info_session: 'bg-green-100 text-green-800',
-      workshop: 'bg-purple-100 text-purple-800',
-      seminar: 'bg-yellow-100 text-yellow-800',
-      job_fair: 'bg-red-100 text-red-800',
-      other: 'bg-gray-100 text-gray-800'
-    };
-    return colors[type] || colors.other;
-  };
+  useEffect(() => {
+    if (id) fetchEvent();
+  }, [id, fetchEvent]);
 
-  const formatEventTime = (startTime, endTime) => {
-    if (!startTime || !endTime) return { dateStr: '', timeStr: '' };
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const dateStr = start.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    const timeStr = `${start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-    return { dateStr, timeStr };
-  };
-
-  const isEventFull = () => {
-    return event?.maxParticipants && (event.registrationCount || 0) >= event.maxParticipants;
-  };
+  const isEventFull = () =>
+    Boolean(event?.maxParticipants && (event.registrationCount || 0) >= event.maxParticipants);
 
   const isRegistrationOpen = () => {
     if (!event) return false;
-    if (event.registrationDeadline) {
-      return new Date() <= new Date(event.registrationDeadline);
-    }
+    if (event.registrationDeadline) return new Date() <= new Date(event.registrationDeadline);
     return new Date() < new Date(event.startTime);
   };
 
-  const canEdit = user && user.role !== 'student' && event?.organizationId === (user.organizationId || event?.organizationId);
+  const canEdit =
+    user && user.role !== 'student' && event?.organizationId === (user.organizationId || event?.organizationId);
 
   const handleRegister = async (register = true) => {
     if (!event?.id) return;
@@ -100,7 +106,6 @@ const EventDetails = () => {
       }
       fetchEvent();
     } catch (error) {
-      console.error('Register/cancel failed:', error);
       toast.error(register ? 'Failed to register' : 'Failed to cancel registration');
     } finally {
       setActionLoading(false);
@@ -127,9 +132,9 @@ const EventDetails = () => {
 
   if (isLoading || !event) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <LoadingSpinner />
-      </div>
+      <PageShell width="narrow">
+        <PageLoader label="Loading event" />
+      </PageShell>
     );
   }
 
@@ -140,135 +145,118 @@ const EventDetails = () => {
   const isGlobal = (event.organization?.name || '').toLowerCase() === 'edumapping';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={() => navigate('/events')}
-            className="inline-flex items-center text-gray-600 hover:text-gray-900"
-          >
-            <ArrowLeftIcon className="h-5 w-5 mr-2" />
-            Back to events
-          </button>
+    <PageShell width="narrow">
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Events', to: '/events' },
+          { label: event.title }
+        ]}
+        eyebrow={event.organization?.name || 'Event'}
+        title={event.title}
+        actions={
+          canEdit && (
+            <Button
+              variant="secondary"
+              icon={PencilSquareIcon}
+              onClick={() => navigate(`/events/${event.id}/edit`)}
+            >
+              Edit event
+            </Button>
+          )
+        }
+      />
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={TYPE_TONES[event.eventType] || 'neutral'}>
+            {String(event.eventType || 'other').replace(/_/g, ' ')}
+          </Badge>
+          {isGlobal && <Badge tone="purple">Global</Badge>}
+          {event.status && <StatusBadge status={event.status} />}
+          {isRegistered && (
+            <Badge tone="success">
+              <CheckIcon aria-hidden="true" className="h-3.5 w-3.5" />
+              You are registered
+            </Badge>
+          )}
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 sm:p-8">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${getEventTypeColor(event.eventType)}`}>
-                {event.eventType?.replace('_', ' ').toUpperCase()}
-              </span>
-              {isGlobal && (
-                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-100">
-                  Global
-                </span>
-              )}
-              {event.status && event.status !== 'scheduled' && (
-                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
-                  {event.status}
-                </span>
-              )}
-            </div>
+        <Divider className="my-5" />
 
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-              {event.title}
-            </h1>
-            {event.organization?.name && (
-              <div className="flex items-center text-gray-600 mb-6">
-                <BuildingOfficeIcon className="h-5 w-5 mr-2 text-gray-400" />
-                <span>{event.organization.name}</span>
-              </div>
-            )}
-
-            <div className="space-y-4 mb-6">
-              {dateStr && (
-                <div className="flex items-start">
-                  <CalendarIcon className="h-5 w-5 mr-3 text-gray-400 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-gray-900">{dateStr}</p>
-                    {timeStr && <p className="text-gray-600">{timeStr}</p>}
-                  </div>
-                </div>
-              )}
-              {event.location && (
-                <div className="flex items-start">
-                  <MapPinIcon className="h-5 w-5 mr-3 text-gray-400 mt-0.5" />
-                  <p className="text-gray-700">{event.location}</p>
-                </div>
-              )}
-              <div className="flex items-center text-gray-600">
-                <UserGroupIcon className="h-5 w-5 mr-3 text-gray-400" />
+        <dl>
+          {dateStr && (
+            <DetailRow label="When">
+              <span className="flex items-center gap-2">
+                <CalendarIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-ink-500" />
                 <span>
-                  {event.registrationCount ?? 0}
-                  {event.maxParticipants ? ` / ${event.maxParticipants} registered` : ' registered'}
-                  {full && <span className="ml-2 text-red-600 font-semibold">(Full)</span>}
+                  {dateStr}
+                  {timeStr && <span className="block text-ink-600">{timeStr}</span>}
                 </span>
-              </div>
-            </div>
+              </span>
+            </DetailRow>
+          )}
+          {event.location && <DetailRow label="Where">{event.location}</DetailRow>}
+          <DetailRow label="Registrations">
+            <span className="flex items-center gap-2 tabular-nums">
+              <UserGroupIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-ink-500" />
+              {event.registrationCount ?? 0}
+              {event.maxParticipants ? ` / ${event.maxParticipants}` : ''} registered
+              {full && <span className="font-semibold text-red-700">Full</span>}
+            </span>
+          </DetailRow>
+          {event.registrationDeadline && (
+            <DetailRow label="Closes">
+              {new Date(event.registrationDeadline).toLocaleDateString()}
+            </DetailRow>
+          )}
+          {event.contactEmail && (
+            <DetailRow label="Contact">
+              <a className="underline hover:text-ink-950" href={`mailto:${event.contactEmail}`}>
+                {event.contactEmail}
+              </a>
+            </DetailRow>
+          )}
+          {event.contactPhone && <DetailRow label="Phone">{event.contactPhone}</DetailRow>}
+        </dl>
 
-            {event.description && (
-              <div className="prose prose-gray max-w-none mb-6">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Description</h3>
-                <p className="text-gray-700 whitespace-pre-wrap">{event.description}</p>
-              </div>
-            )}
+        {event.description && (
+          <>
+            <Divider className="my-5" />
+            <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-500">
+              About this event
+            </h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-800">
+              {event.description}
+            </p>
+          </>
+        )}
 
-            {(event.contactEmail || event.contactPhone) && (
-              <div className="text-sm text-gray-600 mb-6">
-                {event.contactEmail && <p>Contact: {event.contactEmail}</p>}
-                {event.contactPhone && <p>Phone: {event.contactPhone}</p>}
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
-              {canRegister && (
-                <button
-                  onClick={() => handleRegister(true)}
-                  disabled={actionLoading || isRegistered}
-                  className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isRegistered ? 'Registered' : 'Register for this event'}
-                </button>
-              )}
-              {user?.role === 'student' && isRegistered && registrationOpen && (
-                <button
-                  onClick={() => handleRegister(false)}
-                  disabled={actionLoading}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                >
-                  Cancel registration
-                </button>
-              )}
-              {event.virtualLink && (
-                <button
-                  onClick={handleJoinMeeting}
-                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  <LinkIcon className="h-5 w-5 mr-2" />
-                  Join meeting
-                </button>
-              )}
-              <button
-                onClick={handleShare}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-              >
-                <ShareIcon className="h-5 w-5 mr-2" />
-                Share
-              </button>
-              {canEdit && (
-                <button
-                  onClick={() => navigate(`/events/${event.id}/edit`)}
-                  className="inline-flex items-center px-4 py-2 border border-indigo-600 text-indigo-600 rounded-lg hover:bg-indigo-50"
-                >
-                  <PencilSquareIcon className="h-5 w-5 mr-2" />
-                  Edit event
-                </button>
-              )}
-            </div>
-          </div>
+        <div className="mt-6 flex flex-wrap gap-2 border-t border-ink-950/10 pt-5">
+          {canRegister && (
+            <Button
+              onClick={() => handleRegister(true)}
+              loading={actionLoading && !isRegistered}
+              disabled={isRegistered}
+            >
+              {isRegistered ? 'Registered' : 'Register for this event'}
+            </Button>
+          )}
+          {user?.role === 'student' && isRegistered && registrationOpen && (
+            <Button variant="secondary" onClick={() => handleRegister(false)} loading={actionLoading}>
+              Cancel registration
+            </Button>
+          )}
+          {event.virtualLink && (
+            <Button variant="saffron" icon={LinkIcon} onClick={handleJoinMeeting}>
+              Join meeting
+            </Button>
+          )}
+          <Button variant="secondary" icon={ShareIcon} onClick={handleShare}>
+            Share
+          </Button>
         </div>
-      </div>
-    </div>
+      </Card>
+    </PageShell>
   );
 };
 

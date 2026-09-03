@@ -1,19 +1,66 @@
 // client/src/pages/jobs/JobDetail.js
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+//
+// One job posting, plus the student apply flow. Applying is gated client-side
+// on a complete profile and a generated resume — the server would accept the
+// application either way, but a recruiter reading an empty profile is worse
+// than a student being sent back to fill one in.
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  DetailRow,
+  EmptyState,
+  PageHeader,
+  PageShell,
+  SkeletonCard,
+  StatusBadge
+} from '../../components/ui';
 import {
   CalendarIcon,
   MapPinIcon,
   BriefcaseIcon,
   CurrencyRupeeIcon,
-  ClockIcon,
   BuildingOfficeIcon,
-  AcademicCapIcon,
-  StarIcon
+  CheckCircleIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
+
+const REQUIRED_PROFILE_FIELDS = [
+  'course',
+  'branch',
+  'yearOfStudy',
+  'graduationYear',
+  'cgpa',
+  'skills',
+  'bio'
+];
+
+const formatSalary = (min, max) => {
+  if (!min && !max) return 'Not disclosed';
+  if (min && max) return `₹${min.toLocaleString()} – ₹${max.toLocaleString()}`;
+  if (min) return `₹${min.toLocaleString()}+`;
+  return `Up to ₹${max.toLocaleString()}`;
+};
+
+const formatDate = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+};
+
+/** One icon + value pair in the header's metadata strip. */
+const Meta = ({ icon: Icon, children }) => (
+  <span className="inline-flex items-center gap-1.5 text-sm text-ink-600">
+    <Icon aria-hidden="true" className="h-4 w-4 shrink-0 text-ink-500" strokeWidth={1.8} />
+    {children}
+  </span>
+);
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -24,51 +71,40 @@ const JobDetail = () => {
   const [applying, setApplying] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
 
-  useEffect(() => {
-    fetchJobDetails();
-  }, [id]);
+  const checkApplicationStatus = useCallback(async (jobId) => {
+    if (!jobId) return;
+    try {
+      const response = await api.get('/applications');
+      const applications = response.applications || [];
+      setHasApplied(applications.some((app) => app.jobId === parseInt(jobId, 10)));
+    } catch (error) {
+      // A student who has never applied is the common case here; the list
+      // failing is not worth a toast on top of the page they came to read.
+    }
+  }, []);
 
-  const fetchJobDetails = async () => {
+  const fetchJobDetails = useCallback(async () => {
     try {
       setLoading(true);
-      const jobData = await api.get(`/jobs/${id}`);
-      setJob(jobData);
+      const response = await api.get(`/jobs/${id}`);
+      // The controller answers `{ message, job }`; older code kept the envelope
+      // and every field read came back undefined.
+      setJob(response.job || response);
 
-      // Check if user has already applied
       if (user?.role === 'student') {
-        // Use the job ID from the URL params since that's what we know is valid
         checkApplicationStatus(id);
       }
     } catch (error) {
-      console.error('Error fetching job details:', error);
       toast.error('Failed to load job details');
       navigate('/jobs');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, user?.role, navigate, checkApplicationStatus]);
 
-  const checkApplicationStatus = async (jobId) => {
-    if (!jobId) {
-      console.warn('No job ID provided for application status check');
-      return;
-    }
-
-    try {
-      // Use the existing /applications endpoint to get all user applications
-      const response = await api.get('/applications');
-
-      // Check if user has already applied for this specific job
-      // The response structure is { applications: [...], pagination: {...} }
-      const applications = response.applications || [];
-      const hasAppliedForThisJob = applications.some(app => app.jobId === parseInt(jobId));
-      setHasApplied(hasAppliedForThisJob);
-    } catch (error) {
-      console.error('Error checking application status:', error);
-      // Don't show error toast for this, just log it
-      // This is expected if the user hasn't applied yet
-    }
-  };
+  useEffect(() => {
+    fetchJobDetails();
+  }, [fetchJobDetails]);
 
   const handleApply = async () => {
     if (!user) {
@@ -82,39 +118,24 @@ const JobDetail = () => {
       return;
     }
 
-    // Ensure profile is complete and resume is generated before applying
     try {
       const resumeResponse = await api.get('/resume/data');
-      const { personalInfo, profile, achievements } = resumeResponse.data || {};
+      const { personalInfo, profile } = resumeResponse.data || {};
 
-      // Basic checks similar to profile completion logic
       const missingUserFields = [];
       if (!personalInfo?.firstName) missingUserFields.push('firstName');
       if (!personalInfo?.lastName) missingUserFields.push('lastName');
       if (!personalInfo?.email) missingUserFields.push('email');
       if (!personalInfo?.phone) missingUserFields.push('phone');
 
-      const requiredProfileFields = [
-        'course',
-        'branch',
-        'yearOfStudy',
-        'graduationYear',
-        'cgpa',
-        'skills',
-        'bio'
-      ];
-
       const missingProfileFields = [];
       if (!profile) {
-        missingProfileFields.push(...requiredProfileFields);
+        missingProfileFields.push(...REQUIRED_PROFILE_FIELDS);
       } else {
-        requiredProfileFields.forEach((field) => {
+        REQUIRED_PROFILE_FIELDS.forEach((field) => {
           const value = profile[field];
-          const isCompleted =
-            value && (Array.isArray(value) ? value.length > 0 : true);
-          if (!isCompleted) {
-            missingProfileFields.push(field);
-          }
+          const isCompleted = value && (Array.isArray(value) ? value.length > 0 : true);
+          if (!isCompleted) missingProfileFields.push(field);
         });
       }
 
@@ -130,22 +151,16 @@ const JobDetail = () => {
         return;
       }
     } catch (error) {
-      console.error('Error checking profile/resume before applying:', error);
       toast.error('Unable to verify your profile and resume. Please try again.');
       return;
     }
 
     try {
       setApplying(true);
-      await api.post('/applications', {
-        jobId: id,
-        coverLetter: '' // You can add a cover letter modal here
-      });
-
+      await api.post('/applications', { jobId: id, coverLetter: '' });
       toast.success('Application submitted successfully!');
       setHasApplied(true);
     } catch (error) {
-      console.error('Error applying for job:', error);
       toast.error(error.message || 'Failed to submit application');
     } finally {
       setApplying(false);
@@ -154,204 +169,164 @@ const JobDetail = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
+      <PageShell width="narrow">
+        <SkeletonCard lines={4} className="mb-6" />
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <SkeletonCard lines={6} />
+            <SkeletonCard lines={4} />
+          </div>
+          <SkeletonCard lines={5} />
+        </div>
+      </PageShell>
     );
   }
 
   if (!job) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Job Not Found</h1>
-          <button
-            onClick={() => navigate('/jobs')}
-            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
-          >
-            Back to Jobs
-          </button>
-        </div>
-      </div>
+      <PageShell width="narrow">
+        <EmptyState
+          icon={BriefcaseIcon}
+          title="Job not found"
+          description="This posting may have been removed or closed."
+          action={
+            <Button as={Link} to="/jobs">
+              Back to jobs
+            </Button>
+          }
+        />
+      </PageShell>
     );
   }
 
-  // Safely handle requirements array
-  const requirements = Array.isArray(job?.requirements) ? job.requirements : [
-    "Bachelor's degree in Computer Science or related field",
-    "2+ years of experience with React and Node.js",
-    "Strong problem-solving skills"
-  ];
-
-  // Safely handle skills array
-  const skills = Array.isArray(job?.skills) ? job.skills : [
-    "React",
-    "Node.js",
-    "JavaScript",
-    "MongoDB"
-  ];
+  // `requirements` is stored as a newline-joined string; `skillsRequired` as an
+  // array. Both are optional, and an absent one renders no section rather than
+  // invented placeholder content.
+  const requirements = (typeof job.requirements === 'string' ? job.requirements.split('\n') : [])
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const skills = Array.isArray(job.skillsRequired) ? job.skillsRequired.filter(Boolean) : [];
+  const deadline = formatDate(job.applicationDeadline);
+  const posted = formatDate(job.createdAt);
 
   return (
-    <div className="min-h-screen bg-gray-50 py-4 sm:py-8">
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-4 sm:p-6 mb-4 sm:mb-6">
-          <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-            <div className="flex-1">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 break-words">
-                {job?.title || 'Software Engineer'}
-              </h1>
-              <div className="flex items-center text-base sm:text-lg text-gray-600 mb-4">
-                <BuildingOfficeIcon className="h-5 w-5 mr-2" />
-                {job?.company?.name || 'Tech Company'}
-              </div>
-              <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
-                <div className="flex items-center">
-                  <MapPinIcon className="h-4 w-4 mr-1" />
-                  {job?.location || 'Remote'}
-                </div>
-                <div className="flex items-center">
-                  <BriefcaseIcon className="h-4 w-4 mr-1" />
-                  {job?.type || 'Full-time'}
-                </div>
-                <div className="flex items-center">
-                  <CurrencyRupeeIcon className="h-4 w-4 mr-1" />
-                  {job?.salary || 'Competitive'}
-                </div>
-                <div className="flex items-center">
-                  <CalendarIcon className="h-4 w-4 mr-1" />
-                  Apply by: {job?.applicationDeadline || 'TBD'}
-                </div>
-              </div>
-            </div>
-            {user?.role === 'student' && (
-              <div className="w-full sm:w-auto sm:ml-6">
-                {hasApplied ? (
-                  <button
-                    disabled
-                    className="w-full sm:w-auto bg-green-100 text-green-800 px-6 py-3 rounded-md font-medium"
-                  >
-                    Applied ✓
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleApply}
-                    disabled={applying}
-                    className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {applying ? 'Applying...' : 'Apply Now'}
-                  </button>
-                )}
-              </div>
-            )}
+    <PageShell width="narrow">
+      <PageHeader
+        breadcrumbs={[{ label: 'Jobs', to: '/jobs' }, { label: job.title || 'Job' }]}
+        eyebrow={job.organization?.name}
+        title={job.title || 'Untitled role'}
+        actions={
+          user?.role === 'student' &&
+          (hasApplied ? (
+            <Badge tone="success">
+              <CheckCircleIcon aria-hidden="true" className="h-4 w-4" />
+              Applied
+            </Badge>
+          ) : (
+            <Button variant="saffron" loading={applying} onClick={handleApply}>
+              Apply now
+            </Button>
+          ))
+        }
+      />
+
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5">
+          {job.organization?.name && (
+            <Meta icon={BuildingOfficeIcon}>{job.organization.name}</Meta>
+          )}
+          {job.location && <Meta icon={MapPinIcon}>{job.location}</Meta>}
+          {job.jobType && <Meta icon={BriefcaseIcon}>{job.jobType.replace('_', ' ')}</Meta>}
+          <Meta icon={CurrencyRupeeIcon}>{formatSalary(job.salaryMin, job.salaryMax)}</Meta>
+          {deadline && <Meta icon={CalendarIcon}>Apply by {deadline}</Meta>}
+          <Meta icon={EyeIcon}>{job.viewCount || 0} views</Meta>
+        </div>
+        {job.status && (
+          <div className="mt-4">
+            <StatusBadge status={job.status} />
           </div>
+        )}
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader title="Job description" />
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-ink-800">
+              {job.description || 'No description was provided for this role.'}
+            </p>
+          </Card>
+
+          {requirements.length > 0 && (
+            <Card>
+              <CardHeader title="Requirements" />
+              <ul className="mt-4 space-y-2.5">
+                {requirements.map((req, index) => (
+                  <li key={index} className="flex items-start gap-3 text-sm text-ink-800">
+                    <span
+                      aria-hidden="true"
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-saffron-500"
+                    />
+                    {req}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {skills.length > 0 && (
+            <Card>
+              <CardHeader title="Required skills" />
+              <div className="mt-4 flex flex-wrap gap-2">
+                {skills.map((skill, index) => (
+                  <Badge key={index} tone="neutral">
+                    {skill}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Job Description */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Job Description</h2>
-              <div className="prose max-w-none text-gray-700">
-                {job?.description || (
-                  <div>
-                    <p>We are looking for a talented Software Engineer to join our team...</p>
-                    <h3>Responsibilities:</h3>
-                    <ul>
-                      <li>Develop and maintain web applications</li>
-                      <li>Collaborate with cross-functional teams</li>
-                      <li>Write clean, maintainable code</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Requirements */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Requirements</h2>
-              <div className="space-y-2">
-                {requirements.map((req, index) => (
-                  <div key={index} className="flex items-start">
-                    <span className="h-2 w-2 bg-blue-600 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                    <span className="text-gray-700">{req}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Skills */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Required Skills</h2>
-              <div className="flex flex-wrap gap-2">
-                {skills.map((skill, index) => (
-                  <span
-                    key={index}
-                    className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
+        <div className="space-y-6">
+          <Card>
+            <CardHeader title="About the organization" />
+            <dl className="mt-3 divide-y divide-ink-950/10">
+              <DetailRow label="Name">{job.organization?.name}</DetailRow>
+              <DetailRow label="Type">{job.organization?.type}</DetailRow>
+              <DetailRow label="Location">
+                {job.organization?.city || job.organization?.address}
+              </DetailRow>
+              <DetailRow label="Website">
+                {job.organization?.website ? (
+                  <a
+                    href={job.organization.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-ink-950 underline underline-offset-2 hover:text-saffron-800"
                   >
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+                    Visit website
+                  </a>
+                ) : null}
+              </DetailRow>
+            </dl>
+          </Card>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Company Info */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">About Company</h3>
-              <div className="space-y-3">
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Company</dt>
-                  <dd className="text-sm text-gray-900">{job?.company?.name || 'Tech Company'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Industry</dt>
-                  <dd className="text-sm text-gray-900">{job?.company?.industry || 'Technology'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Size</dt>
-                  <dd className="text-sm text-gray-900">{job?.company?.size || '100-500 employees'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Website</dt>
-                  <dd className="text-sm text-blue-600 hover:text-blue-500">
-                    <a href={job?.company?.website || '#'} target="_blank" rel="noopener noreferrer">
-                      Visit Website
-                    </a>
-                  </dd>
-                </div>
-              </div>
-            </div>
-
-            {/* Job Details */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Details</h3>
-              <div className="space-y-3">
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Posted</dt>
-                  <dd className="text-sm text-gray-900">{job?.createdAt || 'Today'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Experience</dt>
-                  <dd className="text-sm text-gray-900">{job?.experience || '2-4 years'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Openings</dt>
-                  <dd className="text-sm text-gray-900">{job?.openings || '2'} positions</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">CGPA Required</dt>
-                  <dd className="text-sm text-gray-900">{job?.minCGPA || '7.0'} and above</dd>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Card>
+            <CardHeader title="Job details" />
+            <dl className="mt-3 divide-y divide-ink-950/10">
+              <DetailRow label="Posted">{posted}</DetailRow>
+              <DetailRow label="Experience">
+                {job.experienceRequired != null ? `${job.experienceRequired} years` : null}
+              </DetailRow>
+              <DetailRow label="Openings">{job.totalPositions}</DetailRow>
+              <DetailRow label="Minimum CGPA">{job.eligibilityCriteria?.minCGPA}</DetailRow>
+              <DetailRow label="Applications">{job.applicationCount ?? 0}</DetailRow>
+            </dl>
+          </Card>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 };
 

@@ -1,6 +1,22 @@
 // server/src/controllers/assessmentController.js
 const { Assessment, Job, User, AssessmentResult } = require('../models');
 
+/**
+ * The stored questions are authored with snake_case keys (`correct_answer`),
+ * while the model layer elsewhere uses camelCase. Read both so scoring works
+ * regardless of which shape a row was written in.
+ */
+const correctAnswerOf = (question) =>
+  question?.correctAnswer !== undefined ? question.correctAnswer : question?.correct_answer;
+
+/**
+ * Strip the answer key before a question ever leaves the server for a student.
+ * The full question objects were being serialised as-is, so anyone taking an
+ * assessment could read the correct answers straight out of the response.
+ */
+const withoutAnswers = (questions = []) =>
+  questions.map(({ correctAnswer, correct_answer: snakeCorrectAnswer, ...rest }) => rest);
+
 class AssessmentController {
   async createAssessment(req, res, next) {
     try {
@@ -36,9 +52,19 @@ class AssessmentController {
         order: [['createdAt', 'DESC']]
       });
 
+      // Students can call this endpoint, so the answer key has to come out
+      // here too — listing an assessment was enough to reveal every answer.
+      // Whoever authored the assessment still needs to see them.
+      const canSeeAnswers = ['recruiter', 'tpo', 'admin'].includes(req.user.role);
+      const payload = assessments.map((assessment) => {
+        const data = assessment.toJSON();
+        if (!canSeeAnswers) data.questions = withoutAnswers(data.questions);
+        return data;
+      });
+
       res.json({
         message: 'Assessments retrieved successfully',
-        assessments
+        assessments: payload
       });
     } catch (error) {
       next(error);
@@ -84,7 +110,7 @@ class AssessmentController {
           title: assessment.title,
           duration: assessment.duration,
           instructions: assessment.instructions,
-          questions: assessment.questions
+          questions: withoutAnswers(assessment.questions)
         },
         resultId: result.id
       });
@@ -118,7 +144,7 @@ class AssessmentController {
       
       answers.forEach((answer, index) => {
         const question = questions[index];
-        if (question && question.correctAnswer === answer) {
+        if (question && correctAnswerOf(question) === answer) {
           score += question.marks || 1;
         }
       });

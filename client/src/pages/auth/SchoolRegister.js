@@ -1,11 +1,11 @@
 // client/src/pages/auth/SchoolRegister.js
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import api from '../../services/api';
-import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
+import api from '../../services/api';
+import { Button, Card, Input, PageLoader, Select, Textarea } from '../../components/ui';
+import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
 
 const SchoolRegister = () => {
   const [formData, setFormData] = useState({
@@ -26,8 +26,6 @@ const SchoolRegister = () => {
     organizationAddress: ''
   });
   const [organizations, setOrganizations] = useState([]);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
 
@@ -48,7 +46,7 @@ const SchoolRegister = () => {
       );
       setOrganizations(approvedOrgs);
     } catch (error) {
-      console.error('Failed to fetch organizations:', error);
+      // A failed lookup leaves the dropdown empty; validation still blocks submit.
     }
   };
 
@@ -97,7 +95,7 @@ const SchoolRegister = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (formData.phone && !/^[\+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
+    if (formData.phone && !/^[+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
 
@@ -187,15 +185,9 @@ const SchoolRegister = () => {
       const response = await register(submitData);
 
       if (response.user) {
-        // Verify that the organization is included in the response
-        if (!response.user.organization && submitData.organizationId) {
-          console.warn('Organization not included in registration response, reloading user...');
-          // The organization should be included, but if not, it will be loaded on next auth check
-        }
-        
         if (formData.role === 'new_school') {
           toast.success(
-            `Registration successful! Your school and account are pending admin approval. You will be notified once approved.`,
+            'Registration successful! Your school and account are pending admin approval. You will be notified once approved.',
             { duration: 6000 }
           );
         } else {
@@ -204,24 +196,11 @@ const SchoolRegister = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      console.error('=== REGISTRATION ERROR ===');
-      console.error('Full error object:', error);
-      console.error('Error message:', error.message);
-      console.error('Error status:', error.status);
-      console.error('Error data:', error.data);
-      console.error('Error response:', error.response);
-      if (error.response) {
-        console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data);
-        console.error('Response headers:', error.response.headers);
-      }
-      console.error('==========================');
-      
-      // Extract error message from various possible locations
+      // The API is inconsistent about where the reason lands, so every known
+      // shape is unwrapped before falling back to a generic message.
       let errorMessage = 'Registration failed. Please try again.';
-      
+
       if (error.response?.data) {
-        // Check for different error formats
         if (error.response.data.message) {
           errorMessage = error.response.data.message;
         } else if (error.response.data.error) {
@@ -232,7 +211,7 @@ const SchoolRegister = () => {
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       setErrors({
         submit: errorMessage
       });
@@ -248,392 +227,226 @@ const SchoolRegister = () => {
   };
 
   const showNewOrgFields = formData.role === 'new_school';
+  const availableOrgs = getFilteredOrganizations();
 
   if (isLoading) {
-    return <LoadingSpinner />;
+    return (
+      <AuthShell>
+        <PageLoader label="Creating your account" />
+      </AuthShell>
+    );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          {/* Logo */}
-          <Link to="/" className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity">
-            <img
-              src="/logo.svg"
-              alt="EduMapping Logo"
-              className="h-20 w-auto mb-4"
-            />
-            <span className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FF8C42] to-[#138808] drop-shadow-sm">
-              EduMapping
-            </span>
-            <p className="text-sm text-gray-600 mt-2">School Registration</p>
-          </Link>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your school account
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Or{' '}
-            <Link
-              to="/login/school"
-              className="font-medium text-[#FF8C42] hover:text-[#e67a35]"
-            >
-              sign in to your existing account
-            </Link>
-          </p>
-          <p className="mt-2 text-center text-xs text-gray-500">
-            For colleges,{' '}
-            <Link
-              to="/register/college"
-              className="font-medium text-[#138808] hover:text-[#0f6b0f]"
-            >
-              click here
-            </Link>
-          </p>
-        </div>
+    <AuthShell width="max-w-lg">
+      <AuthBrand tagline="School registration" />
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {errors.submit && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="text-sm text-red-700">{errors.submit}</div>
-            </div>
+      <Card>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-ink-950">
+          Create your school account
+        </h1>
+        <p className="mt-2 text-sm text-ink-600">
+          Already registered?{' '}
+          <Link
+            to="/login/school"
+            className="font-medium text-ink-950 underline underline-offset-2 hover:text-saffron-700"
+          >
+            Sign in instead
+          </Link>
+        </p>
+        <p className="mt-1 text-sm text-ink-500">
+          For colleges,{' '}
+          <Link
+            to="/register/college"
+            className="font-medium text-ink-700 underline underline-offset-2 hover:text-ink-950"
+          >
+            click here
+          </Link>
+        </p>
+
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <FormError>{errors.submit}</FormError>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="First name"
+              name="firstName"
+              type="text"
+              value={formData.firstName}
+              onChange={handleChange}
+              error={errors.firstName}
+              placeholder="First name"
+            />
+            <Input
+              label="Last name"
+              name="lastName"
+              type="text"
+              value={formData.lastName}
+              onChange={handleChange}
+              error={errors.lastName}
+              placeholder="Last name"
+            />
+          </div>
+
+          <Input
+            label="Email address"
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={formData.email}
+            onChange={handleChange}
+            error={errors.email}
+            placeholder="you@school.edu"
+          />
+
+          <Input
+            label="Phone number"
+            name="phone"
+            type="tel"
+            value={formData.phone}
+            onChange={handleChange}
+            error={errors.phone}
+            help="Optional."
+            placeholder="+91 1234567890"
+          />
+
+          <Select
+            label="I am a"
+            name="role"
+            value={formData.role}
+            onChange={handleChange}
+            error={errors.role}
+          >
+            <option value="">Select a role</option>
+            <option value="student">Student</option>
+            <option value="principal">Principal/Headmaster</option>
+            <option value="teacher">Teacher</option>
+            <option value="school_admin">School Admin</option>
+            <option value="career_counselor">Career Counselor</option>
+            <option value="new_school">Register New School</option>
+          </Select>
+
+          {!showNewOrgFields && formData.role && formData.role !== 'admin' && (
+            <Select
+              label="Select your school"
+              name="organizationId"
+              value={formData.organizationId}
+              onChange={handleChange}
+              error={errors.organizationId}
+              help={
+                availableOrgs.length === 0
+                  ? 'No schools available. Please register a new school.'
+                  : undefined
+              }
+            >
+              <option value="">Select your school</option>
+              {availableOrgs.map(org => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
+            </Select>
           )}
 
-          <div className="space-y-4">
-            {/* Name Fields */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                  First Name
-                </label>
-                <input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.firstName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                  placeholder="First name"
-                />
-                {errors.firstName && (
-                  <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>
-                )}
-              </div>
+          {showNewOrgFields && (
+            <fieldset className="space-y-4 rounded-2xl border border-ink-950/15 bg-bone-100 p-4">
+              <legend className="px-1 font-display text-sm font-bold text-ink-950">
+                School information
+              </legend>
 
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                  Last Name
-                </label>
-                <input
-                  id="lastName"
-                  name="lastName"
-                  type="text"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.lastName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                  placeholder="Last name"
-                />
-                {errors.lastName && (
-                  <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>
-                )}
-              </div>
-            </div>
+              <Input
+                label="School name"
+                name="organizationName"
+                type="text"
+                required
+                value={formData.organizationName}
+                onChange={handleChange}
+                error={errors.organizationName}
+                placeholder="Enter school name"
+              />
 
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
+              <Input
+                label="School email domain"
+                name="organizationDomain"
                 type="email"
-                autoComplete="email"
-                value={formData.email}
+                required
+                value={formData.organizationDomain}
                 onChange={handleChange}
-                className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.email ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                placeholder="Enter your email"
+                error={errors.organizationDomain}
+                placeholder="e.g., admin@school.edu"
               />
-              {errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-              )}
-            </div>
 
-            {/* Phone */}
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                Phone Number (Optional)
-              </label>
-              <input
-                id="phone"
-                name="phone"
+              <Input
+                label="Contact email"
+                name="organizationContactEmail"
+                type="email"
+                required
+                value={formData.organizationContactEmail}
+                onChange={handleChange}
+                error={errors.organizationContactEmail}
+                placeholder="contact@school.edu"
+              />
+
+              <Input
+                label="Contact phone"
+                name="organizationContactPhone"
                 type="tel"
-                value={formData.phone}
+                value={formData.organizationContactPhone}
                 onChange={handleChange}
-                className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.phone ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                placeholder="Enter your phone number"
+                help="Optional."
+                placeholder="+91 1234567890"
               />
-              {errors.phone && (
-                <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
-              )}
-            </div>
 
-            {/* Role */}
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-                I am a
-              </label>
-              <select
-                id="role"
-                name="role"
-                value={formData.role}
+              <Input
+                label="Website"
+                name="organizationWebsite"
+                type="url"
+                value={formData.organizationWebsite}
                 onChange={handleChange}
-                className={`mt-1 block w-full px-3 py-2 border ${errors.role ? 'border-red-300' : 'border-gray-300'
-                  } bg-white rounded-md shadow-sm focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-              >
-                <option value="">Select a role</option>
-                <option value="student">Student</option>
-                <option value="principal">Principal/Headmaster</option>
-                <option value="teacher">Teacher</option>
-                <option value="school_admin">School Admin</option>
-                <option value="career_counselor">Career Counselor</option>
-                <option value="new_school">Register New School</option>
-              </select>
-              {errors.role && (
-                <p className="mt-1 text-sm text-red-600">{errors.role}</p>
-              )}
-            </div>
+                help="Optional."
+                placeholder="https://www.school.edu"
+              />
 
-            {/* Organization Selection - Only for existing organizations */}
-            {!showNewOrgFields && formData.role && formData.role !== 'admin' && (
-              <div>
-                <label htmlFor="organizationId" className="block text-sm font-medium text-gray-700">
-                  Select Your School
-                </label>
-                <select
-                  id="organizationId"
-                  name="organizationId"
-                  value={formData.organizationId}
-                  onChange={handleChange}
-                  className={`mt-1 block w-full px-3 py-2 border ${errors.organizationId ? 'border-red-300' : 'border-gray-300'
-                    } bg-white rounded-md shadow-sm focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                >
-                  <option value="">Select your school</option>
-                  {getFilteredOrganizations().map(org => (
-                    <option key={org.id} value={org.id}>
-                      {org.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.organizationId && (
-                  <p className="mt-1 text-sm text-red-600">{errors.organizationId}</p>
-                )}
-                {getFilteredOrganizations().length === 0 && (
-                  <p className="mt-1 text-sm text-gray-500">No schools available. Please register a new school.</p>
-                )}
-              </div>
-            )}
+              <Textarea
+                label="Address"
+                name="organizationAddress"
+                rows={3}
+                value={formData.organizationAddress}
+                onChange={handleChange}
+                help="Optional."
+                placeholder="School address"
+              />
+            </fieldset>
+          )}
 
-            {/* New Organization Fields */}
-            {showNewOrgFields && (
-              <div className="space-y-4 p-4 bg-gray-50 rounded-md border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">School Information</h3>
-                
-                <div>
-                  <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
-                    School Name *
-                  </label>
-                  <input
-                    id="organizationName"
-                    name="organizationName"
-                    type="text"
-                    value={formData.organizationName}
-                    onChange={handleChange}
-                    className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.organizationName ? 'border-red-300' : 'border-gray-300'
-                      } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                    placeholder="Enter school name"
-                  />
-                  {errors.organizationName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationName}</p>
-                  )}
-                </div>
+          <PasswordField
+            label="Password"
+            name="password"
+            autoComplete="new-password"
+            value={formData.password}
+            onChange={handleChange}
+            error={errors.password}
+            help="At least 8 characters, with an uppercase letter, a lowercase letter and a number."
+            placeholder="Enter your password"
+          />
 
-                <div>
-                  <label htmlFor="organizationDomain" className="block text-sm font-medium text-gray-700">
-                    School Email Domain *
-                  </label>
-                  <input
-                    id="organizationDomain"
-                    name="organizationDomain"
-                    type="email"
-                    value={formData.organizationDomain}
-                    onChange={handleChange}
-                    className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.organizationDomain ? 'border-red-300' : 'border-gray-300'
-                      } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                    placeholder="e.g., admin@school.edu"
-                  />
-                  {errors.organizationDomain && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationDomain}</p>
-                  )}
-                </div>
+          <PasswordField
+            label="Confirm password"
+            name="confirmPassword"
+            autoComplete="new-password"
+            value={formData.confirmPassword}
+            onChange={handleChange}
+            error={errors.confirmPassword}
+            placeholder="Confirm your password"
+          />
 
-                <div>
-                  <label htmlFor="organizationContactEmail" className="block text-sm font-medium text-gray-700">
-                    Contact Email *
-                  </label>
-                  <input
-                    id="organizationContactEmail"
-                    name="organizationContactEmail"
-                    type="email"
-                    value={formData.organizationContactEmail}
-                    onChange={handleChange}
-                    className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.organizationContactEmail ? 'border-red-300' : 'border-gray-300'
-                      } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                    placeholder="contact@school.edu"
-                  />
-                  {errors.organizationContactEmail && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationContactEmail}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="organizationContactPhone" className="block text-sm font-medium text-gray-700">
-                    Contact Phone (Optional)
-                  </label>
-                  <input
-                    id="organizationContactPhone"
-                    name="organizationContactPhone"
-                    type="tel"
-                    value={formData.organizationContactPhone}
-                    onChange={handleChange}
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm"
-                    placeholder="+91 1234567890"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="organizationWebsite" className="block text-sm font-medium text-gray-700">
-                    Website (Optional)
-                  </label>
-                  <input
-                    id="organizationWebsite"
-                    name="organizationWebsite"
-                    type="url"
-                    value={formData.organizationWebsite}
-                    onChange={handleChange}
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm"
-                    placeholder="https://www.school.edu"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="organizationAddress" className="block text-sm font-medium text-gray-700">
-                    Address (Optional)
-                  </label>
-                  <textarea
-                    id="organizationAddress"
-                    name="organizationAddress"
-                    rows="3"
-                    value={formData.organizationAddress}
-                    onChange={handleChange}
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm"
-                    placeholder="School address"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className={`appearance-none relative block w-full px-3 py-2 pr-10 border ${errors.password ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                  placeholder="Enter your password"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <EyeIcon className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
-              )}
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                Confirm Password
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className={`appearance-none relative block w-full px-3 py-2 pr-10 border ${errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-[#FF8C42] focus:border-[#FF8C42] sm:text-sm`}
-                  placeholder="Confirm your password"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? (
-                    <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <EyeIcon className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-[#FF8C42] hover:bg-[#e67a35] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#FF8C42]"
-            >
-              Create Account
-            </button>
-          </div>
+          <Button type="submit" fullWidth size="lg">
+            Create account
+          </Button>
         </form>
-      </div>
-    </div>
+      </Card>
+    </AuthShell>
   );
 };
 
 export default SchoolRegister;
-
-
-
-
-
-

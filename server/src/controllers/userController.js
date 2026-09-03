@@ -34,6 +34,13 @@ const sanitizeProfileData = (profileData) => {
   return sanitized;
 };
 
+/**
+ * School staff who may see their own institution's roster. Their dashboards
+ * are built around it; without this the only endpoint they need answered 403.
+ * Teachers are deliberately excluded — they have no roster-management surface.
+ */
+const SCHOOL_LEADERSHIP_ROLES = ['principal', 'school_admin', 'career_counselor'];
+
 class UserController {
 
   async getProfile(req, res, next) {
@@ -199,6 +206,19 @@ class UserController {
       if (role) whereClause.role = role;
       if (organizationId) whereClause.organizationId = organizationId;
       if (isActive !== undefined) whereClause.isActive = isActive === 'true';
+
+      // School leadership may list people, but only their own school's. Forced
+      // here rather than trusted from the query string, so passing another
+      // organizationId cannot widen the result set.
+      if (SCHOOL_LEADERSHIP_ROLES.includes(req.user.role)) {
+        if (!req.user.organizationId) {
+          return res.status(403).json({
+            error: 'Access Forbidden',
+            message: 'Your account is not attached to an institution'
+          });
+        }
+        whereClause.organizationId = req.user.organizationId;
+      }
 
       if (req.user.role === 'recruiter') {
         const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);

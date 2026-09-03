@@ -1,160 +1,169 @@
 // client/src/components/admin/DataTable.js
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { ChevronUpDownIcon, ChevronUpIcon, ChevronDownIcon, InboxIcon } from '@heroicons/react/24/outline';
 import {
-  ChevronUpIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon
-} from '@heroicons/react/24/outline';
+  EmptyState,
+  Pagination,
+  Skeleton,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  cx
+} from '../ui';
 
+/**
+ * The admin dashboard's list table.
+ *
+ * Sorting is client-side over the current page only — the server paginates, so
+ * this deliberately reorders what is on screen and nothing more.
+ */
 const DataTable = ({
   columns,
-  data,
+  data = [],
   onRowClick,
   actions,
   pagination,
   onPageChange,
-  loading = false
+  loading = false,
+  emptyTitle = 'Nothing to show',
+  emptyDescription = 'No records match the current filters.'
 }) => {
-  const [sortColumn, setSortColumn] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc');
+  const [sort, setSort] = useState({ column: null, direction: 'asc' });
 
-  const handleSort = (column) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortColumn(column);
-      setSortDirection('asc');
-    }
-  };
+  const toggleSort = (key) =>
+    setSort((prev) =>
+      prev.column === key
+        ? { column: key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { column: key, direction: 'asc' }
+    );
 
-  const sortedData = [...data].sort((a, b) => {
-    if (!sortColumn) return 0;
-    const aValue = a[sortColumn];
-    const bValue = b[sortColumn];
-    
-    if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-    if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-    return 0;
-  });
+  const rows = useMemo(() => {
+    if (!sort.column) return data;
+    const dir = sort.direction === 'asc' ? 1 : -1;
+    return [...data].sort((a, b) => {
+      const av = a[sort.column];
+      const bv = b[sort.column];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1; // blanks sink, whichever way the column is sorted
+      if (bv == null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [data, sort]);
 
   if (loading) {
     return (
-      <div className="bg-white shadow rounded-lg p-8 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading...</p>
+      <div className="rounded-2xl border border-ink-950/15 bg-white p-5">
+        <Skeleton className="h-8 w-full" />
+        <div className="mt-3 space-y-2.5">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-11 w-full" />
+          ))}
+        </div>
       </div>
     );
   }
 
+  if (rows.length === 0) {
+    return <EmptyState icon={InboxIcon} title={emptyTitle} description={emptyDescription} />;
+  }
+
   return (
-    <div className="bg-white shadow rounded-lg overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {columns.map((column) => (
+    <div>
+      <Table>
+        <Thead>
+          <Tr className="hover:bg-transparent">
+            {columns.map((column) => {
+              const sorted = sort.column === column.key;
+              if (!column.sortable) {
+                return <Th key={column.key}>{column.label}</Th>;
+              }
+              return (
+                // Raw <th> rather than the kit's, which owns its own padding —
+                // the sort control has to fill the whole cell to be a
+                // comfortable target.
                 <th
                   key={column.key}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => column.sortable && handleSort(column.key)}
+                  scope="col"
+                  aria-sort={sorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  <div className="flex items-center space-x-1">
-                    <span>{column.label}</span>
-                    {column.sortable && sortColumn === column.key && (
-                      sortDirection === 'asc' ? (
-                        <ChevronUpIcon className="h-4 w-4" />
+                  {(
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(column.key)}
+                      className="flex w-full items-center gap-1.5 px-4 py-3 text-left font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-600 transition-colors hover:bg-bone-200 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink-950"
+                    >
+                      {column.label}
+                      {sorted ? (
+                        sort.direction === 'asc' ? (
+                          <ChevronUpIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronDownIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                        )
                       ) : (
-                        <ChevronDownIcon className="h-4 w-4" />
-                      )
-                    )}
-                  </div>
-                </th>
-              ))}
-              {actions && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {sortedData.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-6 py-8 text-center text-gray-500">
-                  No data available
-                </td>
-              </tr>
-            ) : (
-              sortedData.map((row, index) => (
-                <tr
-                  key={row.id || index}
-                  className={onRowClick ? 'hover:bg-gray-50 cursor-pointer' : ''}
-                  onClick={() => onRowClick && onRowClick(row)}
-                >
-                  {columns.map((column) => (
-                    <td key={column.key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {column.render ? column.render(row[column.key], row) : (row[column.key] ?? '')}
-                    </td>
-                  ))}
-                  {actions && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {actions(row)}
-                    </td>
+                        <ChevronUpDownIcon aria-hidden="true" className="h-3.5 w-3.5 opacity-40" />
+                      )}
+                      <span className="sr-only">
+                        {sorted ? `sorted ${sort.direction}ending` : ', sort by this column'}
+                      </span>
+                    </button>
                   )}
-                </tr>
-              ))
+                </th>
+              );
+            })}
+            {actions && (
+              <Th className="text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             )}
-          </tbody>
-        </table>
-      </div>
-      
-      {pagination && (
-        <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-          <div className="flex-1 flex justify-between sm:hidden">
-            <button
-              onClick={() => onPageChange && onPageChange(pagination.currentPage - 1)}
-              disabled={!pagination.hasPrevious}
-              className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => onPageChange && onPageChange(pagination.currentPage + 1)}
-              disabled={!pagination.hasNext}
-              className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm text-gray-700">
-                Showing <span className="font-medium">{((pagination.currentPage - 1) * (pagination.limit || 20)) + 1}</span> to{' '}
-                <span className="font-medium">
-                  {Math.min((pagination.currentPage || 1) * (pagination.limit || 20), pagination.totalItems || 0)}
-                </span>{' '}
-                of <span className="font-medium">{pagination.totalItems || 0}</span> results
-              </p>
-            </div>
-            <div>
-              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                <button
-                  onClick={() => onPageChange && onPageChange(pagination.currentPage - 1)}
-                  disabled={!pagination.hasPrevious}
-                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeftIcon className="h-5 w-5" />
-                </button>
-                <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
-                  Page {pagination.currentPage} of {pagination.totalPages}
-                </span>
-                <button
-                  onClick={() => onPageChange && onPageChange(pagination.currentPage + 1)}
-                  disabled={!pagination.hasNext}
-                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRightIcon className="h-5 w-5" />
-                </button>
-              </nav>
-            </div>
-          </div>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {rows.map((row, index) => (
+            <Tr key={row.id ?? index}>
+              {columns.map((column, colIndex) => {
+                const content = column.render
+                  ? column.render(row[column.key], row)
+                  : row[column.key] ?? '—';
+                return (
+                  <Td key={column.key} className={cx(colIndex === 0 && 'font-medium text-ink-950')}>
+                    {/* Row activation lives on a button in the first cell —
+                        a clickable <tr> is invisible to the keyboard. */}
+                    {onRowClick && colIndex === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onRowClick(row)}
+                        className="rounded text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      content
+                    )}
+                  </Td>
+                );
+              })}
+              {actions && <Td className="text-right">{actions(row)}</Td>}
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-5 flex flex-col items-center gap-3">
+          <Pagination
+            page={pagination.currentPage}
+            pages={pagination.totalPages}
+            onChange={(p) => onPageChange && onPageChange(p)}
+          />
+          {pagination.totalItems != null && (
+            <p className="text-xs text-ink-500">
+              {pagination.totalItems} record{pagination.totalItems === 1 ? '' : 's'} in total
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -162,5 +171,3 @@ const DataTable = ({
 };
 
 export default DataTable;
-
-

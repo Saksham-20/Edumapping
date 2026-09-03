@@ -1,11 +1,11 @@
 // client/src/pages/auth/Register.js
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import api from '../../services/api';
-import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
+import api from '../../services/api';
+import { Button, Card, Input, Select, Textarea } from '../../components/ui';
+import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -26,8 +26,6 @@ const Register = () => {
     organizationAddress: ''
   });
   const [organizations, setOrganizations] = useState([]);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
 
@@ -48,7 +46,7 @@ const Register = () => {
       );
       setOrganizations(approvedOrgs);
     } catch (error) {
-      console.error('Failed to fetch organizations:', error);
+      // A failed lookup leaves the dropdown empty; validation still blocks submit.
     }
   };
 
@@ -98,7 +96,7 @@ const Register = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (formData.phone && !/^[\+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
+    if (formData.phone && !/^[+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
 
@@ -234,409 +232,226 @@ const Register = () => {
     return organizations;
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          {/* Logo */}
-          <Link to="/" className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity">
-            <img
-              src="/logo.svg"
-              alt="EduMapping Logo"
-              className="h-20 w-auto mb-4"
-            />
-            <span className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FF9933] to-[#138808] drop-shadow-sm">
-              EduMapping
-            </span>
-          </Link>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your account
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Or{' '}
-            <Link
-              to="/login"
-              className="font-medium text-primary-600 hover:text-primary-500"
-            >
-              sign in to your existing account
-            </Link>
-          </p>
-        </div>
+  const isNewOrg = formData.role === 'new_university' || formData.role === 'new_company';
+  const isUniversitySide = formData.role === 'student' || formData.role === 'tpo';
+  const newOrgNoun = formData.role === 'new_university' ? 'university' : 'company';
+  const availableOrgs = getFilteredOrganizations();
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {errors.submit && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="text-sm text-red-700">{errors.submit}</div>
-            </div>
+  return (
+    <AuthShell width="max-w-lg">
+      <AuthBrand />
+
+      <Card>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-ink-950">
+          Create your account
+        </h1>
+        <p className="mt-2 text-sm text-ink-600">
+          Already registered?{' '}
+          <Link
+            to="/login"
+            className="font-medium text-ink-950 underline underline-offset-2 hover:text-saffron-700"
+          >
+            Sign in instead
+          </Link>
+        </p>
+
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <FormError>{errors.submit}</FormError>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="First name"
+              name="firstName"
+              type="text"
+              value={formData.firstName}
+              onChange={handleChange}
+              error={errors.firstName}
+              placeholder="First name"
+            />
+            <Input
+              label="Last name"
+              name="lastName"
+              type="text"
+              value={formData.lastName}
+              onChange={handleChange}
+              error={errors.lastName}
+              placeholder="Last name"
+            />
+          </div>
+
+          <Input
+            label="Email address"
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={formData.email}
+            onChange={handleChange}
+            error={errors.email}
+            placeholder="you@example.com"
+          />
+
+          <Input
+            label="Phone number"
+            name="phone"
+            type="tel"
+            value={formData.phone}
+            onChange={handleChange}
+            error={errors.phone}
+            help="Optional."
+            placeholder="+91 1234567890"
+          />
+
+          <Select
+            label="Role"
+            name="role"
+            value={formData.role}
+            onChange={handleChange}
+            error={errors.role}
+          >
+            <option value="">Select a role</option>
+            <option value="student">Student</option>
+            <option value="tpo">Training &amp; Placement Officer (TPO)</option>
+            <option value="recruiter">Recruiter</option>
+            <optgroup label="Register New Organization">
+              <option value="new_university">Register as New University</option>
+              <option value="new_company">Register as New Company</option>
+            </optgroup>
+          </Select>
+
+          {formData.role && formData.role !== 'admin' && !isNewOrg && (
+            <Select
+              label={isUniversitySide ? 'University' : 'Company'}
+              name="organizationId"
+              value={formData.organizationId}
+              onChange={handleChange}
+              error={errors.organizationId}
+              help={
+                availableOrgs.length === 0
+                  ? `No approved ${isUniversitySide ? 'universities' : 'companies'} are available. Please contact an administrator.`
+                  : undefined
+              }
+            >
+              <option value="">
+                Select {isUniversitySide ? 'a university' : 'a company'}
+              </option>
+              {availableOrgs.length > 0 ? (
+                availableOrgs.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>
+                  No {isUniversitySide ? 'universities' : 'companies'} available
+                </option>
+              )}
+            </Select>
           )}
 
-          <div className="space-y-4">
-            {/* Name Fields */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                  First Name
-                </label>
-                <input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.firstName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                  placeholder="First name"
-                />
-                {errors.firstName && (
-                  <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>
-                )}
-              </div>
+          {isNewOrg && (
+            <fieldset className="space-y-4 rounded-2xl border border-ink-950/15 bg-bone-100 p-4">
+              <legend className="px-1 font-display text-sm font-bold text-ink-950">
+                {formData.role === 'new_university' ? 'University' : 'Company'} details
+              </legend>
 
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                  Last Name
-                </label>
-                <input
-                  id="lastName"
-                  name="lastName"
-                  type="text"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.lastName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                  placeholder="Last name"
-                />
-                {errors.lastName && (
-                  <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>
-                )}
-              </div>
-            </div>
+              <p className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-3 py-2.5 text-sm text-saffron-900">
+                Your {newOrgNoun} will be created with <strong>pending</strong> approval status. An
+                admin will review and approve it before it becomes active.
+              </p>
 
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
+              <Input
+                label={`${formData.role === 'new_university' ? 'University' : 'Company'} name`}
+                name="organizationName"
+                type="text"
+                required
+                value={formData.organizationName}
+                onChange={handleChange}
+                error={errors.organizationName}
+                placeholder={`Enter ${newOrgNoun} name`}
+              />
+
+              <Input
+                label="Domain email"
+                name="organizationDomain"
                 type="email"
-                autoComplete="email"
-                value={formData.email}
+                required
+                value={formData.organizationDomain}
                 onChange={handleChange}
-                className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.email ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                placeholder="Enter your email"
+                error={errors.organizationDomain}
+                help={`This will be used to verify your ${newOrgNoun} domain.`}
+                placeholder={`example@${formData.role === 'new_university' ? 'university.edu' : 'company.com'}`}
               />
-              {errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-              )}
-            </div>
 
-            {/* Phone */}
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                Phone Number (Optional)
-              </label>
-              <input
-                id="phone"
-                name="phone"
+              <Input
+                label="Contact email"
+                name="organizationContactEmail"
+                type="email"
+                required
+                value={formData.organizationContactEmail}
+                onChange={handleChange}
+                error={errors.organizationContactEmail}
+                placeholder="contact@example.com"
+              />
+
+              <Input
+                label="Contact phone"
+                name="organizationContactPhone"
                 type="tel"
-                value={formData.phone}
+                value={formData.organizationContactPhone}
                 onChange={handleChange}
-                className={`mt-1 appearance-none relative block w-full px-3 py-2 border ${errors.phone ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                placeholder="Enter your phone number"
+                error={errors.organizationContactPhone}
+                placeholder="+1-555-0100"
               />
-              {errors.phone && (
-                <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
-              )}
-            </div>
 
-            {/* Role */}
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-                Role
-              </label>
-              <select
-                id="role"
-                name="role"
-                value={formData.role}
+              <Input
+                label="Website"
+                name="organizationWebsite"
+                type="url"
+                value={formData.organizationWebsite}
                 onChange={handleChange}
-                className={`mt-1 block w-full px-3 py-2 border ${errors.role ? 'border-red-300' : 'border-gray-300'
-                  } bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-              >
-                <option value="">Select a role</option>
-                <option value="student">Student</option>
-                <option value="tpo">Training & Placement Officer (TPO)</option>
-                <option value="recruiter">Recruiter</option>
-                <optgroup label="Register New Organization">
-                  <option value="new_university">Register as New University</option>
-                  <option value="new_company">Register as New Company</option>
-                </optgroup>
-              </select>
-              {errors.role && (
-                <p className="mt-1 text-sm text-red-600">{errors.role}</p>
-              )}
-            </div>
+                error={errors.organizationWebsite}
+                placeholder="https://example.com"
+              />
 
-            {/* Organization Selection (for existing organizations) */}
-            {formData.role &&
-              formData.role !== 'admin' &&
-              formData.role !== 'new_university' &&
-              formData.role !== 'new_company' && (
-                <div>
-                  <label htmlFor="organizationId" className="block text-sm font-medium text-gray-700">
-                    {formData.role === 'student' || formData.role === 'tpo' ? 'University' : 'Company'}
-                  </label>
-                  <select
-                    id="organizationId"
-                    name="organizationId"
-                    value={formData.organizationId}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationId ? 'border-red-300' : 'border-gray-300'
-                      } bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                  >
-                    <option value="">Select an {formData.role === 'student' || formData.role === 'tpo' ? 'university' : 'company'}</option>
-                    {getFilteredOrganizations().length > 0 ? (
-                      getFilteredOrganizations().map((org) => (
-                        <option key={org.id} value={org.id}>
-                          {org.name}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="" disabled>
-                        No {formData.role === 'student' || formData.role === 'tpo' ? 'universities' : 'companies'} available
-                      </option>
-                    )}
-                  </select>
-                  {errors.organizationId && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationId}</p>
-                  )}
-                  {getFilteredOrganizations().length === 0 && formData.role && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      No approved {formData.role === 'student' || formData.role === 'tpo' ? 'universities' : 'companies'} are available. Please contact an administrator.
-                    </p>
-                  )}
-                </div>
-              )}
+              <Textarea
+                label="Address"
+                name="organizationAddress"
+                rows={3}
+                value={formData.organizationAddress}
+                onChange={handleChange}
+                error={errors.organizationAddress}
+                placeholder="Enter full address"
+              />
+            </fieldset>
+          )}
 
-            {/* Organization Creation Fields (for new organizations) */}
-            {(formData.role === 'new_university' || formData.role === 'new_company') && (
-              <div className="space-y-4 border-t pt-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                  <p className="text-sm text-blue-800">
-                    <strong>Note:</strong> Your {formData.role === 'new_university' ? 'university' : 'company'} will be created with <strong>pending</strong> approval status. An admin will review and approve it before it becomes active.
-                  </p>
-                </div>
+          <PasswordField
+            label="Password"
+            name="password"
+            autoComplete="new-password"
+            value={formData.password}
+            onChange={handleChange}
+            error={errors.password}
+            help="At least 8 characters, with an uppercase letter, a lowercase letter and a number."
+            placeholder="Create a password"
+          />
 
-                <div>
-                  <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
-                    {formData.role === 'new_university' ? 'University' : 'Company'} Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="organizationName"
-                    name="organizationName"
-                    type="text"
-                    value={formData.organizationName}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationName ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder={`Enter ${formData.role === 'new_university' ? 'university' : 'company'} name`}
-                    required
-                  />
-                  {errors.organizationName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationName}</p>
-                  )}
-                </div>
+          <PasswordField
+            label="Confirm password"
+            name="confirmPassword"
+            autoComplete="new-password"
+            value={formData.confirmPassword}
+            onChange={handleChange}
+            error={errors.confirmPassword}
+            placeholder="Confirm your password"
+          />
 
-                <div>
-                  <label htmlFor="organizationDomain" className="block text-sm font-medium text-gray-700">
-                    Domain Email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="organizationDomain"
-                    name="organizationDomain"
-                    type="email"
-                    value={formData.organizationDomain}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationDomain ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder={`example@${formData.role === 'new_university' ? 'university.edu' : 'company.com'}`}
-                    required
-                  />
-                  {errors.organizationDomain && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationDomain}</p>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500">
-                    This will be used to verify your {formData.role === 'new_university' ? 'university' : 'company'} domain
-                  </p>
-                </div>
-
-                <div>
-                  <label htmlFor="organizationContactEmail" className="block text-sm font-medium text-gray-700">
-                    Contact Email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="organizationContactEmail"
-                    name="organizationContactEmail"
-                    type="email"
-                    value={formData.organizationContactEmail}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationContactEmail ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder="contact@example.com"
-                    required
-                  />
-                  {errors.organizationContactEmail && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationContactEmail}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="organizationContactPhone" className="block text-sm font-medium text-gray-700">
-                    Contact Phone
-                  </label>
-                  <input
-                    id="organizationContactPhone"
-                    name="organizationContactPhone"
-                    type="tel"
-                    value={formData.organizationContactPhone}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationContactPhone ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder="+1-555-0100"
-                  />
-                  {errors.organizationContactPhone && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationContactPhone}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="organizationWebsite" className="block text-sm font-medium text-gray-700">
-                    Website
-                  </label>
-                  <input
-                    id="organizationWebsite"
-                    name="organizationWebsite"
-                    type="url"
-                    value={formData.organizationWebsite}
-                    onChange={handleChange}
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationWebsite ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder="https://example.com"
-                  />
-                  {errors.organizationWebsite && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationWebsite}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="organizationAddress" className="block text-sm font-medium text-gray-700">
-                    Address
-                  </label>
-                  <textarea
-                    id="organizationAddress"
-                    name="organizationAddress"
-                    value={formData.organizationAddress}
-                    onChange={handleChange}
-                    rows="3"
-                    className={`mt-1 block w-full px-3 py-2 border ${errors.organizationAddress ? 'border-red-300' : 'border-gray-300'
-                      } rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder="Enter full address"
-                  />
-                  {errors.organizationAddress && (
-                    <p className="mt-1 text-sm text-red-600">{errors.organizationAddress}</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className={`appearance-none relative block w-full px-3 py-2 pr-10 border ${errors.password ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                  placeholder="Create a password"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <EyeIcon className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
-              )}
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                Confirm Password
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className={`appearance-none relative block w-full px-3 py-2 pr-10 border ${errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                  placeholder="Confirm your password"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? (
-                    <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <EyeIcon className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary-500 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <LoadingSpinner size="small" className="text-white" />
-              ) : (
-                'Create Account'
-              )}
-            </button>
-          </div>
+          <Button type="submit" fullWidth size="lg" loading={isLoading}>
+            Create account
+          </Button>
         </form>
-      </div>
-    </div>
+      </Card>
+    </AuthShell>
   );
 };
 

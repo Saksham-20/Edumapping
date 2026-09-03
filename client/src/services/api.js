@@ -70,11 +70,20 @@ api.interceptors.response.use(
       toast.error(errorMessage);
     }
 
-    return Promise.reject({
-      message: errorMessage,
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    // Reject with a real Error that carries BOTH shapes.
+    //
+    // This used to be a bare object with only `message`/`status`/`data`, so
+    // every `err.response?.data?.message` in the app — the idiomatic axios
+    // read, used in a dozen places — silently evaluated to undefined and the
+    // caller fell back to a generic string. Attaching the original `response`
+    // makes those work without having to rewrite each call site, and an Error
+    // subclass keeps a stack for anything that logs it.
+    const wrapped = new Error(errorMessage);
+    wrapped.status = error.response?.status;
+    wrapped.data = error.response?.data;
+    wrapped.response = error.response;
+    wrapped.config = error.config;
+    return Promise.reject(wrapped);
   }
 );
 

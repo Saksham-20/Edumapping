@@ -1,10 +1,15 @@
 // client/src/pages/dashboard/AdminDashboard.js
+//
+// The platform administrator's console: one page, nine tabs, each backed by its
+// own endpoint. Data loading and the write handlers below are unchanged from
+// the original; what was rewritten is the surface — the design system's Table,
+// Modal, Tabs and form controls replace the hand-rolled ones, and every
+// destructive action now confirms in a real dialog instead of window.confirm.
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import statisticsService from '../../services/statistics';
 import adminService from '../../services/adminService';
 import api from '../../services/api';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
 import TabNavigation from '../../components/admin/TabNavigation';
 import StatCard from '../../components/admin/StatCard';
@@ -13,28 +18,107 @@ import AdminModal from '../../components/admin/AdminModal';
 import DataTable from '../../components/admin/DataTable';
 import LineChart from '../../components/admin/LineChart';
 import BarChart from '../../components/admin/BarChart';
-import PieChart from '../../components/admin/PieChart';
+import {
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  IconButton,
+  Input,
+  Modal,
+  PageHeader,
+  PageLoader,
+  PageShell,
+  Select,
+  SkeletonCard,
+  StatusBadge,
+  Table,
+  Tbody,
+  Td,
+  Textarea,
+  Th,
+  Thead,
+  Toolbar,
+  Tr
+} from '../../components/ui';
 import {
   UsersIcon,
   BuildingOfficeIcon,
   BriefcaseIcon,
   DocumentTextIcon,
   ChartBarIcon,
-  ClockIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  ExclamationTriangleIcon,
   PlusIcon,
-  PencilIcon,
+  PencilSquareIcon,
   TrashIcon,
-  EyeIcon,
   MagnifyingGlassIcon,
-  FunnelIcon,
   AcademicCapIcon,
   ShieldCheckIcon,
-  ArrowUpTrayIcon
+  ArrowUpTrayIcon,
+  LockClosedIcon,
+  CheckBadgeIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
-import { preparePieChartData, prepareLineChartData, prepareBarChartData } from '../../utils/chartUtils';
+import { prepareLineChartData } from '../../utils/chartUtils';
+
+/** One row of a labelled proportion bar. The width is data, never decoration. */
+const MeterRow = ({ label, value, total, tone = 'ink' }) => {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  const fills = { ink: 'bg-ink-950', saffron: 'bg-saffron-500', india: 'bg-india-600' };
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <span className="min-w-0 truncate text-sm font-medium capitalize text-ink-800">{label}</span>
+      <span className="flex shrink-0 items-center gap-3">
+        <span className="font-display text-base font-bold tabular-nums text-ink-950">{value}</span>
+        <span
+          className="h-2 w-24 overflow-hidden rounded-full bg-bone-200"
+          role="img"
+          aria-label={`${pct}% of ${total}`}
+        >
+          <span className={`block h-full rounded-full ${fills[tone]}`} style={{ width: `${pct}%` }} />
+        </span>
+      </span>
+    </div>
+  );
+};
+
+/**
+ * The six fields every organization type shares.
+ *
+ * Universities, companies and schools were three copies of the same form; they
+ * differ only in the noun in the heading and the `type` sent on save.
+ */
+const OrganizationFormFields = ({ value = {}, onChange, noun }) => {
+  const set = (name) => (e) => onChange({ ...value, [name]: e.target.value });
+  return (
+    <div className="space-y-4">
+      <Input label="Name" required value={value.name || ''} onChange={set('name')} />
+      <Input
+        label="Domain"
+        required
+        value={value.domain || ''}
+        onChange={set('domain')}
+        placeholder={`admin@${noun}.edu`}
+        help="The email domain accounts must register from."
+      />
+      <Input
+        label="Contact email"
+        type="email"
+        required
+        value={value.contactEmail || ''}
+        onChange={set('contactEmail')}
+      />
+      <Input label="Contact phone" value={value.contactPhone || ''} onChange={set('contactPhone')} />
+      <Input label="Website" type="url" value={value.website || ''} onChange={set('website')} />
+      <Textarea label="Address" rows={3} value={value.address || ''} onChange={set('address')} />
+    </div>
+  );
+};
+
+/** Edit / delete controls for one table row. */
+const RowActions = ({ children }) => (
+  <div className="flex items-center justify-end gap-1.5">{children}</div>
+);
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -98,6 +182,10 @@ const AdminDashboard = () => {
   const [showSchoolModal, setShowSchoolModal] = useState(false);
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [schoolFormData, setSchoolFormData] = useState({});
+
+  // Destructive-action confirmation: { title, description, confirmLabel, run }
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirmRunning, setConfirmRunning] = useState(false);
 
   // Approval info modal state
   const [showApprovalInfo, setShowApprovalInfo] = useState(false);
@@ -182,7 +270,6 @@ const AdminDashboard = () => {
       const response = await statisticsService.getAdminStats();
       setStats(response.stats);
     } catch (error) {
-      console.error('Failed to fetch admin stats:', error);
       toast.error('Failed to load statistics');
     } finally {
       setIsLoading(false);
@@ -195,7 +282,6 @@ const AdminDashboard = () => {
       const response = await adminService.getAdvancedAnalytics({ period: analyticsPeriod });
       setAnalytics(response.analytics);
     } catch (error) {
-      console.error('Failed to fetch advanced analytics:', error);
       toast.error('Failed to load analytics');
     } finally {
       setIsLoading(false);
@@ -207,7 +293,6 @@ const AdminDashboard = () => {
       const response = await adminService.getTopPerformers(10);
       setTopPerformers(response.topPerformers);
     } catch (error) {
-      console.error('Failed to fetch top performers:', error);
     }
   };
 
@@ -216,7 +301,6 @@ const AdminDashboard = () => {
       const response = await api.get('/organizations?limit=1000');
       setOrganizations(response.organizations || []);
     } catch (error) {
-      console.error('Failed to fetch organizations:', error);
     }
   };
 
@@ -245,7 +329,6 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      console.error('Failed to fetch users:', error);
       toast.error('Failed to load users');
     } finally {
       setIsLoading(false);
@@ -268,7 +351,6 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      console.error('Failed to fetch TPOs:', error);
       toast.error('Failed to load TPOs');
     } finally {
       setIsLoading(false);
@@ -291,7 +373,6 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      console.error('Failed to fetch universities:', error);
       toast.error('Failed to load universities');
     } finally {
       setIsLoading(false);
@@ -314,7 +395,6 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      console.error('Failed to fetch companies:', error);
       toast.error('Failed to load companies');
     } finally {
       setIsLoading(false);
@@ -337,7 +417,6 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      console.error('Failed to fetch schools:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to load schools';
       toast.error(errorMessage);
       // Set empty state on error
@@ -362,7 +441,6 @@ const AdminDashboard = () => {
       const response = await api.get('/users?role=recruiter&limit=200');
       setRecruiters(response.users || []);
     } catch (error) {
-      console.error('Failed to fetch recruiters:', error);
       toast.error('Failed to load recruiters');
       setRecruiters([]);
     } finally {
@@ -384,7 +462,6 @@ const AdminDashboard = () => {
       ].sort((a, b) => a.name.localeCompare(b.name));
       setInstitutions(list);
     } catch (error) {
-      console.error('Failed to fetch institutions:', error);
       toast.error('Failed to load institutions');
       setInstitutions([]);
     }
@@ -439,7 +516,6 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Are you sure you want to deactivate this user?')) return;
     try {
       await adminService.deleteUser(userId);
       toast.success('User deactivated successfully');
@@ -495,7 +571,6 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteTPO = async (tpoId) => {
-    if (!window.confirm('Are you sure you want to delete this TPO?')) return;
     try {
       await adminService.deleteTPO(tpoId);
       toast.success('TPO deleted successfully');
@@ -572,7 +647,6 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteUniversity = async (universityId) => {
-    if (!window.confirm('Are you sure you want to delete this university?')) return;
     try {
       await adminService.deleteOrganization(universityId);
       toast.success('University deleted successfully');
@@ -648,7 +722,6 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteCompany = async (companyId) => {
-    if (!window.confirm('Are you sure you want to delete this company?')) return;
     try {
       await adminService.deleteOrganization(companyId);
       toast.success('Company deleted successfully');
@@ -718,14 +791,12 @@ const AdminDashboard = () => {
       fetchOrganizations();
       fetchOverviewStats();
     } catch (error) {
-      console.error('Failed to save school:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to save school';
       toast.error(errorMessage);
     }
   };
 
   const handleDeleteSchool = async (schoolId) => {
-    if (!window.confirm('Are you sure you want to delete this school?')) return;
     try {
       await adminService.deleteOrganization(schoolId);
       toast.success('School deleted successfully');
@@ -765,7 +836,6 @@ const AdminDashboard = () => {
   };
 
   const handleRejectOrganization = async (organizationId, type) => {
-    if (!window.confirm(`Are you sure you want to reject this ${type}?`)) return;
     try {
       await adminService.updateOrganization(organizationId, {
         approvalStatus: 'rejected'
@@ -783,18 +853,6 @@ const AdminDashboard = () => {
     } catch (error) {
       toast.error(error.message || 'Failed to reject organization');
     }
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      active: 'text-green-600 bg-green-100',
-      closed: 'text-red-600 bg-red-100',
-      draft: 'text-yellow-600 bg-yellow-100',
-      pending: 'text-blue-600 bg-blue-100',
-      approved: 'text-green-600 bg-green-100',
-      rejected: 'text-red-600 bg-red-100'
-    };
-    return colors[status] || 'text-gray-600 bg-gray-100';
   };
 
   // Recruiter permissions handlers
@@ -817,7 +875,6 @@ const AdminDashboard = () => {
       setSelectedStates(Array.isArray(data.allowedStates) ? [...data.allowedStates] : []);
       setSelectedCities(Array.isArray(data.allowedCities) ? [...data.allowedCities] : []);
     } catch (err) {
-      console.error('Failed to load recruiter permissions:', err);
       toast.error('Failed to load permissions');
     } finally {
       setPermissionsLoading(false);
@@ -882,291 +939,321 @@ const AdminDashboard = () => {
     }
   };
 
+
+  // Import Students tab (admin only) — upload an Excel roster for one org.
+  const studentOrgs = organizations.filter(
+    (o) => o.type === 'university' || o.type === 'college' || o.type === 'school'
+  );
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    if (!importFile || !importOrganizationId) {
+      toast.error('Choose an Excel file and an organization.');
+      return;
+    }
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await adminService.importStudentsExcel(
+        importFile,
+        parseInt(importOrganizationId, 10)
+      );
+      setImportResult(res);
+      toast.success(
+        `Import finished: ${res.summary?.created ?? 0} created, ${res.summary?.skipped ?? 0} skipped, ${res.summary?.errors ?? 0} errors.`
+      );
+      setImportFile(null);
+      const input = document.getElementById('import-file-input');
+      if (input) input.value = '';
+    } catch (err) {
+      toast.error(err?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  /** Opens the shared confirmation dialog for a destructive action. */
+  const askToConfirm = (config) => setConfirmAction(config);
+
+  const runConfirmAction = async () => {
+    if (!confirmAction) return;
+    setConfirmRunning(true);
+    try {
+      await confirmAction.run();
+      setConfirmAction(null);
+    } finally {
+      setConfirmRunning(false);
+    }
+  };
+
   if (user?.role !== 'admin') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Access Denied</h2>
-          <p className="text-gray-600 mt-2">You don't have permission to access this page.</p>
-        </div>
-      </div>
+      <PageShell>
+        <EmptyState
+          icon={LockClosedIcon}
+          title="Admins only"
+          description="This console manages every organization and account on the platform."
+        />
+      </PageShell>
     );
   }
 
   if (isLoading && activeTab === 'overview') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="large" />
-      </div>
+      <PageShell>
+        <PageLoader label="Loading platform statistics" />
+      </PageShell>
     );
   }
 
-  // Render Overview Tab
+  /* ------------------------------------------------------------------ tabs */
+
   const renderOverviewTab = () => (
     <>
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Total Users"
-          value={stats.users?.total || 0}
-          subtitle={`+${stats.users?.recentRegistrations || 0} this month`}
+          title="Total users"
+          value={stats.users?.total ?? 0}
+          subtitle={`+${stats.users?.recentRegistrations ?? 0} this month`}
           icon={UsersIcon}
-          color="blue"
+          color="purple"
         />
         <StatCard
           title="Organizations"
-          value={stats.organizations?.total || 0}
-          subtitle="Universities & Companies"
+          value={stats.organizations?.total ?? 0}
+          subtitle="Universities, schools and companies"
           icon={BuildingOfficeIcon}
           color="green"
         />
         <StatCard
-          title="Total Jobs"
-          value={stats.jobs?.total || 0}
-          subtitle={`+${stats.jobs?.recentPostings || 0} this week`}
+          title="Jobs"
+          value={stats.jobs?.total ?? 0}
+          subtitle={`+${stats.jobs?.recentPostings ?? 0} this week`}
           icon={BriefcaseIcon}
-          color="purple"
+          color="blue"
         />
         <StatCard
           title="Applications"
-          value={stats.applications?.total || 0}
+          value={stats.applications?.total ?? 0}
           subtitle="Total submissions"
           icon={DocumentTextIcon}
           color="orange"
         />
-          </div>
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        <ChartCard title="User Distribution">
-              <div className="space-y-4">
-            {stats.users?.byRole?.map((roleStat) => (
-                  <div key={roleStat.role} className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700 capitalize">
-                      {roleStat.role}
-                    </span>
-                    <div className="flex items-center">
-                      <span className="text-lg font-semibold text-gray-900 mr-3">
-                        {roleStat.count}
-                      </span>
-                      <div className="w-24 bg-gray-200 rounded-full h-2">
-                        <div 
-                          className="bg-blue-600 h-2 rounded-full" 
-                          style={{ 
-                            width: `${(roleStat.count / stats.users.total) * 100}%` 
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <ChartCard title="Users by role">
+          {stats.users?.byRole?.length ? (
+            <div className="divide-y divide-ink-950/10">
+              {stats.users.byRole.map((row) => (
+                <MeterRow
+                  key={row.role}
+                  label={row.role.replace(/_/g, ' ')}
+                  value={Number(row.count)}
+                  total={Number(stats.users.total) || 0}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-ink-500">No user breakdown available.</p>
+          )}
         </ChartCard>
 
-        <ChartCard title="Job Status Distribution">
-              <div className="space-y-4">
-            {stats.jobs?.byStatus?.map((jobStat) => {
-              const IconComponent = jobStat.status === 'active' ? CheckCircleIcon : 
-                                   jobStat.status === 'closed' ? XCircleIcon : ExclamationTriangleIcon;
-                  return (
-                    <div key={jobStat.status} className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <IconComponent className={`h-4 w-4 mr-2 ${getStatusColor(jobStat.status).split(' ')[0]}`} />
-                        <span className="text-sm font-medium text-gray-700 capitalize">
-                          {jobStat.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center">
-                        <span className="text-lg font-semibold text-gray-900 mr-3">
-                          {jobStat.count}
-                        </span>
-                        <div className="w-24 bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-purple-600 h-2 rounded-full" 
-                            style={{ 
-                              width: `${(jobStat.count / stats.jobs.total) * 100}%` 
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+        <ChartCard title="Jobs by status">
+          {stats.jobs?.byStatus?.length ? (
+            <div className="divide-y divide-ink-950/10">
+              {stats.jobs.byStatus.map((row) => (
+                <MeterRow
+                  key={row.status}
+                  label={row.status}
+                  value={Number(row.count)}
+                  total={Number(stats.jobs.total) || 0}
+                  tone="saffron"
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-ink-500">No job breakdown available.</p>
+          )}
         </ChartCard>
-        </div>
+      </div>
 
-      <ChartCard title="Recent Activity (Last 7 Days)">
-            {stats.recentActivity?.length > 0 ? (
-              <div className="space-y-4">
-                {stats.recentActivity.map((activity, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                    <div className="flex items-center">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {activity.student?.firstName} {activity.student?.lastName}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          Applied to {activity.job?.title} at {activity.job?.organization?.name}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">
-                        {new Date(activity.createdAt).toLocaleDateString()}
-                      </p>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(activity.status)}`}>
-                        {activity.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No recent activity</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Applications and activities will appear here.
-                </p>
-              </div>
-            )}
+      <ChartCard className="mt-6" title="Recent activity" description="Applications from the last 7 days.">
+        {stats.recentActivity?.length ? (
+          <ul className="divide-y divide-ink-950/10">
+            {stats.recentActivity.map((activity, index) => (
+              <li
+                key={activity.id ?? index}
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink-950">
+                    {activity.student?.firstName} {activity.student?.lastName}
+                  </p>
+                  <p className="truncate text-sm text-ink-600">
+                    Applied to {activity.job?.title} at {activity.job?.organization?.name}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-ink-500">
+                    {activity.createdAt ? new Date(activity.createdAt).toLocaleDateString() : ''}
+                  </span>
+                  <StatusBadge status={activity.status} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-6 text-center text-sm text-ink-500">
+            Applications will appear here as students apply.
+          </p>
+        )}
       </ChartCard>
     </>
   );
 
-  // Render Analytics Tab
   const renderAnalyticsTab = () => {
     if (isLoading || !analytics) {
-      return <LoadingSpinner size="large" />;
+      return (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <SkeletonCard lines={6} />
+          <SkeletonCard lines={6} />
+        </div>
+      );
     }
 
     return (
       <>
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <label className="text-sm font-medium text-gray-700">Period:</label>
-            <select
+        <Toolbar>
+          <div className="w-full sm:w-56">
+            <Select
+              label="Period"
               value={analyticsPeriod}
-              onChange={(e) => {
-                setAnalyticsPeriod(e.target.value);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="365">Last year</option>
-            </select>
+              onChange={(e) => setAnalyticsPeriod(e.target.value)}
+              options={[
+                { value: '7', label: 'Last 7 days' },
+                { value: '30', label: 'Last 30 days' },
+                { value: '90', label: 'Last 90 days' },
+                { value: '365', label: 'Last year' }
+              ]}
+            />
           </div>
-        </div>
+        </Toolbar>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <ChartCard title="User Growth Over Time">
-            {analytics.userGrowth && analytics.userGrowth.length > 0 ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ChartCard title="User growth">
+            {analytics.userGrowth?.length ? (
               <LineChart
                 data={prepareLineChartData(analytics.userGrowth, 'date', ['total'])}
                 xKey="date"
-                yKeys={[{ key: 'total', name: 'New Users', color: '#3B82F6' }]}
+                yKeys={[{ key: 'total', name: 'New users' }]}
+                caption="New user registrations over the selected period"
               />
             ) : (
-              <p className="text-center text-gray-500 py-8">No data available</p>
+              <p className="py-8 text-center text-sm text-ink-500">No data for this period.</p>
             )}
           </ChartCard>
 
-          <ChartCard title="Job Posting Trends">
-            {analytics.jobTrends?.daily && analytics.jobTrends.daily.length > 0 ? (
+          <ChartCard title="Job postings">
+            {analytics.jobTrends?.daily?.length ? (
               <LineChart
                 data={prepareLineChartData(analytics.jobTrends.daily, 'date', ['total'])}
                 xKey="date"
-                yKeys={[{ key: 'total', name: 'Jobs Posted', color: '#8B5CF6' }]}
+                yKeys={[{ key: 'total', name: 'Jobs posted', color: '#FF9933' }]}
+                caption="Jobs posted over the selected period"
               />
             ) : (
-              <p className="text-center text-gray-500 py-8">No data available</p>
+              <p className="py-8 text-center text-sm text-ink-500">No data for this period.</p>
             )}
           </ChartCard>
-          </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <ChartCard title="Application Funnel">
+          <ChartCard title="Application funnel">
             {analytics.applicationTrends?.funnel ? (
               <BarChart
-                data={Object.entries(analytics.applicationTrends.funnel).map(([key, value]) => ({
-                  name: key,
+                data={Object.entries(analytics.applicationTrends.funnel).map(([name, value]) => ({
+                  name,
                   value
                 }))}
                 xKey="name"
-                yKeys={[{ key: 'value', name: 'Applications', color: '#10B981' }]}
+                yKeys={[{ key: 'value', name: 'Applications', color: '#138808' }]}
+                caption="Applications at each stage of the funnel"
               />
             ) : (
-              <p className="text-center text-gray-500 py-8">No data available</p>
+              <p className="py-8 text-center text-sm text-ink-500">No data for this period.</p>
             )}
           </ChartCard>
 
-          <ChartCard title="Placement Rate Trends">
-            {analytics.placementTrends?.daily && analytics.placementTrends.daily.length > 0 ? (
+          <ChartCard title="Placements">
+            {analytics.placementTrends?.daily?.length ? (
               <LineChart
                 data={prepareLineChartData(analytics.placementTrends.daily, 'date', ['placed'])}
                 xKey="date"
-                yKeys={[{ key: 'placed', name: 'Placed Students', color: '#10B981' }]}
+                yKeys={[{ key: 'placed', name: 'Students placed', color: '#138808' }]}
+                caption="Students placed over the selected period"
               />
             ) : (
-              <p className="text-center text-gray-500 py-8">No data available</p>
+              <p className="py-8 text-center text-sm text-ink-500">No data for this period.</p>
             )}
           </ChartCard>
         </div>
 
         {topPerformers && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <ChartCard title="Top Universities">
-              {topPerformers.universities && topPerformers.universities.length > 0 ? (
-                <div className="space-y-2">
-                  {topPerformers.universities.slice(0, 5).map((uni, index) => (
-                    <div key={uni.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                      <span className="text-sm font-medium text-gray-700">
-                        {index + 1}. {uni.name}
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <ChartCard title="Top universities">
+              {topPerformers.universities?.length ? (
+                <ol className="divide-y divide-ink-950/10">
+                  {topPerformers.universities.slice(0, 5).map((uni, i) => (
+                    <li key={uni.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="min-w-0 truncate text-sm font-medium text-ink-800">
+                        <span className="mr-2 font-mono text-xs text-ink-500">{i + 1}</span>
+                        {uni.name}
                       </span>
-                      <span className="text-sm text-gray-600">{uni.placements} placements</span>
-                    </div>
+                      <span className="shrink-0 text-sm tabular-nums text-ink-600">
+                        {uni.placements} placements
+                      </span>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : (
-                <p className="text-center text-gray-500 py-8">No data available</p>
+                <p className="py-6 text-center text-sm text-ink-500">No data yet.</p>
               )}
             </ChartCard>
 
-            <ChartCard title="Top Companies">
-              {topPerformers.companies && topPerformers.companies.length > 0 ? (
-                <div className="space-y-2">
-                  {topPerformers.companies.slice(0, 5).map((company, index) => (
-                    <div key={company.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                      <span className="text-sm font-medium text-gray-700">
-                        {index + 1}. {company.name}
+            <ChartCard title="Top companies">
+              {topPerformers.companies?.length ? (
+                <ol className="divide-y divide-ink-950/10">
+                  {topPerformers.companies.slice(0, 5).map((c, i) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="min-w-0 truncate text-sm font-medium text-ink-800">
+                        <span className="mr-2 font-mono text-xs text-ink-500">{i + 1}</span>
+                        {c.name}
                       </span>
-                      <span className="text-sm text-gray-600">{company.jobs} jobs</span>
-                    </div>
+                      <span className="shrink-0 text-sm tabular-nums text-ink-600">{c.jobs} jobs</span>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : (
-                <p className="text-center text-gray-500 py-8">No data available</p>
+                <p className="py-6 text-center text-sm text-ink-500">No data yet.</p>
               )}
             </ChartCard>
 
-            <ChartCard title="Top Students">
-              {topPerformers.students && topPerformers.students.length > 0 ? (
-                <div className="space-y-2">
-                  {topPerformers.students.slice(0, 5).map((student, index) => (
-                    <div key={student.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">
-                          {index + 1}. {student.name}
-                        </span>
-                        <p className="text-xs text-gray-500">CGPA: {student.cgpa}</p>
-                      </div>
-                    </div>
+            <ChartCard title="Top students">
+              {topPerformers.students?.length ? (
+                <ol className="divide-y divide-ink-950/10">
+                  {topPerformers.students.slice(0, 5).map((s, i) => (
+                    <li key={s.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="min-w-0 truncate text-sm font-medium text-ink-800">
+                        <span className="mr-2 font-mono text-xs text-ink-500">{i + 1}</span>
+                        {s.name}
+                      </span>
+                      <span className="shrink-0 text-sm tabular-nums text-ink-600">
+                        CGPA {s.cgpa}
+                      </span>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : (
-                <p className="text-center text-gray-500 py-8">No data available</p>
+                <p className="py-6 text-center text-sm text-ink-500">No data yet.</p>
               )}
             </ChartCard>
           </div>
@@ -1175,142 +1262,145 @@ const AdminDashboard = () => {
     );
   };
 
-  // Render Users Tab
+  const ROLE_TONES = { admin: 'danger', tpo: 'info', recruiter: 'purple', student: 'success' };
+
   const renderUsersTab = () => {
     const userColumns = [
-      { key: 'firstName', label: 'Name', sortable: true, render: (_, row) => `${row.firstName} ${row.lastName}` },
+      {
+        key: 'firstName',
+        label: 'Name',
+        sortable: true,
+        render: (_, row) => `${row.firstName} ${row.lastName}`
+      },
       { key: 'email', label: 'Email', sortable: true },
-      { key: 'role', label: 'Role', sortable: true, render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          value === 'admin' ? 'bg-red-100 text-red-800' :
-          value === 'tpo' ? 'bg-blue-100 text-blue-800' :
-          value === 'recruiter' ? 'bg-purple-100 text-purple-800' :
-          'bg-green-100 text-green-800'
-        }`}>
-          {value}
-        </span>
-      )},
-      { key: 'organization', label: 'Organization', render: (_, row) => (
-        <div>
-          <div className="font-medium">{row.organization?.name || 'N/A'}</div>
-          {row.organization?.type && (
-            <div className="text-xs text-gray-500 capitalize">{row.organization.type}</div>
-          )}
-        </div>
-      )},
-      { key: 'approvalStatus', label: 'Status', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value}
-        </span>
-      )}
+      {
+        key: 'role',
+        label: 'Role',
+        sortable: true,
+        render: (value) => <Badge tone={ROLE_TONES[value] || 'neutral'}>{value.replace(/_/g, ' ')}</Badge>
+      },
+      {
+        key: 'organization',
+        label: 'Organization',
+        render: (_, row) =>
+          row.organization ? (
+            <span>
+              {row.organization.name}
+              <span className="block text-xs capitalize text-ink-500">{row.organization.type}</span>
+            </span>
+          ) : (
+            '—'
+          )
+      },
+      {
+        key: 'approvalStatus',
+        label: 'Status',
+        render: (value) => <StatusBadge status={value} />
+      }
     ];
+
+    const hasFilters = Boolean(
+      usersFilters.role || usersFilters.organizationType || usersFilters.search
+    );
 
     return (
       <>
-        <div className="mb-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex-1 max-w-lg">
-              <div className="relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search users..."
-                  value={usersFilters.search}
-                  onChange={(e) => {
-                    setUsersFilters(prev => ({ ...prev, search: e.target.value }));
-                  }}
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                />
-              </div>
-            </div>
-            <button
-              onClick={handleCreateUser}
-              className="ml-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-            >
-              <PlusIcon className="h-5 w-5 mr-2" />
-              Create User
-            </button>
+        <Toolbar className="flex-wrap">
+          <div className="min-w-[220px] flex-1">
+            <Input
+              label="Search"
+              icon={MagnifyingGlassIcon}
+              placeholder="Name or email"
+              value={usersFilters.search}
+              onChange={(e) => setUsersFilters((prev) => ({ ...prev, search: e.target.value }))}
+            />
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <FunnelIcon className="h-5 w-5 text-gray-400" />
-              <label className="text-sm font-medium text-gray-700">Role:</label>
-              <select
-                value={usersFilters.role}
-                onChange={(e) => {
-                  setUsersFilters(prev => ({ ...prev, role: e.target.value }));
-                }}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All Roles</option>
-                <option value="student">Students</option>
-                <option value="tpo">TPOs</option>
-                <option value="recruiter">Recruiters</option>
-                <option value="admin">Admins</option>
-                <option value="principal">Principals</option>
-                <option value="teacher">Teachers</option>
-                <option value="school_admin">School Admins</option>
-                <option value="career_counselor">Career Counselors</option>
-              </select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <label className="text-sm font-medium text-gray-700">Organization:</label>
-              <select
-                value={usersFilters.organizationType}
-                onChange={(e) => {
-                  setUsersFilters(prev => ({ ...prev, organizationType: e.target.value }));
-                }}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All Organizations</option>
-                <option value="university">Universities</option>
-                <option value="company">Companies</option>
-                <option value="school">Schools</option>
-              </select>
-            </div>
-            {(usersFilters.role || usersFilters.organizationType || usersFilters.search) && (
-              <button
-                onClick={() => {
+          <div className="w-full sm:w-48">
+            <Select
+              label="Role"
+              value={usersFilters.role}
+              onChange={(e) => setUsersFilters((prev) => ({ ...prev, role: e.target.value }))}
+              options={[
+                { value: '', label: 'All roles' },
+                { value: 'student', label: 'Students' },
+                { value: 'tpo', label: 'TPOs' },
+                { value: 'recruiter', label: 'Recruiters' },
+                { value: 'admin', label: 'Admins' },
+                { value: 'principal', label: 'Principals' },
+                { value: 'teacher', label: 'Teachers' },
+                { value: 'school_admin', label: 'School admins' },
+                { value: 'career_counselor', label: 'Career counsellors' }
+              ]}
+            />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select
+              label="Organization type"
+              value={usersFilters.organizationType}
+              onChange={(e) =>
+                setUsersFilters((prev) => ({ ...prev, organizationType: e.target.value }))
+              }
+              options={[
+                { value: '', label: 'All types' },
+                { value: 'university', label: 'Universities' },
+                { value: 'college', label: 'Colleges' },
+                { value: 'company', label: 'Companies' },
+                { value: 'school', label: 'Schools' }
+              ]}
+            />
+          </div>
+          <div className="flex gap-2 sm:self-end sm:pb-0.5">
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
                   setUsersFilters({
                     search: '',
                     role: '',
                     approvalStatus: '',
                     organizationId: '',
                     organizationType: ''
-                  });
-                }}
-                className="text-sm text-gray-600 hover:text-gray-900 underline"
+                  })
+                }
               >
-                Clear Filters
-              </button>
+                Clear
+              </Button>
             )}
+            <Button size="sm" icon={PlusIcon} onClick={handleCreateUser}>
+              New user
+            </Button>
           </div>
-        </div>
+        </Toolbar>
 
         <DataTable
           columns={userColumns}
           data={users}
+          emptyTitle="No users match"
+          emptyDescription="Widen the filters to see more accounts."
           actions={(row) => (
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditUser(row);
-                }}
-                className="text-blue-600 hover:text-blue-900"
-              >
-                <PencilIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteUser(row.id);
-                }}
-                className="text-red-600 hover:text-red-900"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
+            <RowActions>
+              <IconButton
+                size="sm"
+                icon={PencilSquareIcon}
+                label={`Edit ${row.firstName} ${row.lastName}`}
+                onClick={() => handleEditUser(row)}
+              />
+              <IconButton
+                size="sm"
+                variant="danger"
+                icon={TrashIcon}
+                label={`Deactivate ${row.firstName} ${row.lastName}`}
+                onClick={() =>
+                  askToConfirm({
+                    title: 'Deactivate this user?',
+                    description: `${row.firstName} ${row.lastName} (${row.email}) will not be able to sign in until reactivated.`,
+                    confirmLabel: 'Deactivate',
+                    run: () => handleDeleteUser(row.id)
+                  })
+                }
+              />
+            </RowActions>
           )}
           pagination={usersPagination}
           onPageChange={fetchUsers}
@@ -1320,170 +1410,149 @@ const AdminDashboard = () => {
         <AdminModal
           isOpen={showUserModal}
           onClose={() => setShowUserModal(false)}
-          title={selectedUser ? 'Edit User' : 'Create User'}
+          title={selectedUser ? 'Edit user' : 'New user'}
+          size="md"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowUserModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" form="admin-user-form">
+                {selectedUser ? 'Save changes' : 'Create user'}
+              </Button>
+            </>
+          }
         >
-          <form onSubmit={handleSaveUser} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-                  <div>
-                <label className="block text-sm font-medium text-gray-700">First Name</label>
-                <input
-                  type="text"
-                  required
-                  value={userFormData.firstName}
-                  onChange={(e) => setUserFormData(prev => ({ ...prev, firstName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-                  </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Last Name</label>
-                <input
-                  type="text"
-                  required
-                  value={userFormData.lastName}
-                  onChange={(e) => setUserFormData(prev => ({ ...prev, lastName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-                </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Email</label>
-              <input
-                type="email"
+          <form id="admin-user-form" onSubmit={handleSaveUser} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="First name"
                 required
-                value={userFormData.email}
-                onChange={(e) => setUserFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                value={userFormData.firstName || ''}
+                onChange={(e) =>
+                  setUserFormData((prev) => ({ ...prev, firstName: e.target.value }))
+                }
+              />
+              <Input
+                label="Last name"
+                required
+                value={userFormData.lastName || ''}
+                onChange={(e) => setUserFormData((prev) => ({ ...prev, lastName: e.target.value }))}
               />
             </div>
+            <Input
+              label="Email"
+              type="email"
+              required
+              value={userFormData.email || ''}
+              onChange={(e) => setUserFormData((prev) => ({ ...prev, email: e.target.value }))}
+            />
             {!selectedUser && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={userFormData.password}
-                  onChange={(e) => setUserFormData(prev => ({ ...prev, password: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Role</label>
-              <select
+              <Input
+                label="Password"
+                type="password"
                 required
-                value={userFormData.role}
-                onChange={(e) => setUserFormData(prev => ({ ...prev, role: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              >
-                <option value="student">Student</option>
-                <option value="recruiter">Recruiter</option>
-                <option value="tpo">TPO</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
+                value={userFormData.password || ''}
+                onChange={(e) => setUserFormData((prev) => ({ ...prev, password: e.target.value }))}
+              />
+            )}
+            <Select
+              label="Role"
+              required
+              value={userFormData.role || 'student'}
+              onChange={(e) => setUserFormData((prev) => ({ ...prev, role: e.target.value }))}
+              options={[
+                { value: 'student', label: 'Student' },
+                { value: 'recruiter', label: 'Recruiter' },
+                { value: 'tpo', label: 'TPO' },
+                { value: 'admin', label: 'Admin' }
+              ]}
+            />
             {userFormData.role !== 'admin' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Organization</label>
-                <select
-                  required
-                  value={userFormData.organizationId}
-                  onChange={(e) => setUserFormData(prev => ({ ...prev, organizationId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                >
-                  <option value="">Select organization</option>
-                  {organizations
-                    .filter(org => {
+              <Select
+                label="Organization"
+                required
+                value={userFormData.organizationId || ''}
+                onChange={(e) =>
+                  setUserFormData((prev) => ({ ...prev, organizationId: e.target.value }))
+                }
+                options={[
+                  { value: '', label: 'Select organization' },
+                  ...organizations
+                    .filter((org) => {
                       if (userFormData.role === 'student') {
-                        return org.type === 'university' || org.type === 'school';
-                      } else if (userFormData.role === 'tpo') {
-                        return org.type === 'university';
-                      } else if (userFormData.role === 'recruiter') {
-                        return org.type === 'company';
-                      } else if (userFormData.role === 'principal' || userFormData.role === 'teacher' || 
-                                 userFormData.role === 'school_admin' || userFormData.role === 'career_counselor') {
-                        return org.type === 'school';
+                        return org.type === 'university' || org.type === 'school' || org.type === 'college';
                       }
+                      if (userFormData.role === 'tpo') return org.type === 'university';
+                      if (userFormData.role === 'recruiter') return org.type === 'company';
                       return true;
                     })
-                    .map(org => (
-                      <option key={org.id} value={org.id}>{org.name}</option>
-                    ))}
-                </select>
-              </div>
+                    .map((org) => ({ value: String(org.id), label: org.name }))
+                ]}
+              />
             )}
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowUserModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-              >
-                {selectedUser ? 'Update' : 'Create'}
-              </button>
-            </div>
           </form>
         </AdminModal>
       </>
     );
   };
 
-  // Render TPOs Tab
   const renderTPOsTab = () => {
     const tpoColumns = [
-      { key: 'firstName', label: 'Name', sortable: true, render: (_, row) => `${row.firstName} ${row.lastName}` },
+      {
+        key: 'firstName',
+        label: 'Name',
+        sortable: true,
+        render: (_, row) => `${row.firstName} ${row.lastName}`
+      },
       { key: 'email', label: 'Email', sortable: true },
-      { key: 'organization', label: 'University', render: (_, row) => row.organization?.name || 'N/A' },
-      { key: 'isActive', label: 'Status', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          value ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-        }`}>
-          {value ? 'Active' : 'Inactive'}
-        </span>
-      )}
+      { key: 'organization', label: 'University', render: (_, row) => row.organization?.name || '—' },
+      {
+        key: 'isActive',
+        label: 'Status',
+        render: (value) => <StatusBadge status={value ? 'active' : 'inactive'} />
+      }
     ];
 
     return (
       <>
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-medium text-gray-900">Training & Placement Officers</h3>
-          <button
-            onClick={handleCreateTPO}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Create TPO
-          </button>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-lg font-bold text-ink-950">
+            Training &amp; placement officers
+          </h2>
+          <Button size="sm" icon={PlusIcon} onClick={handleCreateTPO}>
+            New TPO
+          </Button>
         </div>
 
         <DataTable
           columns={tpoColumns}
           data={tpos}
+          emptyTitle="No TPOs yet"
+          emptyDescription="Create one to give a university a placement officer."
           actions={(row) => (
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditTPO(row);
-                }}
-                className="text-blue-600 hover:text-blue-900"
-              >
-                <PencilIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteTPO(row.id);
-                }}
-                className="text-red-600 hover:text-red-900"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
+            <RowActions>
+              <IconButton
+                size="sm"
+                icon={PencilSquareIcon}
+                label={`Edit ${row.firstName} ${row.lastName}`}
+                onClick={() => handleEditTPO(row)}
+              />
+              <IconButton
+                size="sm"
+                variant="danger"
+                icon={TrashIcon}
+                label={`Delete ${row.firstName} ${row.lastName}`}
+                onClick={() =>
+                  askToConfirm({
+                    title: 'Delete this TPO?',
+                    description: `${row.firstName} ${row.lastName} (${row.email}) will lose access immediately.`,
+                    confirmLabel: 'Delete',
+                    run: () => handleDeleteTPO(row.id)
+                  })
+                }
+              />
+            </RowActions>
           )}
           pagination={tposPagination}
           onPageChange={fetchTPOs}
@@ -1493,1063 +1562,652 @@ const AdminDashboard = () => {
         <AdminModal
           isOpen={showTPOModal}
           onClose={() => setShowTPOModal(false)}
-          title={selectedTPO ? 'Edit TPO' : 'Create TPO'}
-        >
-          <form onSubmit={handleSaveTPO} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-                  <div>
-                <label className="block text-sm font-medium text-gray-700">First Name</label>
-                <input
-                  type="text"
-                  required
-                  value={tpoFormData.firstName}
-                  onChange={(e) => setTpoFormData(prev => ({ ...prev, firstName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-                  </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Last Name</label>
-                <input
-                  type="text"
-                  required
-                  value={tpoFormData.lastName}
-                  onChange={(e) => setTpoFormData(prev => ({ ...prev, lastName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-                </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Email</label>
-              <input
-                type="email"
-                required
-                value={tpoFormData.email}
-                onChange={(e) => setTpoFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            {!selectedTPO && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={tpoFormData.password}
-                  onChange={(e) => setTpoFormData(prev => ({ ...prev, password: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                />
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">University</label>
-              <select
-                required
-                value={tpoFormData.organizationId}
-                onChange={(e) => setTpoFormData(prev => ({ ...prev, organizationId: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              >
-                <option value="">Select university</option>
-                {organizations
-                  .filter(org => org.type === 'university')
-                  .map(org => (
-                    <option key={org.id} value={org.id}>{org.name}</option>
-                  ))}
-              </select>
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowTPOModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
+          title={selectedTPO ? 'Edit TPO' : 'New TPO'}
+          size="md"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowTPOModal(false)}>
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-              >
-                {selectedTPO ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </AdminModal>
-      </>
-    );
-  };
-
-  // Render Universities Tab
-  const renderUniversitiesTab = () => {
-    const universityColumns = [
-      { key: 'name', label: 'Name', sortable: true },
-      { key: 'domain', label: 'Domain', sortable: true },
-      { key: 'students', label: 'Students', render: (_, row) => (row.stats?.students ?? 0) || 0 },
-      { key: 'tpos', label: 'TPOs', render: (_, row) => (row.stats?.tpos ?? 0) || 0 },
-      { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value || 'pending'}
-        </span>
-      )},
-      { key: 'isVerified', label: 'Verified', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          value ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-        }`}>
-          {value ? 'Yes' : 'No'}
-        </span>
-      )}
-    ];
-
-    return (
-      <>
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-medium text-gray-900">Universities</h3>
-          <button
-            onClick={handleCreateUniversity}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Create University
-          </button>
-        </div>
-
-        <DataTable
-          columns={universityColumns}
-          data={universities}
-          actions={(row) => (
-            <div className="flex items-center space-x-2">
-              {row.approvalStatus === 'pending' && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApproveOrganization(row.id, 'university');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-green-600 hover:bg-green-50 font-medium"
-                    title="Approve"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRejectOrganization(row.id, 'university');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-red-600 hover:bg-red-50 font-medium"
-                    title="Reject"
-                  >
-                    Reject
-                  </button>
-                </>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleVerifyUniversity(row.id, !row.isVerified);
-                }}
-                className={`text-sm px-2 py-1 rounded ${
-                  row.isVerified ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'
-                }`}
-              >
-                {row.isVerified ? 'Unverify' : 'Verify'}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditUniversity(row);
-                }}
-                className="text-blue-600 hover:text-blue-900"
-              >
-                <PencilIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteUniversity(row.id);
-                }}
-                className="text-red-600 hover:text-red-900"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
-          )}
-          pagination={universitiesPagination}
-          onPageChange={fetchUniversities}
-          loading={isLoading}
-        />
-
-        <AdminModal
-          isOpen={showUniversityModal}
-          onClose={() => setShowUniversityModal(false)}
-          title={selectedUniversity ? 'Edit University' : 'Create University'}
+              </Button>
+              <Button type="submit" form="admin-tpo-form">
+                {selectedTPO ? 'Save changes' : 'Create TPO'}
+              </Button>
+            </>
+          }
         >
-          <form onSubmit={handleSaveUniversity} className="space-y-4">
-                  <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <input
-                type="text"
+          <form id="admin-tpo-form" onSubmit={handleSaveTPO} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="First name"
                 required
-                value={universityFormData.name}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                value={tpoFormData.firstName || ''}
+                onChange={(e) => setTpoFormData((prev) => ({ ...prev, firstName: e.target.value }))}
               />
-                  </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Domain</label>
-              <input
-                type="email"
+              <Input
+                label="Last name"
                 required
-                placeholder="example@university.edu"
-                value={universityFormData.domain}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, domain: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-                </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Email</label>
-              <input
-                type="email"
-                required
-                value={universityFormData.contactEmail}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, contactEmail: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                value={tpoFormData.lastName || ''}
+                onChange={(e) => setTpoFormData((prev) => ({ ...prev, lastName: e.target.value }))}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Phone</label>
-              <input
-                type="text"
-                value={universityFormData.contactPhone}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-          </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Website</label>
-              <input
-                type="url"
-                value={universityFormData.website}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, website: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-        </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Address</label>
-              <textarea
-                value={universityFormData.address}
-                onChange={(e) => setUniversityFormData(prev => ({ ...prev, address: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                rows="3"
-              />
-      </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowUniversityModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-              >
-                {selectedUniversity ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </AdminModal>
-      </>
-    );
-  };
-
-  // Render Schools Tab
-  const renderSchoolsTab = () => {
-    const schoolColumns = [
-      { key: 'name', label: 'Name', sortable: true },
-      { key: 'domain', label: 'Domain', sortable: true },
-      { key: 'students', label: 'Students', render: (_, row) => (row.stats?.students ?? 0) || 0 },
-      { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value || 'pending'}
-        </span>
-      )},
-      { key: 'isVerified', label: 'Verified', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          value ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-        }`}>
-          {value ? 'Yes' : 'No'}
-        </span>
-      )}
-    ];
-
-    return (
-      <>
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-medium text-gray-900">Schools</h3>
-          <button
-            onClick={handleCreateSchool}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Create School
-          </button>
-        </div>
-
-        <DataTable
-          columns={schoolColumns}
-          data={schools}
-          actions={(row) => (
-            <div className="flex items-center space-x-2">
-              {row.approvalStatus === 'pending' && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApproveOrganization(row.id, 'school');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-green-600 hover:bg-green-50 font-medium"
-                    title="Approve"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRejectOrganization(row.id, 'school');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-red-600 hover:bg-red-50 font-medium"
-                    title="Reject"
-                  >
-                    Reject
-                  </button>
-                </>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleVerifySchool(row.id, !row.isVerified);
-                }}
-                className={`text-sm px-2 py-1 rounded ${
-                  row.isVerified ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'
-                }`}
-              >
-                {row.isVerified ? 'Unverify' : 'Verify'}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditSchool(row);
-                }}
-                className="text-blue-600 hover:text-blue-900"
-              >
-                <PencilIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteSchool(row.id);
-                }}
-                className="text-red-600 hover:text-red-900"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
-          )}
-          pagination={schoolsPagination}
-          onPageChange={fetchSchools}
-          loading={isLoading}
-        />
-
-        <AdminModal
-          isOpen={showSchoolModal}
-          onClose={() => setShowSchoolModal(false)}
-          title={selectedSchool ? 'Edit School' : 'Create School'}
-        >
-          <form onSubmit={handleSaveSchool} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <input
-                type="text"
-                required
-                value={schoolFormData.name}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Domain</label>
-              <input
-                type="email"
-                required
-                placeholder="admin@school.edu.in"
-                value={schoolFormData.domain}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, domain: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Email</label>
-              <input
-                type="email"
-                required
-                value={schoolFormData.contactEmail}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, contactEmail: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Phone</label>
-              <input
-                type="text"
-                value={schoolFormData.contactPhone}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Website</label>
-              <input
-                type="url"
-                value={schoolFormData.website}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, website: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Address</label>
-              <textarea
-                value={schoolFormData.address}
-                onChange={(e) => setSchoolFormData(prev => ({ ...prev, address: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                rows="3"
-              />
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowSchoolModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-              >
-                {selectedSchool ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </AdminModal>
-      </>
-    );
-  };
-
-  // Import Students tab (Admin only) – upload Excel and select organization
-  const studentOrgs = organizations.filter(o => o.type === 'university' || o.type === 'college' || o.type === 'school');
-
-  const handleImportSubmit = async (e) => {
-    e.preventDefault();
-    if (!importFile || !importOrganizationId) {
-      toast.error('Please select an Excel file and an organization.');
-      return;
-    }
-    setImporting(true);
-    setImportResult(null);
-    try {
-      const res = await adminService.importStudentsExcel(importFile, parseInt(importOrganizationId, 10));
-      setImportResult(res);
-      toast.success(`Import completed: ${res.summary?.created ?? 0} created, ${res.summary?.skipped ?? 0} skipped, ${res.summary?.errors ?? 0} errors.`);
-      setImportFile(null);
-      if (document.getElementById('import-file-input')) document.getElementById('import-file-input').value = '';
-    } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Import failed';
-      toast.error(msg);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const renderImportStudentsTab = () => {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-lg font-medium text-gray-900">Import students from Excel</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            Upload an Excel file (.xlsx or .xls). First row must be headers. Required column: <strong>Email</strong>. Optional: First Name, Last Name, Phone, Student ID, Course, Branch, Year, Graduation Year, Gender, CGPA, Percentage, Date of Birth.
-          </p>
-        </div>
-
-        <form onSubmit={handleImportSubmit} className="bg-white rounded-lg shadow p-6 space-y-4 max-w-2xl">
-          <div>
-            <label htmlFor="import-org" className="block text-sm font-medium text-gray-700">Organization (University / College / School)</label>
-            <select
-              id="import-org"
-              value={importOrganizationId}
-              onChange={(e) => setImportOrganizationId(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 shadow-sm py-2 px-3 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            <Input
+              label="Email"
+              type="email"
               required
-            >
-              <option value="">Select organization</option>
-              {studentOrgs.map((org) => (
-                <option key={org.id} value={org.id}>{org.name} ({org.type})</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Excel file</label>
-            <input
-              id="import-file-input"
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-              className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              value={tpoFormData.email || ''}
+              onChange={(e) => setTpoFormData((prev) => ({ ...prev, email: e.target.value }))}
             />
-          </div>
-          <button
-            type="submit"
-            disabled={importing || !importFile || !importOrganizationId}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {importing ? <LoadingSpinner size="small" className="mr-2 inline" /> : <ArrowUpTrayIcon className="w-4 h-4 mr-2" />}
-            {importing ? 'Importing…' : 'Import students'}
-          </button>
-        </form>
-
-        {importResult && (
-          <div className="bg-white rounded-lg shadow p-6 space-y-4">
-            <h4 className="font-medium text-gray-900">Import result</h4>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div className="bg-green-50 rounded p-3"><span className="font-medium text-green-800">Created:</span> {Number(importResult.summary?.created) || 0}</div>
-              <div className="bg-amber-50 rounded p-3"><span className="font-medium text-amber-800">Skipped:</span> {Number(importResult.summary?.skipped) || 0}</div>
-              <div className="bg-red-50 rounded p-3"><span className="font-medium text-red-800">Errors:</span> {Number(importResult.summary?.errors) || 0}</div>
-            </div>
-            {Number(importResult.summary?.skipped) > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded p-3">
-                <p className="text-sm font-medium text-amber-800 mb-1">Why skipped?</p>
-                <p className="text-sm text-amber-700">
-                  Rows are skipped when a student with that <strong>email</strong> already exists. Your 140 rows were skipped because those emails are already in the database (e.g. from a previous import). No new accounts were created.
-                </p>
-                {(importResult.skipped?.length > 0) && (
-                  <p className="text-sm text-amber-700 mt-2">Example: {importResult.skipped.slice(0, 3).map(s => s.email).join(', ')}…</p>
-                )}
-              </div>
+            {!selectedTPO && (
+              <Input
+                label="Password"
+                type="password"
+                required
+                value={tpoFormData.password || ''}
+                onChange={(e) => setTpoFormData((prev) => ({ ...prev, password: e.target.value }))}
+              />
             )}
-            {importResult.errors?.length > 0 && (
-              <div>
-                <p className="text-sm font-medium text-gray-700 mb-1">Error details (first 10):</p>
-                <ul className="text-sm text-red-600 list-disc list-inside">
-                  {(importResult.errors.slice(0, 10)).map((err, idx) => (
-                    <li key={idx}>Row {err.row}: {err.message}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            <Select
+              label="University"
+              required
+              value={tpoFormData.organizationId || ''}
+              onChange={(e) =>
+                setTpoFormData((prev) => ({ ...prev, organizationId: e.target.value }))
+              }
+              options={[
+                { value: '', label: 'Select university' },
+                ...organizations
+                  .filter((org) => org.type === 'university')
+                  .map((org) => ({ value: String(org.id), label: org.name }))
+              ]}
+            />
+          </form>
+        </AdminModal>
+      </>
     );
   };
 
-  // Render Recruiter permissions tab
+  /**
+   * Universities, companies and schools are the same table with a different
+   * noun, so one renderer serves all three.
+   */
+  const renderOrganizationTab = ({
+    type,
+    heading,
+    rows,
+    pagination,
+    onPageChange,
+    onCreate,
+    onEdit,
+    onDelete,
+    onVerify,
+    extraColumns,
+    modalOpen,
+    onModalClose,
+    selected,
+    formData,
+    setFormData,
+    onSubmit
+  }) => {
+    const columns = [
+      { key: 'name', label: 'Name', sortable: true },
+      { key: 'domain', label: 'Domain', sortable: true },
+      ...extraColumns,
+      {
+        key: 'approvalStatus',
+        label: 'Approval',
+        render: (value) => <StatusBadge status={value || 'pending'} />
+      },
+      {
+        key: 'isVerified',
+        label: 'Verified',
+        render: (value) => (
+          <Badge tone={value ? 'success' : 'warning'}>{value ? 'Verified' : 'Unverified'}</Badge>
+        )
+      }
+    ];
+
+    return (
+      <>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-lg font-bold text-ink-950">{heading}</h2>
+          <Button size="sm" icon={PlusIcon} onClick={onCreate}>
+            New {type}
+          </Button>
+        </div>
+
+        <DataTable
+          columns={columns}
+          data={rows}
+          emptyTitle={`No ${heading.toLowerCase()} yet`}
+          emptyDescription={`Create the first ${type} to get started.`}
+          actions={(row) => (
+            <RowActions>
+              {row.approvalStatus === 'pending' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="success"
+                    onClick={() => handleApproveOrganization(row.id, type)}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() =>
+                      askToConfirm({
+                        title: `Reject ${row.name}?`,
+                        description: `This ${type} will be marked rejected and its users will not be able to sign in.`,
+                        confirmLabel: 'Reject',
+                        run: () => handleRejectOrganization(row.id, type)
+                      })
+                    }
+                  >
+                    Reject
+                  </Button>
+                </>
+              )}
+              <IconButton
+                size="sm"
+                icon={CheckBadgeIcon}
+                label={`${row.isVerified ? 'Unverify' : 'Verify'} ${row.name}`}
+                onClick={() => onVerify(row.id, !row.isVerified)}
+              />
+              <IconButton
+                size="sm"
+                icon={PencilSquareIcon}
+                label={`Edit ${row.name}`}
+                onClick={() => onEdit(row)}
+              />
+              <IconButton
+                size="sm"
+                variant="danger"
+                icon={TrashIcon}
+                label={`Delete ${row.name}`}
+                onClick={() =>
+                  askToConfirm({
+                    title: `Delete ${row.name}?`,
+                    description: `This removes the ${type} from the platform. Accounts attached to it lose their organization.`,
+                    confirmLabel: 'Delete',
+                    run: () => onDelete(row.id)
+                  })
+                }
+              />
+            </RowActions>
+          )}
+          pagination={pagination}
+          onPageChange={onPageChange}
+          loading={isLoading}
+        />
+
+        <AdminModal
+          isOpen={modalOpen}
+          onClose={onModalClose}
+          title={`${selected ? 'Edit' : 'New'} ${type}`}
+          size="md"
+          footer={
+            <>
+              <Button variant="secondary" onClick={onModalClose}>
+                Cancel
+              </Button>
+              <Button type="submit" form={`admin-${type}-form`}>
+                {selected ? 'Save changes' : `Create ${type}`}
+              </Button>
+            </>
+          }
+        >
+          <form id={`admin-${type}-form`} onSubmit={onSubmit}>
+            <OrganizationFormFields value={formData} onChange={setFormData} noun={type} />
+          </form>
+        </AdminModal>
+      </>
+    );
+  };
+
+  const countColumn = (key, label) => ({
+    key,
+    label,
+    render: (_, row) => row.stats?.[key] ?? 0
+  });
+
+  const renderImportStudentsTab = () => (
+    <div className="max-w-3xl space-y-6">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink-950">Import students from Excel</h2>
+        <p className="mt-1.5 text-sm text-ink-600">
+          Upload an <strong>.xlsx</strong> or <strong>.xls</strong> file whose first row is the
+          header. <strong>Email</strong> is required; First Name, Last Name, Phone, Student ID,
+          Course, Branch, Year, Graduation Year, Gender, CGPA, Percentage and Date of Birth are
+          optional.
+        </p>
+      </div>
+
+      <Card as="form" onSubmit={handleImportSubmit} className="space-y-4">
+        <Select
+          id="import-org"
+          label="Organization"
+          required
+          value={importOrganizationId}
+          onChange={(e) => setImportOrganizationId(e.target.value)}
+          options={[
+            { value: '', label: 'Select organization' },
+            ...studentOrgs.map((org) => ({ value: String(org.id), label: `${org.name} (${org.type})` }))
+          ]}
+          help="Every imported student joins this university, college or school."
+        />
+        <div>
+          <label
+            htmlFor="import-file-input"
+            className="mb-1.5 block text-sm font-medium text-ink-800"
+          >
+            Excel file
+          </label>
+          <input
+            id="import-file-input"
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+            className="block w-full rounded-xl border border-ink-950/20 bg-white text-sm text-ink-700 file:mr-4 file:cursor-pointer file:border-0 file:border-r file:border-ink-950/15 file:bg-bone-100 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-ink-950 hover:file:bg-bone-200"
+          />
+        </div>
+        <Button
+          type="submit"
+          icon={ArrowUpTrayIcon}
+          loading={importing}
+          disabled={!importFile || !importOrganizationId}
+        >
+          {importing ? 'Importing' : 'Import students'}
+        </Button>
+      </Card>
+
+      {importResult && (
+        <Card className="space-y-4">
+          <h3 className="font-display text-base font-bold text-ink-950">Import result</h3>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-india-600/30 bg-india-50 px-4 py-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-india-800">Created</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
+                {Number(importResult.summary?.created) || 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-saffron-800">Skipped</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
+                {Number(importResult.summary?.skipped) || 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-red-600/25 bg-red-50 px-4 py-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-800">Errors</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
+                {Number(importResult.summary?.errors) || 0}
+              </p>
+            </div>
+          </div>
+
+          {Number(importResult.summary?.skipped) > 0 && (
+            <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
+              <p className="text-sm font-semibold text-saffron-800">Why were rows skipped?</p>
+              {/* The previous copy asserted "your 140 rows were skipped" — a
+                  number that came from nowhere. Only the response's own
+                  examples are shown now. */}
+              <p className="mt-1 text-sm text-ink-700">
+                A row is skipped when an account with that email already exists. No new account was
+                created for it.
+              </p>
+              {importResult.skipped?.length > 0 && (
+                <p className="mt-2 text-sm text-ink-600">
+                  For example: {importResult.skipped.slice(0, 3).map((s) => s.email).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {importResult.errors?.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-ink-800">
+                Errors (first {Math.min(10, importResult.errors.length)})
+              </p>
+              <ul className="mt-1.5 list-inside list-disc text-sm text-red-700">
+                {importResult.errors.slice(0, 10).map((err, idx) => (
+                  <li key={idx}>
+                    Row {err.row}: {err.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+
   const renderRecruiterPermissionsTab = () => {
     if (isLoading && recruiters.length === 0) {
-      return (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner />
-        </div>
-      );
+      return <SkeletonCard lines={6} />;
     }
+
+    const uniqueValues = (key) => [...new Set(institutions.map((i) => i[key]).filter(Boolean))].sort();
+    const regions = uniqueValues('region');
+    const states = uniqueValues('state');
+    const cities = uniqueValues('city');
+
+    const closePermissions = () => {
+      setShowPermissionsModal(false);
+      setSelectedRecruiter(null);
+      setSelectedOrgIds([]);
+      setSelectedYears([]);
+      setSelectedStreams([]);
+      setSelectedRegions([]);
+      setSelectedStates([]);
+      setSelectedCities([]);
+    };
+
     return (
       <>
-        <div className="mb-6">
-          <h3 className="text-lg font-medium text-gray-900">Recruiter access</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            Choose which recruiters can see students from which institutions. Recruiters can only access students from schools, colleges, or universities you allow.
+        <div className="mb-5">
+          <h2 className="font-display text-lg font-bold text-ink-950">Recruiter access</h2>
+          <p className="mt-1.5 max-w-prose text-sm text-ink-600">
+            Recruiters can only see students from institutions you allow here. An empty list means
+            they see nobody.
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {recruiters.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                    No recruiters found.
-                  </td>
-                </tr>
-              ) : (
-                recruiters.map((r) => (
-                  <tr key={r.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {r.firstName} {r.lastName}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{r.email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {r.organization?.name || '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPermissions(r)}
-                        className="inline-flex items-center px-3 py-1.5 border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50"
-                      >
-                        <ShieldCheckIcon className="h-4 w-4 mr-1.5" />
-                        Set permissions
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {recruiters.length === 0 ? (
+          <EmptyState
+            icon={ShieldCheckIcon}
+            title="No recruiters yet"
+            description="Recruiter accounts appear here once companies have registered."
+          />
+        ) : (
+          <Table>
+            <Thead>
+              <Tr className="hover:bg-transparent">
+                <Th>Name</Th>
+                <Th>Email</Th>
+                <Th>Company</Th>
+                <Th className="text-right">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {recruiters.map((r) => (
+                <Tr key={r.id}>
+                  <Td className="font-medium text-ink-950">
+                    {r.firstName} {r.lastName}
+                  </Td>
+                  <Td>{r.email}</Td>
+                  <Td>{r.organization?.name || '—'}</Td>
+                  <Td className="text-right">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={ShieldCheckIcon}
+                      onClick={() => handleOpenPermissions(r)}
+                    >
+                      Set permissions
+                    </Button>
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        )}
 
         <AdminModal
           isOpen={showPermissionsModal}
-          onClose={() => {
-            setShowPermissionsModal(false);
-            setSelectedRecruiter(null);
-            setSelectedOrgIds([]);
-            setSelectedYears([]);
-            setSelectedStreams([]);
-            setSelectedRegions([]);
-            setSelectedStates([]);
-            setSelectedCities([]);
-          }}
-          title={selectedRecruiter ? `Permissions — ${selectedRecruiter.firstName} ${selectedRecruiter.lastName}` : 'Recruiter permissions'}
+          onClose={closePermissions}
+          title={
+            selectedRecruiter
+              ? `Permissions — ${selectedRecruiter.firstName} ${selectedRecruiter.lastName}`
+              : 'Recruiter permissions'
+          }
+          description="Institutions first, then optional narrowing by location, year and stream."
+          footer={
+            <>
+              <Button variant="secondary" onClick={closePermissions}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="recruiter-permissions-form"
+                loading={permissionsSaving}
+                disabled={permissionsLoading}
+              >
+                Save permissions
+              </Button>
+            </>
+          }
         >
-          <form onSubmit={handleSaveRecruiterPermissions} className="space-y-4">
+          <form
+            id="recruiter-permissions-form"
+            onSubmit={handleSaveRecruiterPermissions}
+            className="space-y-5"
+          >
             {permissionsLoading ? (
-              <div className="flex justify-center py-8"><LoadingSpinner size="medium" /></div>
+              <SkeletonCard lines={5} />
             ) : (
               <>
-                <p className="text-sm text-gray-600">
-                  Allowed institutions: select schools, colleges, and universities this recruiter can view students from. Optional filters below further restrict by region/state/city and by year/stream.
-                </p>
-                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-4">
-                  {['school', 'college', 'university'].map((type) => {
-                    const list = institutions.filter((i) => i.type === type);
-                    if (list.length === 0) return null;
-                    const label = type.charAt(0).toUpperCase() + type.slice(1) + 's';
-                    return (
-                      <div key={type}>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-2">{label}</h4>
-                        <ul className="space-y-1.5">
-                          {list.map((org) => (
-                            <li key={org.id} className="flex items-center">
-                              <input
-                                type="checkbox"
-                                id={`org-${org.id}`}
-                                checked={selectedOrgIds.includes(org.id)}
-                                onChange={() => handlePermissionsToggle(org.id)}
-                                className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                <fieldset>
+                  <legend className="text-sm font-semibold text-ink-900">Allowed institutions</legend>
+                  {institutions.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink-500">
+                      No schools, colleges or universities exist yet.
+                    </p>
+                  ) : (
+                    <div className="mt-3 max-h-56 space-y-4 overflow-y-auto rounded-xl border border-ink-950/15 p-3">
+                      {['school', 'college', 'university'].map((type) => {
+                        const list = institutions.filter((i) => i.type === type);
+                        if (list.length === 0) return null;
+                        return (
+                          <div key={type}>
+                            <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+                              {type}s
+                            </h4>
+                            <div className="space-y-1.5">
+                              {list.map((org) => (
+                                <Checkbox
+                                  key={org.id}
+                                  id={`org-${org.id}`}
+                                  label={org.name}
+                                  checked={selectedOrgIds.includes(org.id)}
+                                  onChange={() => handlePermissionsToggle(org.id)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </fieldset>
+
+                <fieldset className="border-t border-ink-950/10 pt-4">
+                  <legend className="text-sm font-semibold text-ink-900">Location (optional)</legend>
+                  <p className="mt-1 text-xs text-ink-500">
+                    If set, only students from institutions in these places are visible.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                    {[
+                      { label: 'Regions', values: regions, selected: selectedRegions, toggle: toggleRegion },
+                      { label: 'States', values: states, selected: selectedStates, toggle: toggleState },
+                      { label: 'Cities', values: cities, selected: selectedCities, toggle: toggleCity }
+                    ].map((group) => (
+                      <div key={group.label}>
+                        <p className="mb-1.5 text-xs font-medium text-ink-600">{group.label}</p>
+                        <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-xl border border-ink-950/15 p-2.5">
+                          {group.values.length === 0 ? (
+                            <p className="text-xs text-ink-500">None in the data</p>
+                          ) : (
+                            group.values.map((v) => (
+                              <Checkbox
+                                key={v}
+                                label={v}
+                                checked={group.selected.includes(v)}
+                                onChange={() => group.toggle(v)}
                               />
-                              <label htmlFor={`org-${org.id}`} className="ml-2 text-sm text-gray-700 cursor-pointer">
-                                {org.name}
-                              </label>
-                            </li>
-                          ))}
-                        </ul>
+                            ))
+                          )}
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-                {institutions.length === 0 && (
-                  <p className="text-sm text-gray-500">No schools, colleges, or universities in the system yet.</p>
-                )}
+                    ))}
+                  </div>
+                </fieldset>
 
-                <div className="border-t border-gray-200 pt-4 space-y-4">
-                  <h4 className="text-sm font-semibold text-gray-800">Region / State / City (optional)</h4>
-                  <p className="text-xs text-gray-500">If set, only students from institutions in these locations are visible.</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Regions</label>
-                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
-                        {[...new Set(institutions.map((i) => i.region).filter(Boolean))].sort().map((r) => (
-                          <label key={r} className="flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedRegions.includes(r)}
-                              onChange={() => toggleRegion(r)}
-                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{r}</span>
-                          </label>
-                        ))}
-                        {![...new Set(institutions.map((i) => i.region).filter(Boolean))].length && (
-                          <span className="text-xs text-gray-400">No regions in data</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">States</label>
-                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
-                        {[...new Set(institutions.map((i) => i.state).filter(Boolean))].sort().map((s) => (
-                          <label key={s} className="flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedStates.includes(s)}
-                              onChange={() => toggleState(s)}
-                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{s}</span>
-                          </label>
-                        ))}
-                        {![...new Set(institutions.map((i) => i.state).filter(Boolean))].length && (
-                          <span className="text-xs text-gray-400">No states in data</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Cities</label>
-                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded p-2 space-y-1">
-                        {[...new Set(institutions.map((i) => i.city).filter(Boolean))].sort().map((c) => (
-                          <label key={c} className="flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedCities.includes(c)}
-                              onChange={() => toggleCity(c)}
-                              className="h-3.5 w-3.5 text-indigo-600 border-gray-300 rounded"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{c}</span>
-                          </label>
-                        ))}
-                        {![...new Set(institutions.map((i) => i.city).filter(Boolean))].length && (
-                          <span className="text-xs text-gray-400">No cities in data</span>
-                        )}
-                      </div>
-                    </div>
+                <fieldset className="border-t border-ink-950/10 pt-4">
+                  <legend className="text-sm font-semibold text-ink-900">
+                    Year and stream (optional)
+                  </legend>
+                  <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                    {[1, 2, 3, 4, 5, 6].map((y) => (
+                      <Checkbox
+                        key={y}
+                        label={`Year ${y}`}
+                        checked={selectedYears.includes(y)}
+                        onChange={() => toggleYear(y)}
+                      />
+                    ))}
                   </div>
-                </div>
-
-                <div className="border-t border-gray-200 pt-4 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-800">Year & stream (optional)</h4>
-                  <p className="text-xs text-gray-500">If set, only students in these years or streams are visible.</p>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Years (1–6)</label>
-                    <div className="flex flex-wrap gap-2">
-                      {[1, 2, 3, 4, 5, 6].map((y) => (
-                        <label key={y} className="inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedYears.includes(y)}
-                            onChange={() => toggleYear(y)}
-                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                          />
-                          <span className="ml-1.5 text-sm text-gray-700">Year {y}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Streams (comma- or space-separated)</label>
-                    <input
-                      type="text"
-                      value={selectedStreams.join(', ')}
-                      onChange={handleStreamInput}
-                      placeholder="e.g. CSE, ECE, Mechanical"
-                      className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
+                  <Input
+                    className="mt-3"
+                    label="Streams"
+                    value={selectedStreams.join(', ')}
+                    onChange={handleStreamInput}
+                    placeholder="e.g. CSE, ECE, Mechanical"
+                    help="Comma- or space-separated. Leave empty for all streams."
+                  />
+                </fieldset>
               </>
             )}
-            <div className="flex justify-end space-x-3 pt-2 border-t border-gray-200">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPermissionsModal(false);
-                  setSelectedRecruiter(null);
-                  setSelectedOrgIds([]);
-                  setSelectedYears([]);
-                  setSelectedStreams([]);
-                  setSelectedRegions([]);
-                  setSelectedStates([]);
-                  setSelectedCities([]);
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={permissionsSaving || permissionsLoading}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {permissionsSaving ? 'Saving…' : 'Save permissions'}
-              </button>
-            </div>
           </form>
         </AdminModal>
       </>
     );
   };
 
-  // Render Companies Tab
-  const renderCompaniesTab = () => {
-    const companyColumns = [
-      { key: 'name', label: 'Name', sortable: true },
-      { key: 'domain', label: 'Domain', sortable: true },
-      { key: 'recruiters', label: 'Recruiters', render: (_, row) => (row.stats?.recruiters ?? 0) || 0 },
-      { key: 'jobs', label: 'Jobs', render: (_, row) => (row.stats?.jobs ?? 0) || 0 },
-      { key: 'approvalStatus', label: 'Approval Status', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value || 'pending'}
-        </span>
-      )},
-      { key: 'isVerified', label: 'Verified', render: (value) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          value ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-        }`}>
-          {value ? 'Yes' : 'No'}
-        </span>
-      )}
-    ];
-
-    return (
-      <>
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-medium text-gray-900">Companies</h3>
-          <button
-            onClick={handleCreateCompany}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Create Company
-          </button>
-        </div>
-
-        <DataTable
-          columns={companyColumns}
-          data={companies}
-          actions={(row) => (
-            <div className="flex items-center space-x-2">
-              {row.approvalStatus === 'pending' && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApproveOrganization(row.id, 'company');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-green-600 hover:bg-green-50 font-medium"
-                    title="Approve"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRejectOrganization(row.id, 'company');
-                    }}
-                    className="text-sm px-2 py-1 rounded text-red-600 hover:bg-red-50 font-medium"
-                    title="Reject"
-                  >
-                    Reject
-                  </button>
-                </>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleVerifyCompany(row.id, !row.isVerified);
-                }}
-                className={`text-sm px-2 py-1 rounded ${
-                  row.isVerified ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'
-                }`}
-              >
-                {row.isVerified ? 'Unverify' : 'Verify'}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditCompany(row);
-                }}
-                className="text-blue-600 hover:text-blue-900"
-              >
-                <PencilIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteCompany(row.id);
-                }}
-                className="text-red-600 hover:text-red-900"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
-          )}
-          pagination={companiesPagination}
-          onPageChange={fetchCompanies}
-          loading={isLoading}
-        />
-
-        <AdminModal
-          isOpen={showCompanyModal}
-          onClose={() => setShowCompanyModal(false)}
-          title={selectedCompany ? 'Edit Company' : 'Create Company'}
-        >
-          <form onSubmit={handleSaveCompany} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <input
-                type="text"
-                required
-                value={companyFormData.name}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Domain</label>
-              <input
-                type="email"
-                required
-                placeholder="example@company.com"
-                value={companyFormData.domain}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, domain: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Email</label>
-              <input
-                type="email"
-                required
-                value={companyFormData.contactEmail}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, contactEmail: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Contact Phone</label>
-              <input
-                type="text"
-                value={companyFormData.contactPhone}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Website</label>
-              <input
-                type="url"
-                value={companyFormData.website}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, website: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Address</label>
-              <textarea
-                value={companyFormData.address}
-                onChange={(e) => setCompanyFormData(prev => ({ ...prev, address: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                rows="3"
-              />
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowCompanyModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-              >
-                {selectedCompany ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </AdminModal>
-      </>
-    );
-  };
+  /* ---------------------------------------------------------------- render */
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600 mt-2">System overview and comprehensive analytics</p>
-        </div>
+    <PageShell width="wide">
+      <PageHeader
+        eyebrow="Administration"
+        title="Admin console"
+        lead="Platform-wide statistics, accounts, institutions and recruiter access."
+      />
 
-        <TabNavigation
-          tabs={tabs}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
+      <TabNavigation tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {activeTab === 'overview' && renderOverviewTab()}
-        {activeTab === 'analytics' && renderAnalyticsTab()}
-        {activeTab === 'users' && renderUsersTab()}
-        {activeTab === 'import-students' && renderImportStudentsTab()}
-        {activeTab === 'tpos' && renderTPOsTab()}
-        {activeTab === 'universities' && renderUniversitiesTab()}
-        {activeTab === 'companies' && renderCompaniesTab()}
-        {activeTab === 'schools' && renderSchoolsTab()}
-        {activeTab === 'recruiter-permissions' && renderRecruiterPermissionsTab()}
-      </div>
+      {activeTab === 'overview' && renderOverviewTab()}
+      {activeTab === 'analytics' && renderAnalyticsTab()}
+      {activeTab === 'users' && renderUsersTab()}
+      {activeTab === 'import-students' && renderImportStudentsTab()}
+      {activeTab === 'tpos' && renderTPOsTab()}
+      {activeTab === 'universities' &&
+        renderOrganizationTab({
+          type: 'university',
+          heading: 'Universities',
+          rows: universities,
+          pagination: universitiesPagination,
+          onPageChange: fetchUniversities,
+          onCreate: handleCreateUniversity,
+          onEdit: handleEditUniversity,
+          onDelete: handleDeleteUniversity,
+          onVerify: handleVerifyUniversity,
+          extraColumns: [countColumn('students', 'Students'), countColumn('tpos', 'TPOs')],
+          modalOpen: showUniversityModal,
+          onModalClose: () => setShowUniversityModal(false),
+          selected: selectedUniversity,
+          formData: universityFormData,
+          setFormData: setUniversityFormData,
+          onSubmit: handleSaveUniversity
+        })}
+      {activeTab === 'companies' &&
+        renderOrganizationTab({
+          type: 'company',
+          heading: 'Companies',
+          rows: companies,
+          pagination: companiesPagination,
+          onPageChange: fetchCompanies,
+          onCreate: handleCreateCompany,
+          onEdit: handleEditCompany,
+          onDelete: handleDeleteCompany,
+          onVerify: handleVerifyCompany,
+          extraColumns: [countColumn('recruiters', 'Recruiters'), countColumn('jobs', 'Jobs')],
+          modalOpen: showCompanyModal,
+          onModalClose: () => setShowCompanyModal(false),
+          selected: selectedCompany,
+          formData: companyFormData,
+          setFormData: setCompanyFormData,
+          onSubmit: handleSaveCompany
+        })}
+      {activeTab === 'schools' &&
+        renderOrganizationTab({
+          type: 'school',
+          heading: 'Schools',
+          rows: schools,
+          pagination: schoolsPagination,
+          onPageChange: fetchSchools,
+          onCreate: handleCreateSchool,
+          onEdit: handleEditSchool,
+          onDelete: handleDeleteSchool,
+          onVerify: handleVerifySchool,
+          extraColumns: [countColumn('students', 'Students')],
+          modalOpen: showSchoolModal,
+          onModalClose: () => setShowSchoolModal(false),
+          selected: selectedSchool,
+          formData: schoolFormData,
+          setFormData: setSchoolFormData,
+          onSubmit: handleSaveSchool
+        })}
+      {activeTab === 'recruiter-permissions' && renderRecruiterPermissionsTab()}
 
-      {/* Approval Info Modal */}
+      {/* New organizations land in `pending`; this says so before the form. */}
       <AdminModal
         isOpen={showApprovalInfo}
         onClose={() => setShowApprovalInfo(false)}
-        title={`New ${approvalInfoType === 'university' ? 'University' : 'Company'} Approval Required`}
-      >
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <ExclamationTriangleIcon className="h-5 w-5 text-blue-400" />
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800">
-                  Admin Approval Required
-                </h3>
-                <div className="mt-2 text-sm text-blue-700">
-                  <p>
-                    All new {approvalInfoType === 'university' ? 'universities' : 'companies'} require admin approval before they can be used in the system.
-                  </p>
-                  <ul className="mt-2 list-disc list-inside space-y-1">
-                    <li>The {approvalInfoType === 'university' ? 'university' : 'company'} will be created with <strong>pending</strong> approval status</li>
-                    <li>An admin must review and approve it before users can register with this organization</li>
-                    <li>You can approve it immediately after creation from the {approvalInfoType === 'university' ? 'Universities' : 'Companies'} tab</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => setShowApprovalInfo(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+        title={`New ${approvalInfoType} needs approval`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowApprovalInfo(false)}>
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleApprovalInfoConfirm}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-            >
-              Continue
-            </button>
-          </div>
+            </Button>
+            <Button onClick={handleApprovalInfoConfirm}>Continue</Button>
+          </>
+        }
+      >
+        <div className="flex gap-3">
+          <InformationCircleIcon aria-hidden="true" className="h-6 w-6 shrink-0 text-saffron-600" />
+          <ul className="list-inside list-disc space-y-1.5 text-sm text-ink-700">
+            <li>
+              The {approvalInfoType} is created with <strong>pending</strong> approval status.
+            </li>
+            <li>Nobody can register against it until an admin approves it.</li>
+            <li>You can approve it from this tab straight after creating it.</li>
+          </ul>
         </div>
       </AdminModal>
-    </div>
+
+      <Modal
+        open={Boolean(confirmAction)}
+        onClose={() => setConfirmAction(null)}
+        size="sm"
+        title={confirmAction?.title || ''}
+        description={confirmAction?.description}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmAction(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={confirmRunning} onClick={runConfirmAction}>
+              {confirmAction?.confirmLabel || 'Confirm'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-700">This cannot be undone from here.</p>
+      </Modal>
+    </PageShell>
   );
 };
 

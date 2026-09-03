@@ -1,7 +1,7 @@
 // server/src/controllers/jobController.js
 const { Job, Organization, User, Application, Assessment } = require('../models');
 const { validationResult } = require('express-validator');
-const { Op } = require('sequelize');
+const { Op, cast, col, where } = require('sequelize');
 const logger = require('../utils/logger');
 
 class JobController {
@@ -132,10 +132,20 @@ class JobController {
 
       // Search functionality
       if (search) {
+        const term = `%${search}%`;
         whereClause[Op.or] = [
-          { title: { [Op.iLike]: `%${search}%` } },
-          { description: { [Op.iLike]: `%${search}%` } },
-          { skillsRequired: { [Op.contains]: [search] } }
+          { title: { [Op.iLike]: term } },
+          { description: { [Op.iLike]: term } },
+          // `skills_required` is a `json` column, not `jsonb`. Op.contains
+          // emits the `@>` containment operator, which Postgres only defines
+          // for jsonb — so this threw "operator does not exist: json @> unknown"
+          // and every search request 500'd. Job search has never worked.
+          //
+          // Casting to text and matching the serialised array also makes the
+          // term a substring match, consistent with the title and description
+          // arms above, rather than requiring an exact whole-skill equality.
+          // Built with `where`/`cast` so the term stays a bound parameter.
+          where(cast(col('Job.skills_required'), 'text'), { [Op.iLike]: term })
         ];
       }
 

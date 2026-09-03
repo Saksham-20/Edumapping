@@ -73,7 +73,9 @@ router.post('/profile/picture',
  */
 router.get('/',
   authenticateToken,
-  requireRole('admin', 'tpo'),
+  // School leadership is scoped to its own organization inside the controller,
+  // which forces the filter rather than trusting the query string.
+  requireRole('admin', 'tpo', 'principal', 'school_admin', 'career_counselor'),
   userController.getAllUsers
 );
 

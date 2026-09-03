@@ -43,6 +43,9 @@ class ApprovalController {
               [Op.ne]: organizationId // Exclude TPO's own organization
             }
           },
+          // Never ship the bcrypt hash to a client just because the default
+          // scope selects every column.
+          attributes: { exclude: ['passwordHash'] },
           include: [
             {
               model: Organization,
@@ -52,7 +55,7 @@ class ApprovalController {
             {
               model: RecruiterProfile,
               as: 'recruiterProfile',
-              attributes: ['designation', 'department', 'experience']
+              attributes: ['position', 'department', 'experience']
             }
           ],
           order: [['createdAt', 'ASC']]
@@ -326,7 +329,7 @@ class ApprovalController {
           ],
           attributes: [
             'approvalStatus',
-            [User.sequelize.fn('COUNT', User.sequelize.col('id')), 'count']
+            [User.sequelize.fn('COUNT', User.sequelize.col('User.id')), 'count']
           ],
           group: ['approvalStatus'],
           raw: true

@@ -487,36 +487,46 @@ export const Badge = ({ tone = 'neutral', dot = false, className = '', children 
   </span>
 );
 
-/** Maps a domain status string onto a badge tone. One table, used everywhere. */
+/**
+ * Maps a domain status string onto a badge tone. One table, used everywhere.
+ *
+ * The keys are the actual Postgres ENUM values, read off the database rather
+ * than guessed — `applications.status` is applied/screening/shortlisted/
+ * interviewed/selected/rejected/withdrawn, and there is no "under_review" or
+ * "offered" anywhere in the schema. A status with no entry here renders
+ * neutral, which is a silent mislabel, so this list has to track the enums.
+ */
 export const STATUS_TONES = {
   // applications
   applied: 'info',
-  submitted: 'info',
-  under_review: 'warning',
+  screening: 'warning',
   shortlisted: 'warning',
-  interview_scheduled: 'warning',
   interviewed: 'warning',
   selected: 'success',
-  offered: 'success',
-  accepted: 'success',
-  hired: 'success',
   rejected: 'danger',
   withdrawn: 'neutral',
-  // approvals / accounts
-  pending: 'warning',
-  approved: 'success',
-  active: 'success',
-  inactive: 'neutral',
-  suspended: 'danger',
-  // jobs / events
+  // jobs
   draft: 'neutral',
-  published: 'success',
-  open: 'success',
+  active: 'success',
   closed: 'neutral',
   cancelled: 'danger',
-  completed: 'info',
-  upcoming: 'info',
-  ongoing: 'warning'
+  // events
+  scheduled: 'info',
+  ongoing: 'warning',
+  completed: 'success',
+  // conferences
+  live: 'danger',
+  ended: 'neutral',
+  // event registrations
+  registered: 'success',
+  attended: 'success',
+  no_show: 'danger',
+  // approval workflow (users and organizations)
+  pending: 'warning',
+  approved: 'success',
+  // account state
+  inactive: 'neutral',
+  suspended: 'danger'
 };
 
 /** Renders a raw status string as a correctly-toned, human-readable badge. */

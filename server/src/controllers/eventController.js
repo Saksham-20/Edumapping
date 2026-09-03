@@ -176,11 +176,20 @@ class EventController {
           {
             model: EventRegistration,
             as: 'registrations',
-            attributes: ['id', 'status']
+            // `userId` is needed below to tell whether the caller is
+            // registered. Without it `reg.userId` was always undefined, so the
+            // match never succeeded and `userRegistration` came back unset on
+            // every event — which is why the "Registered" badge never appeared.
+            attributes: ['id', 'status', 'userId']
           }
         ],
         limit: parseInt(limit),
         offset: parseInt(offset),
+        // Count distinct events, not joined rows. `registrations` is a hasMany,
+        // so without this an event with three sign-ups counted three times and
+        // the reported total — and therefore the page count — was inflated,
+        // offering pages that come back empty.
+        distinct: true,
         order: [['startTime', 'ASC']]
       });
 
@@ -295,7 +304,11 @@ class EventController {
         where: { eventId: id, userId }
       });
 
-      if (existingRegistration) {
+      // A cancelled registration must not block signing up again. This used to
+      // 409 on any existing row at all, so cancelling once locked the user out
+      // of the event permanently — the row survives cancellation, it just moves
+      // to status 'cancelled'.
+      if (existingRegistration && existingRegistration.status !== 'cancelled') {
         return res.status(409).json({
           error: 'Already Registered',
           message: 'You have already registered for this event'
@@ -316,11 +329,19 @@ class EventController {
         }
       }
 
-      const registration = await EventRegistration.create({
-        eventId: id,
-        userId,
-        status: 'registered'
-      });
+      // Reactivate the cancelled row rather than inserting a second one:
+      // (event_id, user_id) is UNIQUE, so a fresh create would hit a constraint
+      // violation instead of re-registering the user.
+      let registration;
+      if (existingRegistration) {
+        registration = await existingRegistration.update({ status: 'registered' });
+      } else {
+        registration = await EventRegistration.create({
+          eventId: id,
+          userId,
+          status: 'registered'
+        });
+      }
 
       res.status(201).json({
         message: 'Successfully registered for event',
