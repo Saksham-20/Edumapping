@@ -26,6 +26,15 @@ const notificationReducer = (state, action) => {
         isLoading: false,
         error: null
       };
+    case 'APPEND_NOTIFICATIONS':
+      return {
+        ...state,
+        notifications: [...state.notifications, ...action.payload],
+        isLoading: false,
+        error: null
+      };
+    case 'RESET':
+      return initialState;
     case 'SET_UNREAD_COUNT':
       return {
         ...state,
@@ -75,7 +84,8 @@ const notificationReducer = (state, action) => {
 export const NotificationProvider = ({ children }) => {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
   const { isAuthenticated, user } = useAuth();
-  const isInitialized = useRef(false);
+  // Holds the user id the store was last loaded for, or null when signed out.
+  const isInitialized = useRef(null);
 
   const fetchNotifications = useCallback(async (page = 1, limit = 20) => {
     try {
@@ -87,15 +97,14 @@ export const NotificationProvider = ({ children }) => {
       dispatch({ type: 'SET_LOADING', payload: true });
       const response = await api.get(`/notifications?page=${page}&limit=${limit}`);
       
-      if (page === 1) {
-        dispatch({ type: 'SET_NOTIFICATIONS', payload: response.notifications });
-      } else {
-        // Append to existing notifications for pagination
-        dispatch({ 
-          type: 'SET_NOTIFICATIONS', 
-          payload: [...state.notifications, ...response.notifications] 
-        });
-      }
+      // Appending through the reducer rather than spreading `state.notifications`
+      // here: this callback is memoised without `state` in its dependency list,
+      // so the captured array is whatever it was when the callback was built —
+      // paging past the first page would drop everything loaded since.
+      dispatch({
+        type: page === 1 ? 'SET_NOTIFICATIONS' : 'APPEND_NOTIFICATIONS',
+        payload: response.notifications
+      });
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
       // Don't show error for unauthenticated users
@@ -122,14 +131,24 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [isAuthenticated, user]);
 
-  // Fetch notifications when user is authenticated - only once
+  // Load once per signed-in identity.
+  //
+  // The guard used to be a bare `isInitialized` flag that was never cleared, so
+  // after signing out and back in — as anyone, including a different account —
+  // the fetch was skipped and the panel kept showing the previous session's
+  // notifications. Keying on the user id makes an identity change re-fetch, and
+  // signing out clears the store.
   useEffect(() => {
-    if (isAuthenticated && user && !isInitialized.current) {
-      isInitialized.current = true;
-      fetchNotifications();
-      fetchUnreadCount();
+    if (!isAuthenticated || !user) {
+      isInitialized.current = null;
+      dispatch({ type: 'RESET' });
+      return;
     }
-  }, [isAuthenticated, user]);
+    if (isInitialized.current === user.id) return;
+    isInitialized.current = user.id;
+    fetchNotifications();
+    fetchUnreadCount();
+  }, [isAuthenticated, user, fetchNotifications, fetchUnreadCount]);
 
   // Set up polling for real-time notifications - only when authenticated
   useEffect(() => {
@@ -137,12 +156,16 @@ export const NotificationProvider = ({ children }) => {
 
     const interval = setInterval(() => {
       if (isAuthenticated) {
+        // Both, not just the count. Refreshing the badge alone meant the number
+        // climbed while the panel underneath kept showing the same old items
+        // until a full page reload.
         fetchUnreadCount();
+        fetchNotifications();
       }
     }, 30000); // Poll every 30 seconds
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, fetchUnreadCount]);
+  }, [isAuthenticated, fetchUnreadCount, fetchNotifications]);
 
 
 
@@ -172,21 +195,6 @@ export const NotificationProvider = ({ children }) => {
 
   const clearError = () => {
     dispatch({ type: 'CLEAR_ERROR' });
-  };
-
-  const getNotificationIcon = (type) => {
-    switch (type) {
-      case 'application_update':
-        return '📄';
-      case 'job_alert':
-        return '💼';
-      case 'event_reminder':
-        return '📅';
-      case 'system_alert':
-        return '⚠️';
-      default:
-        return '🔔';
-    }
   };
 
   const getNotificationColor = (priority) => {
@@ -225,7 +233,6 @@ export const NotificationProvider = ({ children }) => {
     markAllAsRead,
     addNotification,
     clearError,
-    getNotificationIcon,
     getNotificationColor,
     formatNotificationTime
   };

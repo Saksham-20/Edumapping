@@ -1,74 +1,68 @@
 // client/src/components/common/LoadingSpinner.js
+//
+// The app-wide loading indicator. Previously offered six visual variants
+// (dots, pulse, bars, ring, gradient, default) in a blue that no longer exists
+// in the palette — six ways to say the same thing, none of which announced
+// itself to a screen reader. One spinner now, on the brand accent.
+//
+// Prefer the `Skeleton`/`SkeletonCard` primitives from `components/ui` for
+// lists and cards: they hold the layout still so content does not jump in.
+// Use this for a whole route that has nothing to show yet.
 import React from 'react';
 
-const LoadingSpinner = ({ size = 'medium', variant = 'default', className = '', text = '' }) => {
-  const sizeClasses = {
-    small: 'h-4 w-4',
-    medium: 'h-8 w-8',
-    large: 'h-12 w-12',
-    xl: 'h-16 w-16'
-  };
+const SIZES = {
+  small: 'h-4 w-4 border-2',
+  medium: 'h-8 w-8 border-2',
+  large: 'h-12 w-12 border-[3px]',
+  xl: 'h-16 w-16 border-4'
+};
 
-  const renderSpinner = () => {
-    switch (variant) {
-      case 'dots':
-        return (
-          <div className="flex space-x-1">
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-          </div>
-        );
-      
-      case 'pulse':
-        return (
-          <div className={`${sizeClasses[size]} bg-blue-600 rounded-full animate-pulse`}></div>
-        );
-      
-      case 'bars':
-        return (
-          <div className="flex space-x-1">
-            <div className="w-1 bg-blue-600 animate-pulse" style={{ height: '20px', animationDelay: '0ms' }}></div>
-            <div className="w-1 bg-blue-600 animate-pulse" style={{ height: '20px', animationDelay: '150ms' }}></div>
-            <div className="w-1 bg-blue-600 animate-pulse" style={{ height: '20px', animationDelay: '300ms' }}></div>
-            <div className="w-1 bg-blue-600 animate-pulse" style={{ height: '20px', animationDelay: '450ms' }}></div>
-          </div>
-        );
-      
-      case 'ring':
-        return (
-          <div className={`${sizeClasses[size]} relative`}>
-            <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
-            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin"></div>
-          </div>
-        );
-      
-      case 'gradient':
-        return (
-          <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 animate-spin`}></div>
-        );
-      
-      default:
-        return (
-          <div className={`${sizeClasses[size]} relative`}>
-            <div className="absolute inset-0 rounded-full border-2 border-gray-200"></div>
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-blue-600 animate-spin"></div>
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-r-blue-600 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
-          </div>
-        );
-    }
-  };
+// The track colour has to match the ground it sits on: the light track is
+// invisible against the conference room's ink canvas, and vice versa.
+const TONES = {
+  light: 'border-ink-950/15 border-t-saffron-500',
+  dark: 'border-white/20 border-t-saffron-500'
+};
 
-  return (
-    <div className={`flex flex-col justify-center items-center space-y-3 ${className}`}>
-      {renderSpinner()}
-      {text && (
-        <div className="text-sm text-gray-600 font-medium animate-pulse">
+const LoadingSpinner = ({
+  size = 'medium',
+  tone = 'light',
+  className = '',
+  text = '',
+  fullScreen = false
+}) => {
+  const spinner = (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`flex flex-col items-center justify-center gap-3 ${className}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`animate-spin rounded-full ${TONES[tone] || TONES.light} ${
+          SIZES[size] || SIZES.medium
+        }`}
+      />
+      {/*
+        Always announce something. `text` is optional visually, but a status
+        region with no accessible name tells assistive tech nothing at all.
+      */}
+      {text ? (
+        <span className={`text-sm font-medium ${tone === 'dark' ? 'text-white/70' : 'text-ink-600'}`}>
           {text}
-        </div>
+        </span>
+      ) : (
+        <span className="sr-only">Loading</span>
       )}
     </div>
   );
+
+  if (fullScreen) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bone-50">{spinner}</div>
+    );
+  }
+  return spinner;
 };
 
 export default LoadingSpinner;

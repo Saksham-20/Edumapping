@@ -333,8 +333,8 @@ const ConferenceRoom = () => {
     return (
       <div className="flex min-h-screen items-center justify-center bg-ink-950">
         <div className="text-center">
-          <LoadingSpinner />
-          <p className="mt-4 text-sm text-slate-400">Connecting to the session…</p>
+          <LoadingSpinner tone="dark" />
+          <p className="mt-4 text-sm text-white/60">Connecting to the session…</p>
         </div>
       </div>
     );

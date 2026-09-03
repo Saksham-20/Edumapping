@@ -11,7 +11,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
   const location = useLocation();
 
   if (isLoading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner fullScreen text="Checking your session" />;
   }
 
   if (!isAuthenticated) {

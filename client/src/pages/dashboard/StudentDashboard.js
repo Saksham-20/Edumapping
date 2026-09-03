@@ -1,912 +1,621 @@
 // client/src/pages/dashboard/StudentDashboard.js
-import React, { useState, useEffect } from 'react';
+//
+// The student's home surface: six independent panels fed by six endpoints.
+// Each panel owns its own failure — a dead `/achievements` must not blank the
+// applications list — so the fetch is `allSettled` and the page only shows a
+// whole-page error when every request failed.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import toast from 'react-hot-toast';
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  PageShell,
+  SkeletonCard,
+  StatTile,
+  StatusBadge,
+  Tabs,
+  cx
+} from '../../components/ui';
 import {
   BriefcaseIcon,
   DocumentTextIcon,
   CalendarIcon,
   ChartBarIcon,
   PlusIcon,
-  EyeIcon,
+  ArrowRightIcon,
   AcademicCapIcon,
   StarIcon,
-  ClockIcon,
+  UserGroupIcon,
   MapPinIcon,
   BuildingOfficeIcon,
-  UserGroupIcon,
   CheckCircleIcon,
-  ExclamationTriangleIcon
+  TrophyIcon
 } from '@heroicons/react/24/outline';
+
+const TABS = [
+  { value: 'overview', label: 'Overview', icon: ChartBarIcon },
+  { value: 'applications', label: 'Applications', icon: DocumentTextIcon },
+  { value: 'opportunities', label: 'Opportunities', icon: BriefcaseIcon },
+  { value: 'events', label: 'Events', icon: CalendarIcon }
+];
+
+// Statuses that mean the application is still moving. `selected`, `rejected`
+// and `withdrawn` are terminal.
+const IN_PROGRESS = ['applied', 'screening', 'shortlisted', 'interviewed'];
+
+const formatDate = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+};
+
+const formatDateTime = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+/** Sums a `[{ status, count }]` aggregate, optionally filtered to some statuses. */
+const sumByStatus = (rows, statuses) =>
+  (Array.isArray(rows) ? rows : [])
+    .filter((r) => r?.status && (!statuses || statuses.includes(r.status)))
+    .reduce((sum, r) => sum + (parseInt(r.count, 10) || 0), 0);
+
+/**
+ * Profile completeness, using the same field list as the Profile page so the
+ * two screens can never disagree about what "complete" means.
+ */
+const calculateProfileCompletion = (profile, role) => {
+  if (!profile) return 0;
+  const baseFields = ['firstName', 'lastName', 'email', 'phone'];
+  const studentFields = ['course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'];
+
+  let total = baseFields.length;
+  let done = baseFields.filter((f) => !!profile[f]).length;
+
+  if (role === 'student' && profile.studentProfile) {
+    total += studentFields.length;
+    done += studentFields.filter((f) => {
+      const value = profile.studentProfile[f];
+      return Array.isArray(value) ? value.length > 0 : !!value;
+    }).length;
+  }
+
+  return total > 0 ? Math.round((done / total) * 100) : 0;
+};
+
+const ProgressBar = ({ value, label }) => (
+  <div
+    role="progressbar"
+    aria-valuenow={value}
+    aria-valuemin={0}
+    aria-valuemax={100}
+    aria-label={label}
+    className="h-2 w-full overflow-hidden rounded-full bg-bone-200"
+  >
+    <div className="h-full rounded-full bg-saffron-500 transition-all duration-300" style={{ width: `${value}%` }} />
+  </div>
+);
+
+const ApplicationRow = ({ application }) => {
+  const applied = formatDate(application.appliedAt);
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors hover:bg-bone-50 sm:px-6">
+      <div className="min-w-0 flex-1">
+        <h3 className="font-display text-sm font-bold text-ink-950">
+          {application.job?.title || 'Job title unavailable'}
+        </h3>
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-600">
+          <BuildingOfficeIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+          {application.job?.organization?.name || 'Organization unavailable'}
+        </p>
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
+          <MapPinIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+          {application.job?.location || 'Location unavailable'}
+        </p>
+        {applied && <p className="mt-2 text-xs text-ink-500">Applied {applied}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <StatusBadge status={application.status || 'unknown'} />
+        <Button
+          as={Link}
+          to={`/applications/${application.id}`}
+          size="sm"
+          variant="secondary"
+          iconRight={ArrowRightIcon}
+        >
+          View
+        </Button>
+      </div>
+    </li>
+  );
+};
+
+const NoApplications = () => (
+  <EmptyState
+    icon={DocumentTextIcon}
+    title="No applications yet"
+    description="Browse the open roles and apply to the ones that fit you."
+    action={
+      <Button as={Link} to="/jobs" icon={PlusIcon}>
+        Browse jobs
+      </Button>
+    }
+  />
+);
 
 const StudentDashboard = () => {
   const { user } = useAuth();
-  const [dashboardData, setDashboardData] = useState({
+  const [data, setData] = useState({
     applications: [],
     recommendedJobs: [],
     upcomingEvents: [],
     achievements: [],
     profile: null,
-    stats: {
-      totalApplications: 0,
-      activeApplications: 0,
-      interviewsScheduled: 0,
-      offers: 0,
-      profileCompletion: 0,
-      skillsCount: 0,
-      achievementsCount: 0
-    }
+    statsRows: []
   });
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [allFailed, setAllFailed] = useState(false);
+  const [tab, setTab] = useState('overview');
 
-  useEffect(() => {
-    fetchDashboardData();
+  const load = useCallback(async () => {
+    setLoading(true);
+    setAllFailed(false);
 
-    // Test: Let's also fetch profile data the same way Profile.js does
-    const testProfileFetch = async () => {
-      try {
-        console.log('Dashboard: Testing profile fetch like Profile.js...');
-        const response = await api.get('/users/profile');
-        console.log('Dashboard: Test profile response:', response);
-        console.log('Dashboard: Test profile.user:', response.user);
-        console.log('Dashboard: Test profile.data:', response.data);
+    // `silent` everywhere: this page renders its own error surfaces, and the
+    // shared interceptor would otherwise toast once per failed panel.
+    const results = await Promise.allSettled([
+      api.get('/applications', { params: { limit: 10 }, silent: true }),
+      api.get('/jobs/recommended', { params: { limit: 6 }, silent: true }),
+      api.get('/events', { params: { upcoming: true, limit: 5 }, silent: true }),
+      api.get('/applications/stats', { silent: true }),
+      api.get('/achievements', { params: { limit: 5 }, silent: true }),
+      api.get('/users/profile', { silent: true })
+    ]);
 
-        // Test the calculation with the same data structure
-        if (response.user) {
-          const testCompletion = calculateProfileCompletion(response.user);
-          console.log('Dashboard: Test completion with response.user:', testCompletion);
-        }
-      } catch (error) {
-        console.error('Dashboard: Test profile fetch failed:', error);
-      }
-    };
+    const value = (i) => (results[i].status === 'fulfilled' ? results[i].value : null);
+    const profile = value(5)?.user || null;
 
-    // Test server connectivity
-    const testServerConnectivity = async () => {
-      try {
-        console.log('Dashboard: Testing server connectivity...');
-        const response = await fetch('/api/health');
-        console.log('Dashboard: Server health check response:', response);
-      } catch (error) {
-        console.error('Dashboard: Server connectivity test failed:', error);
-        console.error('Dashboard: This might mean the server is not running!');
-      }
-    };
+    setData({
+      applications: value(0)?.applications || [],
+      recommendedJobs: value(1)?.jobs || [],
+      upcomingEvents: value(2)?.events || [],
+      statsRows: value(3)?.stats?.byStatus || [],
+      achievements: value(4)?.achievements || [],
+      profile
+    });
 
-    testProfileFetch();
-    testServerConnectivity();
+    setAllFailed(results.every((r) => r.status === 'rejected'));
+    setLoading(false);
   }, []);
 
-  const fetchDashboardData = async () => {
-    try {
-      setIsLoading(true);
-      console.log('Dashboard: Starting to fetch data...');
+  useEffect(() => {
+    load();
+  }, [load]);
 
-      // Test each API call individually to see which ones fail
-      try {
-        const applicationsRes = await api.get('/applications?limit=10');
-        console.log('Dashboard: Applications API success:', applicationsRes);
-      } catch (error) {
-        console.error('Dashboard: Applications API failed:', error);
-      }
-
-      try {
-        const jobsRes = await api.get('/jobs/recommended?limit=6');
-        console.log('Dashboard: Jobs API success:', jobsRes);
-      } catch (error) {
-        console.error('Dashboard: Jobs API failed:', error);
-      }
-
-      try {
-        const eventsRes = await api.get('/events?upcoming=true&limit=5');
-        console.log('Dashboard: Events API success:', eventsRes);
-      } catch (error) {
-        console.error('Dashboard: Events API failed:', error);
-      }
-
-      try {
-        const statsRes = await api.get('/applications/stats');
-        console.log('Dashboard: Stats API success:', statsRes);
-      } catch (error) {
-        console.error('Dashboard: Stats API failed:', error);
-      }
-
-      try {
-        const achievementsRes = await api.get('/achievements?limit=5');
-        console.log('Dashboard: Achievements API success:', achievementsRes);
-      } catch (error) {
-        console.error('Dashboard: Achievements API failed:', error);
-      }
-
-      try {
-        const profileRes = await api.get('/users/profile');
-        console.log('Dashboard: Profile API success:', profileRes);
-      } catch (error) {
-        console.error('Dashboard: Profile API failed:', error);
-      }
-
-      // Now try all together
-      const [applicationsRes, jobsRes, eventsRes, statsRes, achievementsRes, profileRes] = await Promise.all([
-        api.get('/applications?limit=10'),
-        api.get('/jobs/recommended?limit=6'),
-        api.get('/events?upcoming=true&limit=5'),
-        api.get('/applications/stats'),
-        api.get('/achievements?limit=5'),
-        api.get('/users/profile') // Fetch complete profile data
-      ]);
-
-      console.log('Dashboard: Profile API response:', profileRes);
-
-      // Use the complete profile data from the API
-      let profile = profileRes.user || profileRes.data || profileRes;
-      console.log('Dashboard: Extracted profile data:', profile);
-
-      // Ensure we have the correct profile structure
-      if (!profile && profileRes.user) {
-        console.log('Dashboard: Using profileRes.user instead');
-        profile = profileRes.user;
-      }
-
-      const profileCompletion = calculateProfileCompletion(profile);
-      console.log('Dashboard: Calculated profile completion:', profileCompletion);
-
-      setDashboardData({
-        applications: applicationsRes.applications || [],
-        recommendedJobs: jobsRes.jobs || [],
-        upcomingEvents: eventsRes.events || [],
-        achievements: achievementsRes.achievements || [],
-        profile: profile, // Use complete profile data
-        stats: {
-          totalApplications: Array.isArray(statsRes.stats?.byStatus) ? statsRes.stats.byStatus.reduce((sum, stat) => sum + (parseInt(stat.count) || 0), 0) : 0,
-          activeApplications: Array.isArray(statsRes.stats?.byStatus) ? statsRes.stats.byStatus.filter(s =>
-            s && s.status && ['applied', 'screening', 'shortlisted', 'interviewed'].includes(s.status)
-          ).reduce((sum, stat) => sum + (parseInt(stat.count) || 0), 0) : 0,
-          interviewsScheduled: Array.isArray(statsRes.stats?.byStatus) ? parseInt(statsRes.stats.byStatus.find(s => s && s.status === 'interviewed')?.count) || 0 : 0,
-          offers: Array.isArray(statsRes.stats?.byStatus) ? parseInt(statsRes.stats.byStatus.find(s => s && s.status === 'selected')?.count) || 0 : 0,
-          profileCompletion,
-          skillsCount: Array.isArray(profile?.studentProfile?.skills) ? profile.studentProfile.skills.length : 0,
-          achievementsCount: Array.isArray(achievementsRes.achievements) ? achievementsRes.achievements.length : 0
-        }
-      });
-
-      console.log('Dashboard: Final dashboard data:', {
-        profileCompletion,
-        profile: profile,
-        stats: {
-          profileCompletion,
-          skillsCount: Array.isArray(profile?.studentProfile?.skills) ? profile.studentProfile.skills.length : 0,
-          achievementsCount: Array.isArray(achievementsRes.achievements) ? achievementsRes.achievements.length : 0
-        }
-      });
-
-    } catch (error) {
-      console.error('Dashboard: Failed to fetch dashboard data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const calculateProfileCompletion = (profile) => {
-    console.log('Dashboard: calculateProfileCompletion called with profile:', profile);
-
-    if (!profile) {
-      console.log('Dashboard: No profile data available for completion calculation');
-      return 0;
-    }
-
-    // Use the EXACT same logic as Profile.js
-    const requiredFields = [
-      'firstName', 'lastName', 'email', 'phone'
-    ];
-
-    const studentFields = [
-      'course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'
-    ];
-
-    let totalFields = requiredFields.length;
-    let completedFields = 0;
-
-    console.log('Dashboard: Checking required fields:', requiredFields);
-
-    // Check basic fields
-    requiredFields.forEach(field => {
-      const value = profile[field];
-      const isCompleted = !!value;
-      console.log(`Dashboard: Field ${field}: "${value}" - Completed: ${isCompleted}`);
-      if (isCompleted) completedFields++;
-    });
-
-    console.log('Dashboard: Basic fields completed:', completedFields, 'out of', totalFields);
-
-    // Check student specific fields
-    if (user && user.role === 'student' && profile.studentProfile) {
-      console.log('Dashboard: Checking student fields:', studentFields);
-      console.log('Dashboard: Student profile data:', profile.studentProfile);
-
-      totalFields += studentFields.length;
-      studentFields.forEach(field => {
-        const value = profile.studentProfile[field];
-        const isCompleted = value && (Array.isArray(value) ? value.length > 0 : true);
-        console.log(`Dashboard: Student field ${field}: "${value}" - Completed: ${isCompleted}`);
-        if (isCompleted) completedFields++;
-      });
-    } else {
-      console.log('Dashboard: User role is not student or no studentProfile:', {
-        userRole: user?.role,
-        hasStudentProfile: !!profile.studentProfile
-      });
-    }
-
-    const completion = totalFields > 0 ? Math.round((completedFields / totalFields) * 100) : 0;
-    console.log(`Dashboard: Final calculation: ${completedFields}/${totalFields} = ${completion}%`);
-
-    // Also calculate using the same method as Profile.js for comparison
-    const profilePageCalculation = calculateProfileCompletionLikeProfilePage(profile);
-    console.log(`Dashboard: Profile page calculation: ${profilePageCalculation}%`);
-
-    return completion;
-  };
-
-  // Duplicate the exact logic from Profile.js for comparison
-  const calculateProfileCompletionLikeProfilePage = (profile) => {
-    if (!profile) return 0;
-
-    const requiredFields = [
-      'firstName', 'lastName', 'email', 'phone'
-    ];
-
-    const studentFields = [
-      'course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'
-    ];
-
-    let totalFields = requiredFields.length;
-    let completedFields = 0;
-
-    // Check basic fields
-    requiredFields.forEach(field => {
-      if (profile[field]) completedFields++;
-    });
-
-    // Check student specific fields
-    if (user && user.role === 'student' && profile.studentProfile) {
-      totalFields += studentFields.length;
-      studentFields.forEach(field => {
-        const value = profile.studentProfile[field];
-        if (value && (Array.isArray(value) ? value.length > 0 : true)) {
-          completedFields++;
-        }
-      });
-    }
-
-    return totalFields > 0 ? Math.round((completedFields / totalFields) * 100) : 0;
-  };
-
-  const getStatusColor = (status) => {
-    if (!status) return 'text-gray-600 bg-gray-100';
-
-    const colors = {
-      applied: 'text-blue-600 bg-blue-100',
-      screening: 'text-yellow-600 bg-yellow-100',
-      shortlisted: 'text-purple-600 bg-purple-100',
-      interviewed: 'text-orange-600 bg-orange-100',
-      selected: 'text-green-600 bg-green-100',
-      rejected: 'text-red-600 bg-red-100',
-      withdrawn: 'text-gray-600 bg-gray-100'
+  const stats = useMemo(() => {
+    const rows = data.statsRows;
+    return {
+      totalApplications: sumByStatus(rows),
+      activeApplications: sumByStatus(rows, IN_PROGRESS),
+      interviewed: sumByStatus(rows, ['interviewed']),
+      offers: sumByStatus(rows, ['selected']),
+      profileCompletion: calculateProfileCompletion(data.profile, user?.role),
+      skillsCount: Array.isArray(data.profile?.studentProfile?.skills)
+        ? data.profile.studentProfile.skills.length
+        : 0,
+      achievementsCount: data.achievements.length
     };
-    return colors[status] || 'text-gray-600 bg-gray-100';
-  };
+  }, [data, user?.role]);
 
-  const getStatusIcon = (status) => {
-    if (!status) return <DocumentTextIcon className="h-4 w-4" />;
+  const complete = stats.profileCompletion === 100;
 
-    switch (status) {
-      case 'applied': return <DocumentTextIcon className="h-4 w-4" />;
-      case 'screening': return <ClockIcon className="h-4 w-4" />;
-      case 'shortlisted': return <StarIcon className="h-4 w-4" />;
-      case 'interviewed': return <UserGroupIcon className="h-4 w-4" />;
-      case 'selected': return <CheckCircleIcon className="h-4 w-4" />;
-      case 'rejected': return <ExclamationTriangleIcon className="h-4 w-4" />;
-      default: return <DocumentTextIcon className="h-4 w-4" />;
-    }
-  };
-
-  const StatCard = ({ title, value, icon: Icon, color = "blue", subtitle, trend }) => {
-    const colorClasses = {
-      blue: "text-blue-600",
-      green: "text-green-600",
-      orange: "text-orange-600",
-      purple: "text-purple-600"
-    };
-
+  if (allFailed) {
     return (
-      <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow">
-        <div className="p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <Icon className={`h-6 w-6 ${colorClasses[color] || colorClasses.blue}`} />
-            </div>
-            <div className="ml-5 w-0 flex-1">
-              <dl>
-                <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-                <dd className="text-lg font-medium text-gray-900">{value}</dd>
-                {subtitle && (
-                  <dd className="text-sm text-gray-600">{subtitle}</dd>
-                )}
-                {trend && (
-                  <dd className={`text-sm ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {trend > 0 ? '↗' : '↘'} {Math.abs(trend)}% from last month
-                  </dd>
-                )}
-              </dl>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="large" />
-      </div>
+      <PageShell width="wide">
+        <PageHeader eyebrow="Student" title="Dashboard" />
+        <ErrorState
+          title="Could not load your dashboard"
+          description="None of the dashboard panels responded. Check your connection and try again."
+          onRetry={load}
+        />
+      </PageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Welcome back, {user?.firstName || 'Student'}! 👋
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Here's what's happening with your job search and career development
-              </p>
-            </div>
-            <div className="flex space-x-3">
-              <Link
-                to="/profile"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+    <PageShell width="wide">
+      <PageHeader
+        eyebrow="Student"
+        title={`Welcome back, ${user?.firstName || 'student'}`}
+        lead="Your applications, recommended roles and upcoming campus events."
+        actions={
+          <>
+            <Button as={Link} to="/profile" variant="secondary" icon={AcademicCapIcon}>
+              Edit profile
+            </Button>
+            <Button as={Link} to="/jobs" icon={PlusIcon}>
+              Browse jobs
+            </Button>
+          </>
+        }
+      />
+
+      {/* Profile completion. Only meaningful once the profile actually loaded —
+          a failed /users/profile reads as 0% and would nag for no reason. */}
+      {!loading && data.profile && (
+        <Card className={cx('mb-8', complete && 'border-india-600/30 bg-india-50')}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <span
+                aria-hidden="true"
+                className={cx(
+                  'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
+                  complete
+                    ? 'border-india-600/30 bg-white text-india-700'
+                    : 'border-ink-950/15 bg-bone-100 text-ink-700'
+                )}
               >
-                <AcademicCapIcon className="h-4 w-4 mr-2" />
-                Edit Profile
-              </Link>
-              <Link
-                to="/jobs"
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Browse Jobs
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* Profile Completion Alert */}
-        {dashboardData.stats.profileCompletion < 100 && dashboardData.stats.profileCompletion < 80 && dashboardData.stats.profileCompletion > 0 && (
-          <div className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <AcademicCapIcon className="h-8 w-8 text-blue-600" />
-              </div>
-              <div className="ml-4 flex-1">
-                <h3 className="text-lg font-medium text-blue-800">
-                  Complete your profile to get better opportunities
-                </h3>
-                <div className="mt-2">
-                  <div className="flex items-center justify-between text-sm text-blue-700">
-                    <span>Profile completion</span>
-                    <span className="font-medium">{dashboardData.stats.profileCompletion || 0}%</span>
-                  </div>
-                  <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${dashboardData.stats.profileCompletion}%` }}
-                    ></div>
-                  </div>
-                </div>
-                <p className="mt-2 text-sm text-blue-700">
-                  Add your academic details, skills, and achievements to increase your chances of being discovered by recruiters.
-                </p>
-                <div className="mt-4">
-                  <Link
-                    to="/profile"
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-                  >
-                    Complete Profile
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {dashboardData.stats.profileCompletion === 100 && (
-          <div className="mb-8 bg-green-50 border border-green-200 rounded-lg p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <CheckCircleIcon className="h-8 w-8 text-green-600" />
-              </div>
-              <div className="ml-4 flex-1">
-                <h3 className="text-lg font-medium text-green-800">
-                  Your profile is complete!
-                </h3>
-                <p className="mt-2 text-sm text-green-700">
-                  You've completed all the required fields. Keep up the good work!
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-          <StatCard
-            title="Total Applications"
-            value={dashboardData.stats.totalApplications || 0}
-            icon={DocumentTextIcon}
-            color="blue"
-            subtitle="Across all jobs"
-          />
-          <StatCard
-            title="Active Applications"
-            value={dashboardData.stats.activeApplications || 0}
-            icon={BriefcaseIcon}
-            color="green"
-            subtitle="In progress"
-          />
-          <StatCard
-            title="Interviews Scheduled"
-            value={dashboardData.stats.interviewsScheduled || 0}
-            icon={CalendarIcon}
-            color="orange"
-            subtitle="Upcoming"
-          />
-          <StatCard
-            title="Offers Received"
-            value={dashboardData.stats.offers || 0}
-            icon={StarIcon}
-            color="purple"
-            subtitle="Congratulations!"
-          />
-        </div>
-
-        {/* Tabs */}
-        <div className="mb-6">
-          <nav className="flex space-x-8">
-            {[
-              { id: 'overview', name: 'Overview', icon: ChartBarIcon },
-              { id: 'applications', name: 'Applications', icon: DocumentTextIcon },
-              { id: 'opportunities', name: 'Opportunities', icon: BriefcaseIcon },
-              { id: 'events', name: 'Events', icon: CalendarIcon }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${activeTab === tab.id
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-              >
-                <tab.icon className="h-4 w-4 mr-2" />
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Recent Applications */}
-            <div className="lg:col-span-2">
-              <div className="bg-white shadow rounded-lg">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-medium text-gray-900">Recent Applications</h2>
-                    <Link
-                      to="/applications"
-                      className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-                    >
-                      View all
-                    </Link>
-                  </div>
-                </div>
-                <div className="divide-y divide-gray-200">
-                  {Array.isArray(dashboardData.applications) && dashboardData.applications.length > 0 ? (
-                    (Array.isArray(dashboardData.applications) ? dashboardData.applications.slice(0, 5) : []).map((application) => (
-                      <div key={application?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h3 className="text-sm font-medium text-gray-900">
-                              {application.job?.title || 'Job title unavailable'}
-                            </h3>
-                            <div className="flex items-center text-sm text-gray-600 mt-1">
-                              <BuildingOfficeIcon className="h-4 w-4 mr-1" />
-                              {application.job?.organization?.name || 'Organization unavailable'}
-                            </div>
-                            <div className="flex items-center text-sm text-gray-500 mt-1">
-                              <MapPinIcon className="h-4 w-4 mr-1" />
-                              {application.job?.location || 'Location unavailable'}
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">
-                              Applied {(() => {
-                                try {
-                                  return new Date(application.appliedAt).toLocaleDateString();
-                                } catch (error) {
-                                  return 'Date unavailable';
-                                }
-                              })()}
-                            </p>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
-                              {getStatusIcon(application.status)}
-                              <span className="ml-1">{application.status ? application.status.replace('_', ' ') : 'Unknown'}</span>
-                            </span>
-                            <Link
-                              to={`/applications/${application?.id || '#'}`}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <EyeIcon className="h-5 w-5" />
-                            </Link>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-6 py-8 text-center">
-                      <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
-                      <h3 className="mt-2 text-sm font-medium text-gray-900">No applications yet</h3>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Start by browsing available jobs and applying to ones that interest you.
-                      </p>
-                      <div className="mt-6">
-                        <Link
-                          to="/jobs"
-                          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-                        >
-                          <PlusIcon className="-ml-1 mr-2 h-5 w-5" />
-                          Browse Jobs
-                        </Link>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Right Sidebar */}
-            <div className="space-y-6">
-              {/* Profile Summary */}
-              <div className="bg-white shadow rounded-lg">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-medium text-gray-900">Profile Summary</h2>
-                </div>
-                <div className="p-6 space-y-4">
-                  {dashboardData.stats.profileCompletion === 100 ? (
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <CheckCircleIcon className="h-5 w-5 text-green-600" />
-                      </div>
-                      <div className="ml-3">
-                        <span className="text-sm font-medium text-green-800">Profile Completed!</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Completion</span>
-                        <span className="text-sm font-medium text-gray-900">{dashboardData.stats.profileCompletion || 0}%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${dashboardData.stats.profileCompletion || 0}%` }}
-                        ></div>
-                      </div>
-                    </>
-                  )}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Skills:</span>
-                      <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.skillsCount || 0}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Achievements:</span>
-                      <span className="ml-2 font-medium text-gray-900">{dashboardData.stats.achievementsCount || 0}</span>
-                    </div>
-                  </div>
-                  <Link
-                    to="/profile"
-                    className="block w-full text-center px-3 py-2 border border-blue-300 text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100"
-                  >
-                    {dashboardData.stats.profileCompletion === 100 ? 'View Profile' : 'Update Profile'}
-                  </Link>
-                </div>
-              </div>
-
-              {/* Quick Actions */}
-              <div className="bg-white shadow rounded-lg">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-medium text-gray-900">Quick Actions</h2>
-                </div>
-                <div className="p-6 space-y-3">
-                  <Link
-                    to="/resume"
-                    className="flex items-center p-3 text-sm text-gray-700 rounded-lg border hover:bg-gray-50"
-                  >
-                    <DocumentTextIcon className="h-5 w-5 text-gray-400 mr-3" />
-                    Update Resume
-                  </Link>
-                  <Link
-                    to="/jobs"
-                    className="flex items-center p-3 text-sm text-gray-700 rounded-lg border hover:bg-gray-50"
-                  >
-                    <BriefcaseIcon className="h-5 w-5 text-gray-400 mr-3" />
-                    Browse Jobs
-                  </Link>
-                  <Link
-                    to="/events"
-                    className="flex items-center p-3 text-sm text-gray-700 rounded-lg border hover:bg-gray-50"
-                  >
-                    <CalendarIcon className="h-5 w-5 text-gray-400 mr-3" />
-                    View Events
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'applications' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900">All Applications</h2>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {Array.isArray(dashboardData.applications) && dashboardData.applications.length > 0 ? (
-                dashboardData.applications.map((application) => (
-                  <div key={application?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-sm font-medium text-gray-900">
-                          {application.job?.title || 'Job title unavailable'}
-                        </h3>
-                        <div className="flex items-center text-sm text-gray-600 mt-1">
-                          <BuildingOfficeIcon className="h-4 w-4 mr-1" />
-                          {application.job?.organization?.name || 'Organization unavailable'}
-                        </div>
-                        <div className="flex items-center text-sm text-gray-500 mt-1">
-                          <MapPinIcon className="h-4 w-4 mr-1" />
-                          {application.job?.location || 'Location unavailable'}
-                        </div>
-                        <p className="text-xs text-gray-500 mt-2">
-                          Applied {(() => {
-                            try {
-                              return new Date(application.appliedAt).toLocaleDateString();
-                            } catch (error) {
-                              return 'Date unavailable';
-                            }
-                          })()}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
-                          {getStatusIcon(application.status)}
-                          <span className="ml-1">{application.status ? application.status.replace('_', ' ') : 'Unknown'}</span>
-                        </span>
-                        <Link
-                          to={`/applications/${application?.id || '#'}`}
-                          className="text-gray-400 hover:text-gray-600"
-                        >
-                          <EyeIcon className="h-5 w-5" />
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-6 py-8 text-center">
-                  <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No applications yet</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Start by browsing available jobs and applying to ones that interest you.
-                  </p>
-                  <div className="mt-6">
-                    <Link
-                      to="/jobs"
-                      className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-                    >
-                      <PlusIcon className="-ml-1 mr-2 h-5 w-5" />
-                      Browse Jobs
-                    </Link>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'opportunities' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recommended Jobs */}
-            <div className="bg-white shadow rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="text-lg font-medium text-gray-900">Recommended Jobs</h2>
-              </div>
-              <div className="divide-y divide-gray-200">
-                {Array.isArray(dashboardData.recommendedJobs) && dashboardData.recommendedJobs.length > 0 ? (
-                  dashboardData.recommendedJobs.map((job) => (
-                    <div key={job?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
-                      <div className="flex justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-sm font-medium text-gray-900 mb-1">
-                            {job.title || 'Job title unavailable'}
-                          </h3>
-                          <p className="text-xs text-gray-600 mb-2">
-                            {job.organization?.name || 'Organization unavailable'}
-                          </p>
-                          <div className="flex items-center text-xs text-gray-500">
-                            <MapPinIcon className="h-4 w-4 mr-1" />
-                            <span>{job.location || 'Location unavailable'}</span>
-                            {job.matchScore && !isNaN(job.matchScore) && (
-                              <span className="ml-2 text-green-600 font-medium">
-                                {Math.round(job.matchScore)}% match
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <Link
-                          to={`/jobs/${job?.id || '#'}`}
-                          className="text-blue-600 hover:text-blue-500 text-xs font-medium"
-                        >
-                          View
-                        </Link>
-                      </div>
-                    </div>
-                  ))
+                {complete ? (
+                  <CheckCircleIcon className="h-5 w-5" strokeWidth={1.8} />
                 ) : (
-                  <div className="px-6 py-4 text-center text-sm text-gray-500">
-                    Complete your profile to get personalized job recommendations
+                  <AcademicCapIcon className="h-5 w-5" strokeWidth={1.8} />
+                )}
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-display text-base font-bold text-ink-950">
+                  {complete ? 'Your profile is complete' : 'Complete your profile'}
+                </h2>
+                <p className="mt-1 text-sm text-ink-600">
+                  {complete
+                    ? 'Recruiters can see everything they need to shortlist you.'
+                    : 'Academic details, skills and achievements make you discoverable to recruiters.'}
+                </p>
+                {!complete && (
+                  <div className="mt-3 max-w-sm">
+                    <div className="mb-1.5 flex items-center justify-between text-xs text-ink-600">
+                      <span>Completion</span>
+                      <span className="font-mono font-semibold tabular-nums text-ink-950">
+                        {stats.profileCompletion}%
+                      </span>
+                    </div>
+                    <ProgressBar value={stats.profileCompletion} label="Profile completion" />
                   </div>
                 )}
               </div>
-              <div className="px-6 py-3 bg-gray-50">
-                <Link
-                  to="/jobs"
-                  className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-                >
-                  View all jobs →
-                </Link>
-              </div>
             </div>
-
-            {/* Recent Achievements */}
-            <div className="bg-white shadow rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="text-lg font-medium text-gray-900">Recent Achievements</h2>
-              </div>
-              <div className="divide-y divide-gray-200">
-                {Array.isArray(dashboardData.achievements) && dashboardData.achievements.length > 0 ? (
-                  dashboardData.achievements.map((achievement) => (
-                    <div key={achievement?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
-                      <h3 className="text-sm font-medium text-gray-900 mb-1">
-                        {achievement.title || 'Achievement title unavailable'}
-                      </h3>
-                      <p className="text-xs text-gray-600 mb-1">
-                        {achievement.issuingOrganization || 'Organization unavailable'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {achievement.issueDate && (() => {
-                          try {
-                            return new Date(achievement.issueDate).toLocaleDateString();
-                          } catch (error) {
-                            return 'Date unavailable';
-                          }
-                        })()}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="px-6 py-4 text-center text-sm text-gray-500">
-                    No achievements yet
-                  </div>
-                )}
-              </div>
-              <div className="px-6 py-3 bg-gray-50">
-                <Link
-                  to="/profile"
-                  className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-                >
-                  Add achievements →
-                </Link>
-              </div>
-            </div>
+            <Button as={Link} to="/profile" variant={complete ? 'secondary' : 'saffron'}>
+              {complete ? 'View profile' : 'Complete profile'}
+            </Button>
           </div>
-        )}
+        </Card>
+      )}
 
-        {activeTab === 'events' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900">Upcoming Events</h2>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {Array.isArray(dashboardData.upcomingEvents) && dashboardData.upcomingEvents.length > 0 ? (
-                dashboardData.upcomingEvents.map((event) => (
-                  <div key={event?.id || Math.random()} className="px-6 py-4 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-sm font-medium text-gray-900 mb-1">
-                          {event.title || 'Event title unavailable'}
-                        </h3>
-                        <p className="text-xs text-gray-600 mb-1">
-                          {event.organization?.name || 'Organization unavailable'}
-                        </p>
-                        <div className="flex items-center text-xs text-gray-500">
-                          <CalendarIcon className="h-4 w-4 mr-1" />
-                          <span>{(() => {
-                            try {
-                              return `${new Date(event.startTime).toLocaleDateString()} at ${new Date(event.startTime).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}`;
-                            } catch (error) {
-                              return 'Date unavailable';
-                            }
-                          })()}</span>
-                        </div>
-                        {event.location && (
-                          <div className="flex items-center text-xs text-gray-500 mt-1">
-                            <MapPinIcon className="h-4 w-4 mr-1" />
-                            <span>{event.location}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        <span className="text-xs text-gray-500">
-                          {event.registrationCount && !isNaN(event.registrationCount) ? event.registrationCount : 0} registered
-                        </span>
-                        <Link
-                          to={`/events/${event?.id || '#'}`}
-                          className="text-blue-600 hover:text-blue-500 text-xs font-medium"
-                        >
-                          View
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-6 py-8 text-center">
-                  <CalendarIcon className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No upcoming events</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Check back later for new events and opportunities.
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-3 bg-gray-50">
-              <Link
-                to="/events"
-                className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-              >
-                View all events →
-              </Link>
-            </div>
-          </div>
-        )}
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Total applications"
+          value={stats.totalApplications}
+          hint="Across all jobs"
+          icon={DocumentTextIcon}
+          to="/applications"
+          loading={loading}
+        />
+        <StatTile
+          label="In progress"
+          value={stats.activeApplications}
+          hint="Not yet decided"
+          icon={BriefcaseIcon}
+          accent="saffron"
+          to="/applications"
+          loading={loading}
+        />
+        <StatTile
+          label="Interviewed"
+          value={stats.interviewed}
+          hint="Reached the interview stage"
+          icon={UserGroupIcon}
+          accent="azure"
+          to="/applications"
+          loading={loading}
+        />
+        <StatTile
+          label="Offers"
+          value={stats.offers}
+          hint="Applications marked selected"
+          icon={StarIcon}
+          accent="india"
+          to="/applications"
+          loading={loading}
+        />
       </div>
-    </div>
+
+      <Tabs className="mb-6 w-fit max-w-full" tabs={TABS} value={tab} onChange={setTab} />
+
+      {loading && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <SkeletonCard className="lg:col-span-2" lines={5} />
+          <SkeletonCard lines={4} />
+        </div>
+      )}
+
+      {!loading && tab === 'overview' && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <Card padded={false}>
+              <div className="px-5 py-4 sm:px-6">
+                <CardHeader
+                  title="Recent applications"
+                  actions={
+                    <Button as={Link} to="/applications" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                      View all
+                    </Button>
+                  }
+                />
+              </div>
+              {data.applications.length > 0 ? (
+                <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+                  {data.applications.slice(0, 5).map((a) => (
+                    <ApplicationRow key={a.id} application={a} />
+                  ))}
+                </ul>
+              ) : (
+                <div className="border-t border-ink-950/10 p-5 sm:p-6">
+                  <NoApplications />
+                </div>
+              )}
+            </Card>
+          </div>
+
+          <div className="space-y-6">
+            <Card>
+              <CardHeader title="Profile summary" />
+              <dl className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <dt className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                    Skills
+                  </dt>
+                  <dd className="mt-1 font-display text-2xl font-bold tabular-nums text-ink-950">
+                    {stats.skillsCount}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                    Achievements
+                  </dt>
+                  <dd className="mt-1 font-display text-2xl font-bold tabular-nums text-ink-950">
+                    {stats.achievementsCount}
+                  </dd>
+                </div>
+              </dl>
+              <Button as={Link} to="/profile" variant="secondary" fullWidth className="mt-5">
+                {complete ? 'View profile' : 'Update profile'}
+              </Button>
+            </Card>
+
+            <Card>
+              <CardHeader title="Quick actions" />
+              <div className="mt-4 space-y-2">
+                {[
+                  { to: '/resume', label: 'Update resume', icon: DocumentTextIcon },
+                  { to: '/jobs', label: 'Browse jobs', icon: BriefcaseIcon },
+                  { to: '/events', label: 'View events', icon: CalendarIcon }
+                ].map((action) => (
+                  <Link
+                    key={action.to}
+                    to={action.to}
+                    className="flex items-center gap-3 rounded-xl border border-ink-950/15 px-4 py-3 text-sm font-medium text-ink-800 transition-colors hover:border-ink-950/40 hover:bg-bone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                  >
+                    <action.icon aria-hidden="true" className="h-5 w-5 shrink-0 text-ink-600" strokeWidth={1.8} />
+                    {action.label}
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {!loading && tab === 'applications' && (
+        <Card padded={false}>
+          <div className="px-5 py-4 sm:px-6">
+            <CardHeader title="All applications" description="Your ten most recent applications." />
+          </div>
+          {data.applications.length > 0 ? (
+            <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+              {data.applications.map((a) => (
+                <ApplicationRow key={a.id} application={a} />
+              ))}
+            </ul>
+          ) : (
+            <div className="border-t border-ink-950/10 p-5 sm:p-6">
+              <NoApplications />
+            </div>
+          )}
+        </Card>
+      )}
+
+      {!loading && tab === 'opportunities' && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card padded={false}>
+            <div className="px-5 py-4 sm:px-6">
+              <CardHeader
+                title="Recommended jobs"
+                description="Ranked by how your skills, CGPA and branch line up with the posting."
+                actions={
+                  <Button as={Link} to="/jobs" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                    All jobs
+                  </Button>
+                }
+              />
+            </div>
+            {data.recommendedJobs.length > 0 ? (
+              <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+                {data.recommendedJobs.map((job) => (
+                  <li
+                    key={job.id}
+                    className="flex items-start justify-between gap-3 px-5 py-4 transition-colors hover:bg-bone-50 sm:px-6"
+                  >
+                    <div className="min-w-0">
+                      <h3 className="font-display text-sm font-bold text-ink-950">
+                        {job.title || 'Job title unavailable'}
+                      </h3>
+                      <p className="mt-1 text-xs text-ink-600">
+                        {job.organization?.name || 'Organization unavailable'}
+                      </p>
+                      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+                        <span className="flex items-center gap-1.5">
+                          <MapPinIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                          {job.location || 'Location unavailable'}
+                        </span>
+                        {/* The API's matchScore is an unbounded points total
+                            (10 per matching skill, plus eligibility bonuses),
+                            not a percentage — never render it with a % sign. */}
+                        {Number.isFinite(Number(job.matchScore)) && Number(job.matchScore) > 0 && (
+                          <span className="font-mono font-semibold text-india-700">
+                            match score {Math.round(job.matchScore)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <Button as={Link} to={`/jobs/${job.id}`} size="sm" variant="secondary">
+                      View
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="border-t border-ink-950/10 p-5 sm:p-6">
+                <EmptyState
+                  icon={BriefcaseIcon}
+                  title="No recommendations yet"
+                  description="Add your course, branch and skills so we can match you against open roles."
+                  action={
+                    <Button as={Link} to="/profile" variant="secondary">
+                      Complete profile
+                    </Button>
+                  }
+                />
+              </div>
+            )}
+          </Card>
+
+          <Card padded={false}>
+            <div className="px-5 py-4 sm:px-6">
+              <CardHeader
+                title="Recent achievements"
+                actions={
+                  <Button as={Link} to="/profile" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                    Add
+                  </Button>
+                }
+              />
+            </div>
+            {data.achievements.length > 0 ? (
+              <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+                {data.achievements.map((achievement) => (
+                  <li key={achievement.id} className="px-5 py-4 sm:px-6">
+                    <h3 className="font-display text-sm font-bold text-ink-950">
+                      {achievement.title || 'Achievement title unavailable'}
+                    </h3>
+                    <p className="mt-1 text-xs text-ink-600">
+                      {achievement.issuingOrganization || 'Organization unavailable'}
+                    </p>
+                    {formatDate(achievement.issueDate) && (
+                      <p className="mt-1 text-xs text-ink-500">{formatDate(achievement.issueDate)}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="border-t border-ink-950/10 p-5 sm:p-6">
+                <EmptyState
+                  icon={TrophyIcon}
+                  title="No achievements yet"
+                  description="Certifications, awards and competition results all count."
+                  action={
+                    <Button as={Link} to="/profile" variant="secondary">
+                      Add an achievement
+                    </Button>
+                  }
+                />
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {!loading && tab === 'events' && (
+        <Card padded={false}>
+          <div className="px-5 py-4 sm:px-6">
+            <CardHeader
+              title="Upcoming events"
+              actions={
+                <Button as={Link} to="/events" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                  All events
+                </Button>
+              }
+            />
+          </div>
+          {data.upcomingEvents.length > 0 ? (
+            <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+              {data.upcomingEvents.map((event) => (
+                <li
+                  key={event.id}
+                  className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors hover:bg-bone-50 sm:px-6"
+                >
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm font-bold text-ink-950">
+                      {event.title || 'Event title unavailable'}
+                    </h3>
+                    <p className="mt-1 text-xs text-ink-600">
+                      {event.organization?.name || 'Organization unavailable'}
+                    </p>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-500">
+                      <CalendarIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                      {formatDateTime(event.startTime) || 'Date unavailable'}
+                    </p>
+                    {event.location && (
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-500">
+                        <MapPinIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                        {event.location}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-xs text-ink-500 tabular-nums">
+                      {Number(event.registrationCount) || 0} registered
+                    </span>
+                    <Button as={Link} to={`/events/${event.id}`} size="sm" variant="secondary">
+                      View
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="border-t border-ink-950/10 p-5 sm:p-6">
+              <EmptyState
+                icon={CalendarIcon}
+                title="No upcoming events"
+                description="Drives, workshops and talks scheduled by your institution show up here."
+                action={
+                  <Button as={Link} to="/events" variant="secondary">
+                    Browse all events
+                  </Button>
+                }
+              />
+            </div>
+          )}
+        </Card>
+      )}
+    </PageShell>
   );
 };
 

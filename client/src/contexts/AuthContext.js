@@ -54,19 +54,15 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = async () => {
     try {
-      console.log('Checking auth status...');
       const tokens = authService.getTokens();
-      console.log('Tokens from localStorage:', tokens);
       
       if (tokens && tokens.accessToken) {
         const user = await authService.getCurrentUser();
-        console.log('User from API:', user);
         dispatch({
           type: 'LOGIN_SUCCESS',
           payload: { user, tokens }
         });
       } else {
-        console.log('No valid tokens found');
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     } catch (error) {
@@ -81,9 +77,7 @@ export const AuthProvider = ({ children }) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       const response = await authService.login(email, password);
-      
-      console.log('Login response:', response);
-      
+
       dispatch({
         type: 'LOGIN_SUCCESS',
         payload: response
