@@ -1,8 +1,9 @@
 // server/src/controllers/jobController.js
-const { Job, Organization, User, Application, Assessment } = require('../models');
+const { Job, Organization, User, Application, Assessment, StudentProfile } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op, cast, col, where } = require('sequelize');
 const logger = require('../utils/logger');
+const { checkEligibility, describeEligibility } = require('../utils/eligibility');
 
 class JobController {
   async createJob(req, res, next) {
@@ -243,6 +244,19 @@ class JobController {
       const jobData = job.toJSON();
       jobData.userApplication = userApplication;
       jobData.applicationCount = job.applications ? job.applications.length : 0;
+
+      // Normalised criteria, plus — for a student — whether they actually meet
+      // them. Telling someone why they do not qualify before they apply is the
+      // whole point of publishing the criteria; previously the rules were only
+      // evaluated at submit time, as a rejection.
+      jobData.eligibility = describeEligibility(job.eligibilityCriteria);
+      if (req.user?.role === 'student') {
+        const studentProfile = await StudentProfile.findOne({ where: { userId: req.user.id } });
+        const { eligible, reasons } = checkEligibility(job.eligibilityCriteria, studentProfile);
+        jobData.eligibility.meetsCriteria = eligible;
+        jobData.eligibility.reasons = reasons;
+        jobData.eligibility.profileComplete = Boolean(studentProfile);
+      }
 
       // Count this as a view unless the viewer owns the posting — a recruiter
       // reloading their own job would otherwise inflate the number they are

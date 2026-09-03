@@ -4,6 +4,7 @@ const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
+const { checkEligibility } = require('../utils/eligibility');
 
 class ApplicationController {
   async submitApplication(req, res, next) {
@@ -58,33 +59,22 @@ class ApplicationController {
         });
       }
 
-      // Check eligibility
+      // Check eligibility.
+      //
+      // This used to read `minCGPA` / `allowedBranches` / `graduationYear`
+      // directly off the JSON, but every job created outside the posting form
+      // stores those keys in snake_case — so the criteria were saved, shown to
+      // students, and then never actually enforced. The graduation-year arm was
+      // additionally comparing a scalar against what is normally an array of
+      // accepted batches, so it could only ever have rejected everyone.
       const studentProfile = await StudentProfile.findOne({ where: { userId: studentId } });
-      if (studentProfile && job.eligibilityCriteria) {
-        const criteria = job.eligibilityCriteria;
-        
-        if (criteria.minCGPA && studentProfile.cgpa < criteria.minCGPA) {
-          return res.status(400).json({
-            error: 'Eligibility Criteria Not Met',
-            message: `Minimum CGPA requirement: ${criteria.minCGPA}`
-          });
-        }
-
-        if (criteria.allowedBranches && 
-            !criteria.allowedBranches.includes(studentProfile.branch)) {
-          return res.status(400).json({
-            error: 'Eligibility Criteria Not Met',
-            message: 'Your branch is not eligible for this position'
-          });
-        }
-
-        if (criteria.graduationYear && 
-            studentProfile.graduationYear !== criteria.graduationYear) {
-          return res.status(400).json({
-            error: 'Eligibility Criteria Not Met',
-            message: `This position is for ${criteria.graduationYear} graduates only`
-          });
-        }
+      const { eligible, reasons } = checkEligibility(job.eligibilityCriteria, studentProfile);
+      if (!eligible) {
+        return res.status(400).json({
+          error: 'Eligibility Criteria Not Met',
+          message: reasons[0],
+          reasons
+        });
       }
 
       // Enforce completed profile & generated resume before applying
