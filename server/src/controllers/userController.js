@@ -637,6 +637,26 @@ class UserController {
         distinct: true
       });
 
+      // Record which students were actually disclosed, not just that a search
+      // happened. Without the ids there is no way to answer "who looked at my
+      // record", which is the question a student actually has — and the one
+      // piece of the recruiter-scoping story that was missing.
+      if (req.user.role === 'recruiter') {
+        AuditLog.create({
+          userId: req.user.id,
+          action: 'recruiter_candidate_access',
+          entityType: 'user_list',
+          entityId: null,
+          newValues: {
+            endpoint: 'getTopCandidates',
+            studentIds: candidates.map((c) => c.id),
+            organizationId: organizationId ? parseInt(organizationId, 10) : null
+          },
+          ipAddress: req.ip || req.connection?.remoteAddress,
+          userAgent: req.get('user-agent')
+        }).catch(() => {});
+      }
+
       res.json({
         message: 'Top candidates retrieved successfully',
         candidates

@@ -11,6 +11,7 @@ import {
   Badge,
   Button,
   Card,
+  CardHeader,
   DetailRow,
   Divider,
   EmptyState,
@@ -33,6 +34,7 @@ import {
   TrashIcon,
   AcademicCapIcon,
   BriefcaseIcon,
+  ShieldCheckIcon,
   TrophyIcon,
   DocumentTextIcon,
   DocumentArrowDownIcon,
@@ -93,6 +95,9 @@ const Profile = () => {
   const { user, updateUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [achievements, setAchievements] = useState([]);
+  // Which organisations have actually seen this profile. Recruiter access is
+  // already scoped and already logged; this is the student's own view of it.
+  const [dataAccess, setDataAccess] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -356,6 +361,17 @@ const Profile = () => {
 
   const isStudentProfile = profile?.role === 'student';
 
+  useEffect(() => {
+    // Fetched only when the tab is opened: most visits never ask this, and it
+    // reads a broad slice of the audit table.
+    if (activeTab !== 'privacy' || dataAccess) return;
+    api
+      .get('/audit/my-data', { silent: true })
+      .then((res) => setDataAccess(res.entries || []))
+      .catch(() => setDataAccess([]));
+  }, [activeTab, dataAccess]);
+
+
   const tabs = useMemo(
     () => [
       { value: 'personal', label: 'Personal', icon: UserCircleIcon },
@@ -363,7 +379,8 @@ const Profile = () => {
         ? [
             { value: 'academic', label: 'Academic', icon: AcademicCapIcon },
             { value: 'achievements', label: 'Achievements', icon: TrophyIcon, count: achievements.length },
-            { value: 'resume', label: 'Resume', icon: DocumentTextIcon }
+            { value: 'resume', label: 'Resume', icon: DocumentTextIcon },
+            { value: 'privacy', label: 'Who saw my profile', icon: ShieldCheckIcon }
           ]
         : [])
     ],
@@ -887,6 +904,41 @@ const Profile = () => {
                 />
               )}
             </>
+          )}
+
+          {activeTab === 'privacy' && isStudentProfile && (
+            <Card>
+              <CardHeader
+                title="Who has seen your profile"
+                description="Recruiters only see students from institutions your placement cell has approved them for. Every time your profile is returned to one, it is recorded here."
+              />
+              {dataAccess === null ? (
+                <p className="mt-4 text-sm text-ink-500">Loading…</p>
+              ) : dataAccess.length === 0 ? (
+                <EmptyState
+                  icon={ShieldCheckIcon}
+                  title="No recruiter has seen your profile yet"
+                  description="When a company you are eligible for searches for candidates, that will show up here."
+                />
+              ) : (
+                <ul className="mt-4 divide-y divide-ink-950/10">
+                  {dataAccess.map((entry) => (
+                    <li key={entry.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink-950">{entry.organization}</p>
+                        <p className="text-sm text-ink-600">{entry.description}</p>
+                      </div>
+                      <time className="shrink-0 text-xs tabular-nums text-ink-500" dateTime={entry.at}>
+                        {new Date(entry.at).toLocaleString()}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-4 text-xs text-ink-500">
+                Showing the last 180 days. Companies are named rather than individual recruiters.
+              </p>
+            </Card>
           )}
 
           {activeTab === 'resume' && isStudentProfile && (

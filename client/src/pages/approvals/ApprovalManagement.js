@@ -31,6 +31,7 @@ import {
 } from '../../components/ui';
 import {
   BriefcaseIcon,
+  ClockIcon,
   BuildingOfficeIcon,
   UserGroupIcon,
   CheckCircleIcon,
@@ -61,6 +62,10 @@ const ApprovalManagement = () => {
   // postings were not, so this queue is the step between an approved company
   // and a listing reaching every eligible student.
   const [pendingJobs, setPendingJobs] = useState([]);
+  // The institution's activity trail. Written from several places already —
+  // approvals, posting decisions, bulk status changes, recruiter access — and
+  // until now never read back anywhere.
+  const [activity, setActivity] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -96,6 +101,16 @@ const ApprovalManagement = () => {
     if (isTpo) load();
     else setLoading(false);
   }, [isTpo, load]);
+
+  useEffect(() => {
+    // Only when the tab is opened — the queue is the point of this screen, and
+    // the trail is a much larger read.
+    if (tab !== 'activity' || activity) return;
+    api
+      .get('/audit', { params: { limit: 40 }, silent: true })
+      .then((res) => setActivity(res.entries || []))
+      .catch(() => setActivity([]));
+  }, [tab, activity]);
 
   const orgs = pending.organizations || [];
   const recruiters = pending.recruiters || [];
@@ -155,7 +170,8 @@ const ApprovalManagement = () => {
     () => [
       { value: 'organizations', label: 'Companies', icon: BuildingOfficeIcon, count: orgs.length },
       { value: 'recruiters', label: 'Recruiters', icon: UserGroupIcon, count: recruiters.length },
-      { value: 'postings', label: 'Job postings', icon: BriefcaseIcon, count: pendingJobs.length }
+      { value: 'postings', label: 'Job postings', icon: BriefcaseIcon, count: pendingJobs.length },
+      { value: 'activity', label: 'Activity', icon: ClockIcon }
     ],
     [orgs.length, recruiters.length, pendingJobs.length]
   );
@@ -429,6 +445,35 @@ const ApprovalManagement = () => {
                   </li>
                 ))}
               </ul>
+            ))}
+          {tab === 'activity' &&
+            (activity === null ? (
+              <p className="text-sm text-ink-500">Loading…</p>
+            ) : activity.length === 0 ? (
+              <EmptyState
+                icon={ClockIcon}
+                title="Nothing recorded yet"
+                description="Approvals, posting decisions, bulk status changes and recruiter access to student records all appear here."
+              />
+            ) : (
+              <Card>
+                <ul className="divide-y divide-ink-950/10">
+                  {activity.map((e) => (
+                    <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink-950">{e.description}</p>
+                        <p className="text-sm text-ink-600">
+                          {e.by ? `${e.by.name} · ${e.by.role}` : 'System'}
+                          {e.by?.organization ? ` · ${e.by.organization}` : ''}
+                        </p>
+                      </div>
+                      <time className="shrink-0 text-xs tabular-nums text-ink-500" dateTime={e.at}>
+                        {new Date(e.at).toLocaleString()}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
             ))}
         </>
       )}
