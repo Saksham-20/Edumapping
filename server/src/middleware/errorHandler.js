@@ -10,6 +10,21 @@ const errorHandler = (err, req, res, next) => {
     return next();
   }
 
+  // An expected rejection — a wrong password, a duplicate email, a request for
+  // something that is not there — is not a fault. Logging a full stack trace
+  // and a block of error detail for each one buries real failures in noise and,
+  // on the login endpoint, writes a stack to the log on every typo. These get a
+  // single line; anything unexpected still gets the full dump below.
+  if (err.expected) {
+    logger.warn('Request rejected', {
+      method: req.method,
+      path: req.path,
+      statusCode: err.status,
+      reason: err.message
+    });
+    return sendError(err, req, res);
+  }
+
   // Log full error details for debugging
   console.error('=== ERROR HANDLER ===');
   console.error('Error Name:', err.name);
@@ -193,11 +208,23 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // Default error
+  return sendError(err, req, res);
+};
+
+/**
+ * The default error response.
+ *
+ * Split out so an expected rejection can return the same body without first
+ * walking every Sequelize special case, none of which it can match.
+ */
+const sendError = (err, req, res) => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   res.status(err.status || 500).json({
     error: err.name || 'Internal Server Error',
     message: err.message || 'Something went wrong',
-    ...(isDevelopment && { 
+    // A stack on an expected rejection is noise even in development: the
+    // interesting part is the status and the message.
+    ...(isDevelopment && !err.expected && { 
       stack: err.stack,
       ...(err.parent && {
         parentMessage: err.parent.message,

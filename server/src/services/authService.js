@@ -1,4 +1,5 @@
 // server/src/services/authService.js
+const { httpError } = require('../utils/appError');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
@@ -72,7 +73,7 @@ class AuthService {
       const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
       return decoded;
     } catch (error) {
-      throw new Error('Invalid refresh token');
+      throw httpError(401, 'Invalid refresh token');
     }
   }
 
@@ -81,7 +82,7 @@ class AuthService {
       const { email, otp, password, role, organizationId, ...profileData } = userData;
       const normalizedEmail = email && email.trim().toLowerCase();
       if (!normalizedEmail) {
-        throw new Error('Email is required');
+        throw httpError(400, 'Email is required');
       }
       if (otp) {
         await this.verifyRegistrationOtp(normalizedEmail, otp);
@@ -91,36 +92,36 @@ class AuthService {
   // Check if user exists
   const existingUser = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
   if (existingUser) {
-    throw new Error('User already exists with this email');
+    throw httpError(409, 'User already exists with this email');
   }
 
   // Validate organization if provided
   if (organizationId) {
     const organization = await Organization.findByPk(organizationId);
     if (!organization) {
-      throw new Error('Invalid organization');
+      throw httpError(400, 'Invalid organization');
     }
     
     // Students: university, college, or school. TPOs: university or college. School roles: school only.
     if (role === 'student' && !['university', 'college', 'school'].includes(organization.type)) {
-      throw new Error('Students can only belong to university, college, or school organizations');
+      throw httpError(400, 'Students can only belong to university, college, or school organizations');
     }
     if (role === 'tpo' && organization.type !== 'university' && organization.type !== 'college') {
-      throw new Error('TPOs can only belong to university or college organizations');
+      throw httpError(400, 'TPOs can only belong to university or college organizations');
     }
     
     // Recruiters must belong to company organizations
     if (role === 'recruiter' && organization.type !== 'company') {
-      throw new Error('Recruiters can only belong to company organizations');
+      throw httpError(400, 'Recruiters can only belong to company organizations');
     }
     
     // School roles must belong to school organizations
     if ((role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') && organization.type !== 'school') {
-      throw new Error('School roles can only belong to school organizations');
+      throw httpError(400, 'School roles can only belong to school organizations');
     }
   } else if (role !== 'admin') {
     // Non-admin users must have an organization
-    throw new Error('Organization is required for this role');
+    throw httpError(400, 'Organization is required for this role');
   }
 
   // Hash password
@@ -172,7 +173,7 @@ class AuthService {
       if (createError.name === 'SequelizeDatabaseError' && 
           (createError.parent?.message?.includes('invalid input value for enum') ||
            createError.parent?.message?.includes('enum_users_role'))) {
-        throw new Error(`Invalid role "${role}". The database may need to be updated with the latest migrations. Please contact support.`);
+        throw httpError(400, `Invalid role "${role}". The database may need to be updated with the latest migrations. Please contact support.`);
       }
       throw createError;
     }
@@ -233,18 +234,43 @@ class AuthService {
     // number with spaces or hyphens matched neither. Comparing the digits
     // makes every spelling of the same number work regardless of how the row
     // happens to be stored.
-    const where = isEmail
-      ? { email: { [Op.iLike]: trimmed } }
-      : sequelizeWhere(
-          fn('regexp_replace', col('phone'), '[^0-9+]', '', 'g'),
-          trimmed.replace(/[^0-9+]/g, '')
-        );
-    return await User.findOne({
+    if (isEmail) {
+      return await User.findOne({
+        where: { email: { [Op.iLike]: trimmed } },
+        include: [{ model: Organization, as: 'organization' }]
+      });
+    }
+
+    const digits = trimmed.replace(/[^0-9]/g, '');
+    if (!digits) return null;
+
+    // Numbers are stored with a country code, but people type their own number
+    // without one — "9876543210" matched nothing while "+919876543210" signed
+    // in fine. When the identifier carries no "+", the digits are matched as a
+    // suffix so either spelling works.
+    //
+    // `phone` is not unique, and a suffix can in principle match more than one
+    // account across country codes. Logging somebody into whichever row came
+    // back first would be a serious failure, so an ambiguous match is treated
+    // as no match at all: an exact identifier still works, and nobody is signed
+    // in as the wrong person.
+    const normalized = fn('regexp_replace', col('phone'), '[^0-9]', '', 'g');
+    const where = trimmed.includes('+')
+      ? sequelizeWhere(normalized, digits)
+      : sequelizeWhere(normalized, { [Op.like]: `%${digits}` });
+
+    const matches = await User.findAll({
       where,
-      include: [
-        { model: Organization, as: 'organization' }
-      ]
+      include: [{ model: Organization, as: 'organization' }],
+      limit: 2
     });
+    if (matches.length !== 1) {
+      if (matches.length > 1) {
+        logger.warn('Ambiguous phone identifier at login', { matched: matches.length });
+      }
+      return null;
+    }
+    return matches[0];
   }
 
   async login(identifierOrEmail, password) {
@@ -263,24 +289,24 @@ class AuthService {
       });
 
       if (!user) {
-        throw new Error('Invalid credentials');
+        throw httpError(401, 'Invalid credentials');
       }
 
       // Check if user is active and approved
       if (!user.isActive) {
         if (user.approvalStatus === 'pending') {
-          throw new Error('Your account is pending approval. Please wait for TPO/Admin approval before logging in.');
+          throw httpError(403, 'Your account is pending approval. Please wait for TPO/Admin approval before logging in.');
         } else if (user.approvalStatus === 'rejected') {
-          throw new Error('Your account has been rejected. Please contact support for more information.');
+          throw httpError(403, 'Your account has been rejected. Please contact support for more information.');
         } else {
-          throw new Error('Your account has been disabled. Please contact support for more information.');
+          throw httpError(403, 'Your account has been disabled. Please contact support for more information.');
         }
       }
 
     // Verify password
     const isValidPassword = await this.comparePassword(password, user.passwordHash);
     if (!isValidPassword) {
-      throw new Error('Invalid credentials');
+      throw httpError(401, 'Invalid credentials');
     }
 
     // Update last login
@@ -309,7 +335,7 @@ class AuthService {
     
     const user = await User.findByPk(decoded.userId);
     if (!user || !user.isActive) {
-      throw new Error('User not found or inactive');
+      throw httpError(401, 'User not found or inactive');
     }
 
     return this.generateTokens(user.id);
@@ -324,7 +350,7 @@ class AuthService {
   async sendRegistrationOtp(email) {
     const normalizedEmail = email && email.trim().toLowerCase();
     if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new Error('Valid email is required');
+      throw httpError(400, 'Valid email is required');
     }
     const existingUser = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
     if (existingUser) {
@@ -350,7 +376,7 @@ class AuthService {
   async verifyRegistrationOtp(email, otp) {
     const normalizedEmail = email && email.trim().toLowerCase();
     if (!normalizedEmail || !otp || String(otp).length !== OTP_LENGTH) {
-      throw new Error('Invalid email or OTP');
+      throw httpError(400, 'Invalid email or OTP');
     }
     const row = await OtpVerification.findOne({
       where: {
@@ -362,7 +388,7 @@ class AuthService {
       order: [['createdAt', 'DESC']]
     });
     if (!row || !(await this._verifyOtp(String(otp).trim(), row.otpHash))) {
-      throw new Error('Invalid or expired OTP');
+      throw httpError(400, 'Invalid or expired OTP');
     }
     await row.update({ usedAt: new Date() });
     return { verified: true, email: normalizedEmail };
@@ -371,7 +397,7 @@ class AuthService {
   async sendForgotPasswordOtp(email) {
     const normalizedEmail = email && email.trim().toLowerCase();
     if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new Error('Valid email is required');
+      throw httpError(400, 'Valid email is required');
     }
     const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
     if (!user) {
@@ -397,10 +423,10 @@ class AuthService {
   async resetPasswordWithOtp(email, otp, newPassword) {
     const normalizedEmail = email && email.trim().toLowerCase();
     if (!normalizedEmail || !otp || !newPassword) {
-      throw new Error('Email, OTP and new password are required');
+      throw httpError(400, 'Email, OTP and new password are required');
     }
     if (String(newPassword).length < 8) {
-      throw new Error('Password must be at least 8 characters');
+      throw httpError(400, 'Password must be at least 8 characters');
     }
     const row = await OtpVerification.findOne({
       where: {
@@ -412,11 +438,11 @@ class AuthService {
       order: [['createdAt', 'DESC']]
     });
     if (!row || !(await this._verifyOtp(String(otp).trim(), row.otpHash))) {
-      throw new Error('Invalid or expired OTP');
+      throw httpError(400, 'Invalid or expired OTP');
     }
     const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
     if (!user) {
-      throw new Error('User not found');
+      throw httpError(404, 'User not found');
     }
     await row.update({ usedAt: new Date() });
     const passwordHash = await this.hashPassword(newPassword);
@@ -447,12 +473,12 @@ class AuthService {
       const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
       
       if (decoded.type !== 'password_reset') {
-        throw new Error('Invalid token type');
+        throw httpError(400, 'Invalid token type');
       }
 
       const user = await User.findByPk(decoded.userId);
       if (!user) {
-        throw new Error('User not found');
+        throw httpError(404, 'User not found');
       }
 
       const passwordHash = await this.hashPassword(newPassword);
@@ -460,19 +486,19 @@ class AuthService {
 
       return { message: 'Password reset successfully' };
     } catch (error) {
-      throw new Error('Invalid or expired reset token');
+      throw httpError(400, 'Invalid or expired reset token');
     }
   }
 
   async changePassword(userId, currentPassword, newPassword) {
     const user = await User.findByPk(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw httpError(404, 'User not found');
     }
 
     const isValidPassword = await this.comparePassword(currentPassword, user.passwordHash);
     if (!isValidPassword) {
-      throw new Error('Current password is incorrect');
+      throw httpError(401, 'Current password is incorrect');
     }
 
     const passwordHash = await this.hashPassword(newPassword);
