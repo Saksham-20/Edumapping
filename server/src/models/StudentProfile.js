@@ -52,6 +52,49 @@ module.exports = (sequelize, DataTypes) => {
         max: 10
       }
     },
+    // The academic facts real Indian postings gate on. See migration 43.
+    activeBacklogs: {
+      type: DataTypes.INTEGER,
+      field: 'active_backlogs',
+      validate: { min: 0, max: 100 }
+    },
+    totalBacklogs: {
+      type: DataTypes.INTEGER,
+      field: 'total_backlogs',
+      validate: { min: 0, max: 200 }
+    },
+    class10Percentage: {
+      type: DataTypes.DECIMAL(5, 2),
+      field: 'class10_percentage',
+      validate: { min: 0, max: 100 },
+      get() {
+        const v = this.getDataValue('class10Percentage');
+        return v === null || v === undefined ? null : parseFloat(v);
+      }
+    },
+    class12Percentage: {
+      type: DataTypes.DECIMAL(5, 2),
+      field: 'class12_percentage',
+      validate: { min: 0, max: 100 },
+      get() {
+        const v = this.getDataValue('class12Percentage');
+        return v === null || v === undefined ? null : parseFloat(v);
+      }
+    },
+    diplomaPercentage: {
+      type: DataTypes.DECIMAL(5, 2),
+      field: 'diploma_percentage',
+      validate: { min: 0, max: 100 },
+      get() {
+        const v = this.getDataValue('diplomaPercentage');
+        return v === null || v === undefined ? null : parseFloat(v);
+      }
+    },
+    educationGapYears: {
+      type: DataTypes.INTEGER,
+      field: 'education_gap_years',
+      validate: { min: 0, max: 20 }
+    },
     percentage: {
       type: DataTypes.DECIMAL(5, 2),
       validate: {

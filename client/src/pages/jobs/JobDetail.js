@@ -8,7 +8,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { readAllowedBranches, readGraduationYears, readMinCGPA } from '../../utils/eligibility';
+import {
+  ACADEMIC_CRITERIA,
+  readAllowedBranches,
+  readGraduationYears,
+  readMinCGPA,
+  readNumeric
+} from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Badge,
@@ -379,6 +385,17 @@ const JobDetail = () => {
               <DetailRow label="Graduating batches">
                 {graduationYears.length > 0 ? graduationYears.join(', ') : null}
               </DetailRow>
+              {ACADEMIC_CRITERIA.map((rule) => {
+                const value = readNumeric(job.eligibilityCriteria, rule.camel, rule.snake);
+                // DetailRow hides itself when empty, but 0 is a real bar here
+                // ("no active backlogs") and must not be treated as absent.
+                if (value === undefined) return null;
+                return (
+                  <DetailRow key={rule.field} label={rule.label}>
+                    {rule.field.endsWith('Percentage') ? `${value}%` : String(value)}
+                  </DetailRow>
+                );
+              })}
               <DetailRow label="Applications">{job.applicationCount ?? 0}</DetailRow>
             </dl>
           </Card>

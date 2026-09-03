@@ -30,15 +30,25 @@ const sanitizeProfileData = (profileData) => {
   if ('graduationYear' in sanitized) {
     sanitized.graduationYear = sanitizeNumericField(sanitized.graduationYear);
   }
-  
+  // The academic eligibility fields. A blank input arrives as '' and would be
+  // handed straight to an INTEGER or DECIMAL column; every numeric field on
+  // this profile has to pass through here for that reason.
+  for (const field of [
+    'activeBacklogs',
+    'totalBacklogs',
+    'class10Percentage',
+    'class12Percentage',
+    'diplomaPercentage',
+    'educationGapYears'
+  ]) {
+    if (field in sanitized) {
+      sanitized[field] = sanitizeNumericField(sanitized[field]);
+    }
+  }
+
   return sanitized;
 };
 
-/**
- * School staff who may see their own institution's roster. Their dashboards
- * are built around it; without this the only endpoint they need answered 403.
- * Teachers are deliberately excluded — they have no roster-management surface.
- */
 // School roles whose listing is pinned to their own institution. Teachers are
 // included: a teacher needs the roster of the school they teach at, and the
 // scoping below means including them widens nothing beyond that school.

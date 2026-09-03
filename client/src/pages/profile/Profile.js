@@ -118,6 +118,11 @@ const Profile = () => {
     yearOfStudy: '',
     graduationYear: '',
     cgpa: '',
+    activeBacklogs: '',
+    class10Percentage: '',
+    class12Percentage: '',
+    diplomaPercentage: '',
+    educationGapYears: '',
     percentage: '',
     address: '',
     skills: [],
@@ -160,6 +165,11 @@ const Profile = () => {
         yearOfStudy: userData.studentProfile?.yearOfStudy || '',
         graduationYear: userData.studentProfile?.graduationYear || '',
         cgpa: userData.studentProfile?.cgpa || '',
+        activeBacklogs: userData.studentProfile?.activeBacklogs ?? '',
+        class10Percentage: userData.studentProfile?.class10Percentage ?? '',
+        class12Percentage: userData.studentProfile?.class12Percentage ?? '',
+        diplomaPercentage: userData.studentProfile?.diplomaPercentage ?? '',
+        educationGapYears: userData.studentProfile?.educationGapYears ?? '',
         percentage: userData.studentProfile?.percentage || '',
         address: userData.studentProfile?.address || '',
         skills: userData.studentProfile?.skills || [],
@@ -641,6 +651,56 @@ const Profile = () => {
                   max="10"
                   name="cgpa"
                   value={formData.cgpa}
+                  onChange={handleInputChange}
+                />
+                <Input
+                  label="Active backlogs"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                  name="activeBacklogs"
+                  value={formData.activeBacklogs}
+                  onChange={handleInputChange}
+                />
+                <Input
+                  label="Class X %"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  name="class10Percentage"
+                  value={formData.class10Percentage}
+                  onChange={handleInputChange}
+                />
+                <Input
+                  label="Class XII %"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  name="class12Percentage"
+                  value={formData.class12Percentage}
+                  onChange={handleInputChange}
+                />
+                <Input
+                  label="Diploma % (if lateral entry)"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  name="diplomaPercentage"
+                  value={formData.diplomaPercentage}
+                  onChange={handleInputChange}
+                />
+                <Input
+                  label="Gap in education (years)"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="20"
+                  name="educationGapYears"
+                  value={formData.educationGapYears}
                   onChange={handleInputChange}
                 />
               </div>

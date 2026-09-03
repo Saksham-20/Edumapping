@@ -10,6 +10,25 @@
 // This module is the single place that understands both shapes, and the only
 // place that decides whether a student meets a job's criteria.
 
+/**
+ * A numeric criterion under either spelling, or null when the job sets none.
+ *
+ * Every rule below is optional. An unset rule is not a bar, and — importantly —
+ * neither is a value the student has not filled in: blocking on absent data is
+ * indistinguishable to the student from blocking on a bad score, and produces a
+ * rejection they cannot act on. The profile screen is where incomplete data is
+ * chased, not the apply button.
+ */
+const readNumber = (criteria, ...keys) => {
+  for (const key of keys) {
+    const value = criteria?.[key];
+    if (value === null || value === undefined || value === '') continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
 /** Minimum CGPA, from either spelling. `null` when the job sets none. */
 const readMinCgpa = (criteria) => {
   const value = criteria?.minCGPA ?? criteria?.min_cgpa;
@@ -90,6 +109,59 @@ const checkEligibility = (criteria, studentProfile) => {
     }
   }
 
+  // Active backlogs. "No active backlogs" is the single most common bar on an
+  // Indian job description, and it is expressed as a maximum of zero.
+  const maxBacklogs = readNumber(criteria, 'maxBacklogs', 'max_backlogs');
+  if (maxBacklogs !== null) {
+    const backlogs = Number(studentProfile.activeBacklogs);
+    if (Number.isFinite(backlogs) && backlogs > maxBacklogs) {
+      reasons.push(
+        maxBacklogs === 0
+          ? `This role requires no active backlogs; your profile shows ${backlogs}.`
+          : `This role allows at most ${maxBacklogs} active backlog${maxBacklogs === 1 ? '' : 's'}; your profile shows ${backlogs}.`
+      );
+    }
+  }
+
+  // Class X and Class XII, canonically "60% in 10th and 12th".
+  const minClass10 = readNumber(criteria, 'minClass10Percentage', 'min_class10_percentage');
+  if (minClass10 !== null) {
+    const pct = Number(studentProfile.class10Percentage);
+    if (Number.isFinite(pct) && pct < minClass10) {
+      reasons.push(`This role requires ${minClass10}% in Class X; your profile shows ${pct}%.`);
+    }
+  }
+
+  // A lateral-entry student has a diploma instead of Class XII, so either one
+  // clearing the bar is enough. Failing both is what disqualifies.
+  const minClass12 = readNumber(criteria, 'minClass12Percentage', 'min_class12_percentage');
+  if (minClass12 !== null) {
+    const twelfth = Number(studentProfile.class12Percentage);
+    const diploma = Number(studentProfile.diplomaPercentage);
+    const haveTwelfth = Number.isFinite(twelfth);
+    const haveDiploma = Number.isFinite(diploma);
+    if (haveTwelfth || haveDiploma) {
+      const best = Math.max(haveTwelfth ? twelfth : -Infinity, haveDiploma ? diploma : -Infinity);
+      if (best < minClass12) {
+        reasons.push(
+          `This role requires ${minClass12}% in Class XII or an equivalent diploma; your profile shows ${best}%.`
+        );
+      }
+    }
+  }
+
+  const maxGap = readNumber(criteria, 'maxEducationGapYears', 'max_education_gap_years');
+  if (maxGap !== null) {
+    const gap = Number(studentProfile.educationGapYears);
+    if (Number.isFinite(gap) && gap > maxGap) {
+      reasons.push(
+        maxGap === 0
+          ? `This role does not accept any gap in education; your profile shows ${gap} year${gap === 1 ? '' : 's'}.`
+          : `This role allows a gap of at most ${maxGap} year${maxGap === 1 ? '' : 's'}; your profile shows ${gap}.`
+      );
+    }
+  }
+
   return { eligible: reasons.length === 0, reasons };
 };
 
@@ -97,10 +169,15 @@ const checkEligibility = (criteria, studentProfile) => {
 const describeEligibility = (criteria) => ({
   minCGPA: readMinCgpa(criteria),
   graduationYears: readGraduationYears(criteria),
-  allowedBranches: readAllowedBranches(criteria)
+  allowedBranches: readAllowedBranches(criteria),
+  maxBacklogs: readNumber(criteria, 'maxBacklogs', 'max_backlogs'),
+  minClass10Percentage: readNumber(criteria, 'minClass10Percentage', 'min_class10_percentage'),
+  minClass12Percentage: readNumber(criteria, 'minClass12Percentage', 'min_class12_percentage'),
+  maxEducationGapYears: readNumber(criteria, 'maxEducationGapYears', 'max_education_gap_years')
 });
 
 module.exports = {
+  readNumber,
   readMinCgpa,
   readGraduationYears,
   readAllowedBranches,

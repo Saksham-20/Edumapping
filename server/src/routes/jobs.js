@@ -65,6 +65,16 @@ const jobValidators = (partial = false) => {
     body('eligibilityCriteria.graduation_year').optional().isArray(),
     body('eligibilityCriteria.graduationYear.*').optional().isInt({ min: 1950, max: 2100 }),
     body('eligibilityCriteria.graduation_year.*').optional().isInt({ min: 1950, max: 2100 }),
+    // The academic bars real postings state. Both spellings again, since
+    // seeded and imported rows use snake_case.
+    body('eligibilityCriteria.maxBacklogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }),
+    body('eligibilityCriteria.max_backlogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }),
+    body('eligibilityCriteria.minClass10Percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
+    body('eligibilityCriteria.min_class10_percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
+    body('eligibilityCriteria.minClass12Percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
+    body('eligibilityCriteria.min_class12_percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
+    body('eligibilityCriteria.maxEducationGapYears').optional({ nullable: true }).isInt({ min: 0, max: 20 }),
+    body('eligibilityCriteria.max_education_gap_years').optional({ nullable: true }).isInt({ min: 0, max: 20 }),
     body().custom((body) => {
       if (body.salaryMin && body.salaryMax && parseInt(body.salaryMin) > parseInt(body.salaryMax)) {
         throw new Error('Maximum salary must be greater than or equal to minimum salary');

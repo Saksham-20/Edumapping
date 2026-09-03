@@ -8,8 +8,11 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import {
+  ACADEMIC_CRITERIA,
   parseBranchList,
   parseYearList,
+  readNumeric,
+  withNumeric,
   readAllowedBranches,
   readGraduationYears,
   readMinCGPA,
@@ -65,6 +68,10 @@ const JobEdit = () => {
     minCGPA: '',
     allowedBranches: '',
     graduationYears: '',
+    maxBacklogs: '',
+    minClass10Percentage: '',
+    minClass12Percentage: '',
+    maxEducationGapYears: '',
     isActive: true
   });
 
@@ -105,6 +112,12 @@ const JobEdit = () => {
           : '',
         allowedBranches: readAllowedBranches(job.eligibilityCriteria).join(', '),
         graduationYears: readGraduationYears(job.eligibilityCriteria).join(', '),
+        ...Object.fromEntries(
+          ACADEMIC_CRITERIA.map((rule) => {
+            const value = readNumeric(job.eligibilityCriteria, rule.camel, rule.snake);
+            return [rule.field, value === undefined ? '' : String(value)];
+          })
+        ),
         isActive: job.status === 'active'
       });
     } catch (error) {
@@ -165,6 +178,17 @@ const JobEdit = () => {
       newErrors.graduationYears = 'Enter four-digit years separated by commas, e.g. 2025, 2026';
     }
 
+    for (const rule of ACADEMIC_CRITERIA) {
+      const raw = formData[rule.field];
+      if (raw === '' || raw === null || raw === undefined) continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0 || value > rule.max) {
+        newErrors[rule.field] = `Enter a value between 0 and ${rule.max}`;
+      } else if (rule.integer && !Number.isInteger(value)) {
+        newErrors[rule.field] = 'Enter a whole number';
+      }
+    }
+
     if (formData.applicationDeadline && new Date(formData.applicationDeadline) <= new Date()) {
       newErrors.applicationDeadline = 'Application deadline must be in the future';
     }
@@ -219,6 +243,11 @@ const JobEdit = () => {
       let criteria = withMinCGPA(eligibilityCriteria, formData.minCGPA.trim());
       criteria = withAllowedBranches(criteria, parseBranchList(formData.allowedBranches));
       criteria = withGraduationYears(criteria, parseYearList(formData.graduationYears) || []);
+      // The academic bars, driven off one table so the form, the payload and
+      // the server's reader cannot drift apart.
+      for (const rule of ACADEMIC_CRITERIA) {
+        criteria = withNumeric(criteria, formData[rule.field], rule.camel, rule.snake);
+      }
       cleanedData.eligibilityCriteria = criteria;
 
       if (formData.salaryMin && formData.salaryMin.trim()) {
@@ -389,6 +418,22 @@ const JobEdit = () => {
               placeholder="e.g. 2026, 2027"
               help="Comma separated years. Leave blank to accept every batch."
             />
+            {ACADEMIC_CRITERIA.map((rule) => (
+              <Input
+                key={rule.field}
+                label={rule.label}
+                name={rule.field}
+                type="number"
+                min="0"
+                max={rule.max}
+                step={rule.integer ? '1' : '0.01'}
+                value={formData[rule.field]}
+                onChange={handleInputChange}
+                error={errors[rule.field]}
+                placeholder={rule.placeholder}
+                help={rule.help}
+              />
+            ))}
             <Input
               label="Application deadline"
               name="applicationDeadline"
