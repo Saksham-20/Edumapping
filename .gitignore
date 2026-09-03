@@ -14,3 +14,9 @@ server/.env.*
 client/.env
 client/.env.*
 !client/.env.example
+
+# User-uploaded files. These are runtime data, not source — two resumes had
+# been committed by accident. The directory itself is kept so the app has
+# somewhere to write on a fresh checkout.
+server/uploads/*
+!server/uploads/.gitkeep
