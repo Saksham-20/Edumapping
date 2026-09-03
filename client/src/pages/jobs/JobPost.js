@@ -8,7 +8,13 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { withMinCGPA } from '../../utils/eligibility';
+import {
+  parseBranchList,
+  parseYearList,
+  withAllowedBranches,
+  withGraduationYears,
+  withMinCGPA
+} from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -43,6 +49,8 @@ const BLANK_FORM = {
   totalPositions: 1,
   applicationDeadline: '',
   minCGPA: '',
+  allowedBranches: '',
+  graduationYears: '',
   isActive: true
 };
 
@@ -133,6 +141,11 @@ const JobPost = () => {
     if (formData.minCGPA && (parseFloat(formData.minCGPA) < 0 || parseFloat(formData.minCGPA) > 10)) {
       newErrors.minCGPA = 'CGPA must be between 0 and 10';
     }
+    // `parseYearList` returns null when an entry is not a four-digit year, so a
+    // typo is reported rather than quietly dropped from the criteria.
+    if (formData.graduationYears.trim() && parseYearList(formData.graduationYears) === null) {
+      newErrors.graduationYears = 'Enter four-digit years separated by commas, e.g. 2025, 2026';
+    }
 
     if (formData.applicationDeadline && new Date(formData.applicationDeadline) <= new Date()) {
       newErrors.applicationDeadline = 'Application deadline must be in the future';
@@ -171,8 +184,16 @@ const JobPost = () => {
         status: formData.isActive ? 'active' : 'draft'
       };
 
-      if (formData.minCGPA && formData.minCGPA.trim()) {
-        cleanedData.eligibilityCriteria = withMinCGPA(null, formData.minCGPA);
+      // Branch and batch restrictions are enforced by the server but had no
+      // field in this form, so the only rule a recruiter could actually set
+      // was the CGPA floor. All three are built up into one criteria object;
+      // each helper removes its own keys when the field is left empty, so an
+      // unrestricted job still posts with no criteria at all.
+      let criteria = withMinCGPA(null, formData.minCGPA.trim());
+      criteria = withAllowedBranches(criteria, parseBranchList(formData.allowedBranches));
+      criteria = withGraduationYears(criteria, parseYearList(formData.graduationYears) || []);
+      if (Object.keys(criteria).length > 0) {
+        cleanedData.eligibilityCriteria = criteria;
       }
 
       // The validators accept these as absent or valid, but not as an empty
@@ -323,6 +344,23 @@ const JobPost = () => {
               onChange={handleInputChange}
               error={errors.minCGPA}
               placeholder="e.g. 7.0"
+            />
+            <Input
+              label="Eligible branches"
+              name="allowedBranches"
+              value={formData.allowedBranches}
+              onChange={handleInputChange}
+              placeholder="e.g. Computer Science, Information Technology"
+              help="Comma separated. Leave blank to accept every branch."
+            />
+            <Input
+              label="Graduating batches"
+              name="graduationYears"
+              value={formData.graduationYears}
+              onChange={handleInputChange}
+              error={errors.graduationYears}
+              placeholder="e.g. 2026, 2027"
+              help="Comma separated years. Leave blank to accept every batch."
             />
             <Input
               label="Application deadline"

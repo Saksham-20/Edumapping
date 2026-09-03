@@ -50,3 +50,69 @@ export const withMinCGPA = (criteria, minCGPA) => {
   next.min_cgpa = parsed;
   return next;
 };
+
+/**
+ * Merge graduation years into existing criteria, preserving every other key.
+ *
+ * An empty list means "no restriction", so both spellings are removed rather
+ * than written as `[]` — a stored empty array reads the same as no restriction
+ * to the server, but leaving it behind makes a cleared field look like a saved
+ * one when the form is reopened.
+ */
+export const withGraduationYears = (criteria, years) => {
+  const next = { ...(criteria || {}) };
+  if (!years || years.length === 0) {
+    delete next.graduationYear;
+    delete next.graduation_year;
+    return next;
+  }
+  next.graduationYear = years;
+  next.graduation_year = years;
+  return next;
+};
+
+/** Merge allowed branches into existing criteria, preserving every other key. */
+export const withAllowedBranches = (criteria, branches) => {
+  const next = { ...(criteria || {}) };
+  if (!branches || branches.length === 0) {
+    delete next.allowedBranches;
+    delete next.allowed_branches;
+    return next;
+  }
+  next.allowedBranches = branches;
+  next.allowed_branches = branches;
+  return next;
+};
+
+/**
+ * Turn a comma-separated field into a clean list of branch names.
+ *
+ * The forms take these as free text because branch naming has no shared
+ * vocabulary between institutions; the server matches them tolerantly.
+ */
+export const parseBranchList = (text) =>
+  String(text || '')
+    .split(',')
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+/**
+ * Turn a comma-separated field into a list of graduation years.
+ *
+ * Returns `null` when any entry is not a plausible year, so the caller can
+ * report the field as invalid rather than silently dropping what was typed.
+ */
+export const parseYearList = (text) => {
+  const parts = String(text || '')
+    .split(',')
+    .map((y) => y.trim())
+    .filter(Boolean);
+  const years = [];
+  for (const part of parts) {
+    if (!/^\d{4}$/.test(part)) return null;
+    const year = parseInt(part, 10);
+    if (year < 1950 || year > 2100) return null;
+    years.push(year);
+  }
+  return years;
+};

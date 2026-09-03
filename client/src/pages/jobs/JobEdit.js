@@ -7,7 +7,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { readMinCGPA, withMinCGPA } from '../../utils/eligibility';
+import {
+  parseBranchList,
+  parseYearList,
+  readAllowedBranches,
+  readGraduationYears,
+  readMinCGPA,
+  withAllowedBranches,
+  withGraduationYears,
+  withMinCGPA
+} from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -54,6 +63,8 @@ const JobEdit = () => {
     totalPositions: 1,
     applicationDeadline: '',
     minCGPA: '',
+    allowedBranches: '',
+    graduationYears: '',
     isActive: true
   });
 
@@ -92,6 +103,8 @@ const JobEdit = () => {
         minCGPA: readMinCGPA(job.eligibilityCriteria) !== undefined
           ? String(readMinCGPA(job.eligibilityCriteria))
           : '',
+        allowedBranches: readAllowedBranches(job.eligibilityCriteria).join(', '),
+        graduationYears: readGraduationYears(job.eligibilityCriteria).join(', '),
         isActive: job.status === 'active'
       });
     } catch (error) {
@@ -148,6 +161,9 @@ const JobEdit = () => {
     if (formData.minCGPA && (parseFloat(formData.minCGPA) < 0 || parseFloat(formData.minCGPA) > 10)) {
       newErrors.minCGPA = 'CGPA must be between 0 and 10';
     }
+    if (formData.graduationYears.trim() && parseYearList(formData.graduationYears) === null) {
+      newErrors.graduationYears = 'Enter four-digit years separated by commas, e.g. 2025, 2026';
+    }
 
     if (formData.applicationDeadline && new Date(formData.applicationDeadline) <= new Date()) {
       newErrors.applicationDeadline = 'Application deadline must be in the future';
@@ -181,12 +197,15 @@ const JobEdit = () => {
         status: formData.isActive ? 'active' : 'draft'
       };
 
-      // Merge rather than replace: the criteria object also carries the
-      // graduation years and allowed branches the job was created with, and
-      // assigning a fresh `{ minCGPA }` discarded them on every save.
-      if (formData.minCGPA && formData.minCGPA.trim()) {
-        cleanedData.eligibilityCriteria = withMinCGPA(eligibilityCriteria, formData.minCGPA);
-      }
+      // Merge rather than replace: the criteria object can carry keys this form
+      // does not model, and assigning a fresh object discarded them on save.
+      // Every field the form does own is written unconditionally — sending the
+      // criteria only when a field was non-empty meant a rule could be cleared
+      // in the form and still be enforced on the job.
+      let criteria = withMinCGPA(eligibilityCriteria, formData.minCGPA.trim());
+      criteria = withAllowedBranches(criteria, parseBranchList(formData.allowedBranches));
+      criteria = withGraduationYears(criteria, parseYearList(formData.graduationYears) || []);
+      cleanedData.eligibilityCriteria = criteria;
 
       if (formData.salaryMin && formData.salaryMin.trim()) {
         cleanedData.salaryMin = parseInt(formData.salaryMin, 10);
@@ -335,6 +354,23 @@ const JobEdit = () => {
               max="100"
               value={formData.totalPositions}
               onChange={handleInputChange}
+            />
+            <Input
+              label="Eligible branches"
+              name="allowedBranches"
+              value={formData.allowedBranches}
+              onChange={handleInputChange}
+              placeholder="e.g. Computer Science, Information Technology"
+              help="Comma separated. Leave blank to accept every branch."
+            />
+            <Input
+              label="Graduating batches"
+              name="graduationYears"
+              value={formData.graduationYears}
+              onChange={handleInputChange}
+              error={errors.graduationYears}
+              placeholder="e.g. 2026, 2027"
+              help="Comma separated years. Leave blank to accept every batch."
             />
             <Input
               label="Application deadline"
