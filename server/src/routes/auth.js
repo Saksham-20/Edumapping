@@ -297,4 +297,61 @@ router.post('/forgot-password/reset-with-otp', async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/auth/change-password:
+ *   post:
+ *     summary: Change the signed-in user's password
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password changed
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Current password is incorrect
+ */
+router.post(
+  '/change-password',
+  authenticateToken,
+  // Same strength rules as registration, so a password change cannot be used
+  // to sidestep the policy the account was created under.
+  body('currentPassword').notEmpty().withMessage('Current password is required'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain an uppercase letter, a lowercase letter and a number'),
+  body('newPassword')
+    .custom((value, { req }) => value !== req.body.currentPassword)
+    .withMessage('New password must be different from the current one'),
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+      const { currentPassword, newPassword } = req.body;
+      const result = await authService.changePassword(req.user.id, currentPassword, newPassword);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 module.exports = router;

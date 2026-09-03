@@ -81,6 +81,15 @@ module.exports = (sequelize, DataTypes) => {
         model: 'users',
         key: 'id'
       }
+    },
+    // Incremented on each detail-page view by someone other than the job's
+    // own recruiter. Feeds the recruiter dashboard's views and conversion
+    // tiles, which previously read a column that did not exist.
+    viewCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'view_count'
     }
   }, {
     tableName: 'jobs',

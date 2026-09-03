@@ -91,7 +91,8 @@ class EventController {
         eventType,
         status,
         organizationId,
-        upcoming = false
+        upcoming = false,
+        search
       } = req.query;
 
       const offset = (page - 1) * limit;
@@ -143,6 +144,25 @@ class EventController {
       } else if (organizationId) {
         // For unauthenticated or other roles, use query param if provided
         whereClause.organizationId = organizationId;
+      }
+
+      // Free-text search. This has to go through Op.and rather than assigning
+      // whereClause[Op.or]: the recruiter and TPO branches above already use
+      // Op.or to scope an event to the user's own organization plus the global
+      // EduMapping one. Overwriting that key would widen a scoped query into
+      // every organization's events the moment someone typed in the search box.
+      if (search) {
+        const term = `%${search}%`;
+        whereClause[Op.and] = [
+          ...(whereClause[Op.and] || []),
+          {
+            [Op.or]: [
+              { title: { [Op.iLike]: term } },
+              { description: { [Op.iLike]: term } },
+              { location: { [Op.iLike]: term } }
+            ]
+          }
+        ];
       }
 
       const { count, rows: events } = await Event.findAndCountAll({

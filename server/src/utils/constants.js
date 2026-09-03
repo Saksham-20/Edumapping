@@ -92,7 +92,10 @@ module.exports = {
   ORGANIZATION_TYPES: {
     UNIVERSITY: 'university',
     COMPANY: 'company',
-    SCHOOL: 'school'
+    SCHOOL: 'school',
+    // Added to the Postgres ENUM by migration 32; the constant was never
+    // updated to match, so anything validating against this map rejected it.
+    COLLEGE: 'college'
   },
 
   FILE_TYPES: {

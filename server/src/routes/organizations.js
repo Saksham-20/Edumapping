@@ -5,6 +5,11 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+const { ORGANIZATION_TYPES } = require('../utils/constants');
+
+// The `type` query values this endpoint accepts — every member of the
+// organizations type ENUM, derived from the constant so the two cannot drift.
+const ORGANIZATION_TYPE_VALUES = Object.values(ORGANIZATION_TYPES);
 
 const router = express.Router();
 
@@ -66,18 +71,24 @@ const router = express.Router();
  */
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const { 
-      type, 
+    const {
+      type,
       verified = 'true', // Default to only verified organizations
-      page = 1, 
-      limit = 50 
+      page = 1,
+      // This list feeds the registration dropdowns, which have no paging UI and
+      // filter client-side. A low cap silently truncated them, making every
+      // institution past the cut-off impossible to sign up under.
+      limit = 500
     } = req.query;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const whereClause = {};
 
-    // Filter by type if provided
-    if (type && ['university', 'company'].includes(type)) {
+    // Every value in the organizations type ENUM. Omitting `school` and
+    // `college` (added by migrations 27 and 32) made ?type= silently return
+    // the unfiltered list for exactly the two org types the school and college
+    // signup flows ask for.
+    if (type && ORGANIZATION_TYPE_VALUES.includes(type)) {
       whereClause.type = type;
     }
 
@@ -98,6 +109,10 @@ router.get('/', optionalAuth, async (req, res, next) => {
         'domain',
         'website',
         'isVerified',
+        // The signup forms filter on this. Leaving it out made their
+        // `approvalStatus === 'approved'` check compare against undefined,
+        // so unapproved organizations passed straight through.
+        'approvalStatus',
         'createdAt'
       ]
     });

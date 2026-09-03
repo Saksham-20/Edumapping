@@ -234,6 +234,25 @@ class JobController {
       jobData.userApplication = userApplication;
       jobData.applicationCount = job.applications ? job.applications.length : 0;
 
+      // Count this as a view unless the viewer owns the posting — a recruiter
+      // reloading their own job would otherwise inflate the number they are
+      // being shown on their dashboard.
+      //
+      // Atomic INCREMENT rather than read-modify-write: two students opening
+      // the same job at once must not race and lose a count. Deliberately not
+      // awaited into the response — a failed counter is not worth failing the
+      // page for, so it is fired off and its error only logged.
+      const isOwnPosting =
+        userId && (userId === job.createdBy || req.user?.organizationId === job.organizationId);
+      if (!isOwnPosting) {
+        job
+          .increment('viewCount', { by: 1 })
+          .catch((err) => logger.warn('Failed to record job view', { jobId: id, error: err.message }));
+        // Reflect the increment in this response rather than showing a
+        // one-behind number until the next load.
+        jobData.viewCount = (jobData.viewCount || 0) + 1;
+      }
+
       res.json({
         message: 'Job retrieved successfully',
         job: jobData

@@ -198,7 +198,8 @@ class ApplicationController {
         status,
         jobId,
         studentId,
-        organizationId
+        organizationId,
+        search
       } = req.query;
 
       const offset = (page - 1) * limit;
@@ -261,11 +262,40 @@ class ApplicationController {
         });
       }
 
+      // Free-text search across the joined job title and the applicant's name.
+      // Written as `$association.column$` references on the top-level where so
+      // it composes with the role scoping above instead of fighting the
+      // recruiter branch's `includeOptions[0].where`.
+      if (search) {
+        const term = `%${search}%`;
+        whereClause[Op.and] = [
+          ...(whereClause[Op.and] || []),
+          {
+            [Op.or]: [
+              { '$job.title$': { [Op.iLike]: term } },
+              { '$job.organization.name$': { [Op.iLike]: term } },
+              // Raw column names, not model attributes: these models are
+              // `underscored: true`, and a `$assoc.col$` reference is emitted
+              // into the SQL verbatim without attribute-to-field mapping.
+              { '$student.first_name$': { [Op.iLike]: term } },
+              { '$student.last_name$': { [Op.iLike]: term } }
+            ]
+          }
+        ];
+      }
+
       const { count, rows: applications } = await Application.findAndCountAll({
         where: whereClause,
         include: includeOptions,
         limit: parseInt(limit),
         offset: parseInt(offset),
+        // A `$association.column$` reference can only resolve against a real
+        // JOIN. Sequelize's default paging strategy pushes the limit into a
+        // subquery over the base table alone, where those columns do not
+        // exist — so searching has to opt out of it. Safe here because every
+        // include is a belongsTo, so the join cannot multiply rows and inflate
+        // the count.
+        subQuery: search ? false : undefined,
         order: [['createdAt', 'DESC']]
       });
 

@@ -37,9 +37,13 @@ class EmailService {
         to: logger.sanitize.email(to),
         subject 
       });
-      // In development/demo mode, if email fails, we'll log it and pretend it worked
-      // This is to allow the UI to function without a real mail server
-      if (process.env.NODE_ENV !== 'production' || true) { // Force mock for now to unblock user
+      // Outside production, swallow the failure and pretend it worked so the
+      // signup and password-reset flows are usable locally without SMTP.
+      //
+      // This must NEVER apply in production: it used to read `|| true`, which
+      // meant a genuinely undelivered OTP still returned a success message-id
+      // and the API told the user to check an inbox nothing was sent to.
+      if (process.env.NODE_ENV !== 'production') {
         logger.info('MOCK EMAIL SENT (Fallback)', {
           to: logger.sanitize.email(to),
           subject

@@ -32,6 +32,7 @@ const approvalRoutes = require('./routes/approvals');
 const adminRoutes = require('./routes/admin');
 const contactRoutes = require('./routes/contact');
 const conferenceRoutes = require('./routes/conferences');
+const analyticsRoutes = require('./routes/analytics');
 const conferenceController = require('./controllers/conferenceController');
 
 
@@ -581,6 +582,7 @@ app.use('/api/approvals', approvalRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/conferences', conferenceRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Serve static files from React app in production (only if enabled)
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false') {

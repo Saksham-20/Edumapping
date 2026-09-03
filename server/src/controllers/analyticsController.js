@@ -183,7 +183,9 @@ class AnalyticsController {
 
         Application.findAll({
           attributes: [
-            'status',
+            // Qualified: this query joins `jobs`, which also has a `status`
+            // column, so a bare reference is ambiguous and Postgres rejects it.
+            [col('Application.status'), 'status'],
             [fn('COUNT', col('Application.id')), 'count']
           ],
           where: {
@@ -221,14 +223,14 @@ class AnalyticsController {
               attributes: []
             }
           ],
-          group: ['status'],
+          group: ['Application.status'],
           raw: true
         }),
 
         Application.findAll({
           attributes: [
             [fn('COUNT', col('Application.id')), 'totalApplications'],
-            [fn('SUM', literal("CASE WHEN status = 'selected' THEN 1 ELSE 0 END")), 'selected']
+            [fn('SUM', literal(`CASE WHEN "Application"."status" = 'selected' THEN 1 ELSE 0 END`)), 'selected']
           ],
           where: {
             ...applicationFilters,
@@ -265,7 +267,19 @@ class AnalyticsController {
               attributes: ['id', 'title']
             }
           ],
-          group: ['job.organization.id', 'job.organization.name', 'job.organization.logoUrl'],
+          // Written as explicit SQL rather than attribute paths. Sequelize
+          // emits `group` entries verbatim, with no attribute-to-field
+          // mapping, so 'job.organization.logoUrl' became a reference to a
+          // "logoUrl" column that does not exist — the field is `logo_url`.
+          // Postgres also requires every non-aggregated selected column in the
+          // GROUP BY, hence job.id and job.title.
+          group: [
+            literal('"job"."id"'),
+            literal('"job"."title"'),
+            literal('"job->organization"."id"'),
+            literal('"job->organization"."name"'),
+            literal('"job->organization"."logo_url"')
+          ],
           raw: true
         })
       ]);
