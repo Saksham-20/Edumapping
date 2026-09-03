@@ -120,7 +120,10 @@ router.get('/job/:jobId',
  *       - bearerAuth: []
  */
 // Move this route AFTER specific routes to prevent conflicts
-router.get('/:id', authenticateToken, applicationController.getApplicationById);
+// `:id(\\d+)` so a non-numeric id never reaches the query. Without it,
+// /applications/None/status handed the string straight to Postgres and came
+// back as a 500 with a raw type error in the body.
+router.get('/:id(\\d+)', authenticateToken, applicationController.getApplicationById);
 
 /**
  * @swagger
@@ -131,7 +134,7 @@ router.get('/:id', authenticateToken, applicationController.getApplicationById);
  *     security:
  *       - bearerAuth: []
  */
-router.patch('/:id/status', 
+router.patch('/:id(\\d+)/status', 
   authenticateToken, 
   requireRole('recruiter', 'tpo', 'admin'),
   applicationController.updateApplicationStatus
@@ -146,7 +149,7 @@ router.patch('/:id/status',
  *     security:
  *       - bearerAuth: []
  */
-router.patch('/:id/withdraw', 
+router.patch('/:id(\\d+)/withdraw', 
   authenticateToken, 
   requireRole('student'),
   applicationController.withdrawApplication
