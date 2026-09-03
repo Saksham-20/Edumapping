@@ -1,7 +1,7 @@
 // server/src/services/authService.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Op } = require('sequelize');
+const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const { User, Organization, OtpVerification } = require('../models');
 const emailService = require('./emailService');
 const logger = require('../utils/logger');
@@ -224,9 +224,21 @@ class AuthService {
     if (!identifier || typeof identifier !== 'string') return null;
     const trimmed = identifier.trim();
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+
+    // Phone lookup strips separators from BOTH sides.
+    //
+    // It used to be an exact string match, so whether you could sign in
+    // depended on punctuation: seeded rows store "+1-555-0005" while the model
+    // now normalises new numbers to "+15550005", and a user typing their own
+    // number with spaces or hyphens matched neither. Comparing the digits
+    // makes every spelling of the same number work regardless of how the row
+    // happens to be stored.
     const where = isEmail
       ? { email: { [Op.iLike]: trimmed } }
-      : { phone: trimmed };
+      : sequelizeWhere(
+          fn('regexp_replace', col('phone'), '[^0-9+]', '', 'g'),
+          trimmed.replace(/[^0-9+]/g, '')
+        );
     return await User.findOne({
       where,
       include: [

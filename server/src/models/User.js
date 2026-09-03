@@ -43,6 +43,20 @@ module.exports = (sequelize, DataTypes) => {
     },
     phone: {
       type: DataTypes.STRING(20),
+      // Normalise before validating and storing. The rule below is E.164, which
+      // permits no separators at all — but people write "+1-555-0005" and
+      // "+91 98765 43210", and every seeded phone in this repo contains
+      // hyphens. (The seeders use bulkInsert, which skips model validation, so
+      // the data and the rule have always disagreed.) Anyone registering or
+      // being bulk-imported with a normally formatted number was rejected as
+      // "Phone number format is invalid".
+      set(value) {
+        if (value === null || value === undefined || value === '') {
+          this.setDataValue('phone', value);
+          return;
+        }
+        this.setDataValue('phone', String(value).replace(/[\s\-().]/g, ''));
+      },
       validate: {
         // Custom validator to allow empty strings or null values
         isValidPhone(value) {
@@ -50,8 +64,7 @@ module.exports = (sequelize, DataTypes) => {
           if (!value || value === '') {
             return;
           }
-          // If value exists, validate with regex
-          if (!/^[\+]?[1-9][\d]{0,15}$/.test(value)) {
+          if (!/^[+]?[1-9]\d{0,15}$/.test(value)) {
             throw new Error('Phone number format is invalid');
           }
         }

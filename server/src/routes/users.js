@@ -5,8 +5,16 @@ const { authenticateToken } = require('../middleware/auth');
 const { requireRole, requireOwnership } = require('../middleware/rbac');
 const userController = require('../controllers/userController');
 const upload = require('../middleware/upload');
+const { createUploadMiddleware, FILE_TYPES, handleMulterError } = require('../config/multer');
+const adminController = require('../controllers/adminController');
 
 const router = express.Router();
+
+const uploadExcel = createUploadMiddleware('file', {
+  maxSize: 5 * 1024 * 1024,
+  allowedTypes: FILE_TYPES.SPREADSHEETS.mimeTypes,
+  allowedExtensions: FILE_TYPES.SPREADSHEETS.extensions
+});
 
 /**
  * @swagger
@@ -133,6 +141,49 @@ router.patch('/:id/status',
   authenticateToken,
   requireRole('admin'),
   userController.toggleUserStatus
+);
+
+/**
+ * @swagger
+ * /api/users/import:
+ *   post:
+ *     summary: Bulk-import students from an Excel sheet into your institution
+ *     tags: [Users]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ */
+// The bulk importer works, but it lived only on the admin router behind
+// `requireRole('admin')` — so the people who actually onboard a cohort, the
+// TPO and the school office, could not use it and had to ask an EduMapping
+// administrator to load their students for them.
+router.post('/import',
+  authenticateToken,
+  requireRole('admin', 'tpo', 'principal', 'school_admin'),
+  uploadExcel,
+  handleMulterError,
+  (req, res, next) => {
+    // Anyone but an admin imports into their OWN institution, forced here
+    // rather than read from the request — otherwise a TPO could load students
+    // into somebody else's college.
+    if (req.user.role !== 'admin') {
+      if (!req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'Your account is not attached to an institution'
+        });
+      }
+      req.body.organizationId = req.user.organizationId;
+    }
+    return adminController.importStudentsFromExcel(req, res, next);
+  }
 );
 
 module.exports = router;
