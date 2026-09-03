@@ -36,6 +36,7 @@ db.StudentProfile = require('./StudentProfile')(sequelize, Sequelize.DataTypes);
 db.RecruiterProfile = require('./RecruiterProfile')(sequelize, Sequelize.DataTypes);
 db.Job = require('./Job')(sequelize, Sequelize.DataTypes);
 db.Application = require('./Application')(sequelize, Sequelize.DataTypes);
+db.Offer = require('./Offer')(sequelize, Sequelize.DataTypes);
 db.Achievement = require('./Achievement')(sequelize, Sequelize.DataTypes);
 db.Event = require('./Event')(sequelize, Sequelize.DataTypes);
 db.EventRegistration = require('./EventRegistration')(sequelize, Sequelize.DataTypes);

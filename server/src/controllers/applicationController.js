@@ -5,6 +5,8 @@ const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { checkEligibility } = require('../utils/eligibility');
+const models = require('../models');
+const { syncPlacementStatus: sharedSyncPlacementStatus } = require('../utils/placementStatus');
 
 /**
  * Keep `student_profiles.placement_status` in step with the student's
@@ -22,18 +24,11 @@ const { checkEligibility } = require('../utils/eligibility');
  * student back to unplaced. `deferred` is a manual state a TPO sets for
  * students sitting out the season, so it is never overwritten here.
  */
-const syncPlacementStatus = async (studentId) => {
-  const profile = await StudentProfile.findOne({ where: { userId: studentId } });
-  if (!profile || profile.placementStatus === 'deferred') return;
-
-  const selectedCount = await Application.count({
-    where: { studentId, status: 'selected' }
-  });
-  const next = selectedCount > 0 ? 'placed' : 'unplaced';
-  if (profile.placementStatus !== next) {
-    await profile.update({ placementStatus: next });
-  }
-};
+// Placement status has one definition, shared with the offer flow. It used to
+// be computed here from selected applications alone, which disagreed with the
+// offer lifecycle: a revoked offer leaves its application marked `selected`, so
+// this would have put the student back to placed on the next status change.
+const syncPlacementStatus = (studentId) => sharedSyncPlacementStatus(studentId, models);
 
 class ApplicationController {
   async submitApplication(req, res, next) {
