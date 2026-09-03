@@ -14,6 +14,7 @@
 //     handles them correctly — see FILTERS_FOR_OVERVIEW below.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
 import api from '../../services/api';
 import {
   Avatar,
@@ -161,6 +162,7 @@ const TPOAnalytics = () => {
   const [studentsPage, setStudentsPage] = useState(1);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const overviewQuery = useMemo(() => {
     const params = new URLSearchParams();
@@ -177,6 +179,40 @@ const TPOAnalytics = () => {
     });
     return params.toString();
   }, [filters, studentsPage]);
+
+  /**
+   * Download the full filtered roster from the server.
+   *
+   * The client-side CSV below can only serialise the rows currently on screen;
+   * this is every matching student. Fetched as a blob rather than linked
+   * directly because the endpoint needs the bearer token, which a plain
+   * anchor navigation cannot carry.
+   */
+  const exportRoster = useCallback(async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      ['branch', 'yearOfStudy', 'placementStatus'].forEach((key) => {
+        if (filters[key]) params.set(key, filters[key]);
+      });
+      const blob = await api.get(`/analytics/tpo/export?${params.toString()}`, {
+        responseType: 'blob',
+        silent: true
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `placement-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err?.message || 'Could not export the roster.');
+    } finally {
+      setExporting(false);
+    }
+  }, [filters]);
 
   const loadAnalytics = useCallback(async () => {
     setLoading(true);
@@ -553,10 +589,21 @@ const TPOAnalytics = () => {
                     variant="secondary"
                     size="sm"
                     icon={ArrowDownTrayIcon}
+                    loading={exporting}
+                    onClick={exportRoster}
+                  >
+                    Export all
+                  </Button>
+                </div>
+                <div className="sm:self-end sm:pb-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={ArrowDownTrayIcon}
                     disabled={students.length === 0}
                     onClick={() =>
                       downloadCsv(
-                        `students-${new Date().toISOString().slice(0, 10)}.csv`,
+                        `students-page-${new Date().toISOString().slice(0, 10)}.csv`,
                         [
                           { label: 'Name', value: (r) => `${r.firstName} ${r.lastName}` },
                           { label: 'Email', value: (r) => r.email },

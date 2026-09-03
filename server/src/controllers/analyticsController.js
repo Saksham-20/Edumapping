@@ -468,19 +468,83 @@ class AnalyticsController {
   }
 
   // Export TPO Analytics Data
+  /**
+   * Student placement roster as a CSV download.
+   *
+   * This used to answer with a JSON body saying the feature "would be
+   * implemented here", which the client saved with a .csv extension — so the
+   * export button produced a file that opened as a line of JSON.
+   */
   async exportTPOAnalytics(req, res, next) {
     try {
       const { user } = req;
-      const { export: exportType } = req.query;
+      const { branch, yearOfStudy, placementStatus } = req.query;
 
-      // This would implement CSV/Excel export functionality
-      // For now, we'll return a simple response
-      
-      res.json({
-        message: `${exportType} export functionality would be implemented here`,
-        exportType,
-        timestamp: new Date().toISOString()
+      const studentProfileFilters = {};
+      if (branch) studentProfileFilters.branch = branch;
+      if (yearOfStudy) studentProfileFilters.yearOfStudy = parseInt(yearOfStudy, 10);
+      if (placementStatus) studentProfileFilters.placementStatus = placementStatus;
+
+      const students = await User.findAll({
+        where: {
+          organizationId: user.organizationId,
+          role: 'student',
+          isActive: true
+        },
+        attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
+        include: [
+          {
+            model: StudentProfile,
+            as: 'studentProfile',
+            required: Object.keys(studentProfileFilters).length > 0,
+            where: Object.keys(studentProfileFilters).length > 0 ? studentProfileFilters : undefined
+          },
+          {
+            model: Application,
+            as: 'applications',
+            required: false,
+            attributes: ['id', 'status']
+          }
+        ],
+        order: [['firstName', 'ASC']]
       });
+
+      const columns = [
+        'Student ID', 'First name', 'Last name', 'Email', 'Phone',
+        'Branch', 'Year of study', 'CGPA', 'Placement status',
+        'Applications', 'Selected'
+      ];
+
+      // RFC 4180 quoting: wrap every field and double any embedded quote. A
+      // name containing a comma would otherwise shift every later column.
+      const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+      const rows = students.map((student) => {
+        const profile = student.studentProfile;
+        const applications = student.applications || [];
+        return [
+          student.id,
+          student.firstName,
+          student.lastName,
+          student.email,
+          student.phone,
+          profile?.branch,
+          profile?.yearOfStudy,
+          profile?.cgpa,
+          profile?.placementStatus,
+          applications.length,
+          applications.filter((a) => a.status === 'selected').length
+        ].map(cell).join(',');
+      });
+
+      const csv = [columns.map(cell).join(','), ...rows].join('\r\n');
+      const filename = `placement-report-${new Date().toISOString().slice(0, 10)}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      // A BOM so Excel opens the file as UTF-8 rather than mangling any
+      // non-ASCII name in it.
+      res.send(`\uFEFF${csv}`);
     } catch (error) {
       logger.error('Error in exportTPOAnalytics', error);
       next(error);

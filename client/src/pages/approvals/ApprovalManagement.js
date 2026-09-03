@@ -2,20 +2,11 @@
 //
 // A TPO's queue of companies and recruiters waiting to be let into their
 // campus. The file never parsed before it was routed, so nothing here had ever
-// executed. Three things had to change to make it work:
+// executed until now.
 //
-//   1. `services/approvals.js` unwraps a second time (`response.data`) on top
-//      of the axios interceptor, which already returns the body. That turns
-//      `/approvals/stats` — whose body is `{ message, stats }` — into
-//      `undefined`, and the page crashed reading `.stats` off it. This calls
-//      `api` directly instead, against the shapes verified with curl.
-//   2. `PATCH /approvals/organizations/bulk` is declared after
-//      `PATCH /approvals/organizations/:organizationId`, so Express routes
-//      "bulk" into the single-organization handler and the request 500s on
-//      `id = 'bulk'`. Bulk actions are therefore issued here as one request per
-//      organization against the endpoint that does work.
-//   3. Both `/approvals/*` list endpoints require the `tpo` role. An admin gets
-//      403, so this page says so rather than showing an empty queue.
+// Both `/approvals/*` list endpoints require the `tpo` role, so an admin gets
+// a 403 — this page says so rather than showing an empty queue and implying
+// there is nothing to approve.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
@@ -119,17 +110,16 @@ const ApprovalManagement = () => {
         await api.patch(path, { action, notes }, { silent: true });
         toast.success(`${type === 'organization' ? 'Company' : 'Recruiter'} ${action}d`);
       } else {
-        // One request per organization — see the note at the top of the file
-        // for why the server's bulk endpoint cannot be reached.
-        const results = await Promise.allSettled(
-          selected.map((id) =>
-            api.patch(`/approvals/organizations/${id}`, { action, notes }, { silent: true })
-          )
+        // One request for the whole selection: the server applies it in a
+        // single transaction, so the batch cannot land half-applied the way a
+        // request-per-organization loop can.
+        const body = await api.patch(
+          '/approvals/organizations/bulk',
+          { organizationIds: selected, action, notes },
+          { silent: true }
         );
-        const failed = results.filter((r) => r.status === 'rejected').length;
-        const ok = results.length - failed;
-        if (ok) toast.success(`${ok} compan${ok === 1 ? 'y' : 'ies'} ${action}d`);
-        if (failed) toast.error(`${failed} could not be ${action}d`);
+        const count = body?.updatedCount ?? selected.length;
+        toast.success(`${count} compan${count === 1 ? 'y' : 'ies'} ${action}d`);
       }
       setConfirm(null);
       await load();

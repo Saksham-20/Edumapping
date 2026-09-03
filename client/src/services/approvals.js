@@ -1,70 +1,39 @@
+// client/src/services/approvals.js
+//
+// The TPO approval queue. Thin wrapper over /api/approvals.
+//
+// Every method used to `return response.data`, but the shared axios instance
+// has ALREADY unwrapped the response to its body — so `.data` was reading a
+// property of the JSON payload, which these endpoints do not have, and every
+// call resolved to undefined. The approval page crashed on load as a result.
+// The body is the return value.
 import api from './api';
 
 class ApprovalService {
-  // Get pending approvals for TPO
+  /** Organizations and recruiters awaiting this TPO's decision. */
   async getPendingApprovals() {
-    try {
-      const response = await api.get('/approvals/pending');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching pending approvals:', error);
-      throw error;
-    }
+    return api.get('/approvals/pending');
   }
 
-  // Approve or reject an organization
+  /** `action` is 'approve' or 'reject'. */
   async approveOrganization(organizationId, action, notes = '') {
-    try {
-      const response = await api.patch(`/approvals/organizations/${organizationId}`, {
-        action,
-        notes
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error approving organization:', error);
-      throw error;
-    }
+    return api.patch(`/approvals/organizations/${organizationId}`, { action, notes });
   }
 
-  // Approve or reject a recruiter
   async approveRecruiter(userId, action, notes = '') {
-    try {
-      const response = await api.patch(`/approvals/recruiters/${userId}`, {
-        action,
-        notes
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error approving recruiter:', error);
-      throw error;
-    }
+    return api.patch(`/approvals/recruiters/${userId}`, { action, notes });
   }
 
-  // Bulk approve or reject organizations
   async bulkApproveOrganizations(organizationIds, action, notes = '') {
-    try {
-      const response = await api.patch('/approvals/organizations/bulk', {
-        organizationIds,
-        action,
-        notes
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error bulk approving organizations:', error);
-      throw error;
-    }
+    return api.patch('/approvals/organizations/bulk', { organizationIds, action, notes });
   }
 
-  // Get approval statistics
   async getApprovalStats() {
-    try {
-      const response = await api.get('/approvals/stats');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching approval stats:', error);
-      throw error;
-    }
+    return api.get('/approvals/stats');
   }
 }
 
-export default new ApprovalService();
+// Named instance rather than an anonymous default export, which eslint's
+// import/no-anonymous-default-export flags.
+const approvalService = new ApprovalService();
+export default approvalService;

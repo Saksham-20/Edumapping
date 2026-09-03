@@ -968,15 +968,21 @@ export const Pagination = ({ page, pages, onChange, className = '' }) => {
 /* ==================================================================== misc */
 
 /**
- * Avatar — the picture if it loads, initials otherwise.
+ * Avatar — initials, with the picture layered over them when one loads.
  *
- * The fallback is driven by a load error, not just a missing `src`. Seeded
- * accounts point at via.placeholder.com, a service that no longer exists, so
- * every one of those avatars was rendering as an empty box; any dead or
- * removed image URL now degrades to initials instead.
+ * The initials are the base layer rather than an either/or fallback. Seeded
+ * accounts point at via.placeholder.com, a host that no longer resolves, and a
+ * request to a dead host can hang instead of erroring — so an `onError`-only
+ * fallback left an empty box for as long as the load was pending. This way the
+ * tile always shows something, and the image simply covers it once decoded.
  */
 export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
-  const sizes = { xs: 'h-7 w-7 text-[10px]', sm: 'h-9 w-9 text-xs', md: 'h-11 w-11 text-sm', lg: 'h-16 w-16 text-lg' };
+  const sizes = {
+    xs: 'h-7 w-7 text-[10px]',
+    sm: 'h-9 w-9 text-xs',
+    md: 'h-11 w-11 text-sm',
+    lg: 'h-16 w-16 text-lg'
+  };
   const [failed, setFailed] = useState(false);
 
   // A new src deserves a fresh attempt, otherwise one broken image would
@@ -991,28 +997,27 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
     .join('')
     .toUpperCase();
 
-  if (src && !failed) {
-    return (
-      <img
-        src={src}
-        alt={name ? `${name}'s profile picture` : ''}
-        onError={() => setFailed(true)}
-        className={cx('shrink-0 rounded-xl border border-ink-950/15 object-cover', sizes[size], className)}
-      />
-    );
-  }
   return (
     <span
-      // Not decorative when it is the only thing identifying the person.
       role="img"
       aria-label={name ? `${name}'s profile picture` : 'Profile picture'}
       className={cx(
-        'inline-flex shrink-0 items-center justify-center rounded-xl border border-ink-950/15 bg-ink-950 font-semibold text-white',
+        'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl',
+        'border border-ink-950/15 bg-ink-950 font-semibold text-white',
         sizes[size],
         className
       )}
     >
       {initials || '—'}
+      {src && !failed && (
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
     </span>
   );
 };

@@ -41,6 +41,23 @@ const ROLE_TONES = {
   career_counselor: 'info'
 };
 
+/**
+ * Human-readable role label. `capitalize` alone rendered "tpo" as "Tpo", which
+ * reads as a misspelling rather than an acronym.
+ */
+const ROLE_LABELS = {
+  tpo: 'TPO',
+  school_admin: 'School admin',
+  career_counselor: 'Career counsellor'
+};
+
+const formatRole = (role) => {
+  if (!role) return '';
+  if (ROLE_LABELS[role]) return ROLE_LABELS[role];
+  const words = role.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** The bar's own height, in px. The spacer below it must match exactly. */
 const BAR_HEIGHT = 72;
 
@@ -271,8 +288,8 @@ const Header = () => {
                 <Avatar src={user?.profilePicture} name={fullName} size="sm" />
                 <span className="hidden text-left leading-tight xl:block">
                   <span className="block text-sm font-semibold text-ink-950">{fullName}</span>
-                  <span className="block text-xs capitalize text-ink-500">
-                    {user?.role?.replace(/_/g, ' ')}
+                  <span className="block text-xs text-ink-500">
+                    {formatRole(user?.role)}
                   </span>
                 </span>
                 <ChevronDownIcon
@@ -299,7 +316,7 @@ const Header = () => {
                         <p className="truncate text-sm font-semibold text-ink-950">{fullName}</p>
                         <p className="truncate text-xs text-ink-600">{user?.email}</p>
                         <Badge tone={ROLE_TONES[user?.role] || 'neutral'} className="mt-1.5">
-                          {user?.role?.replace(/_/g, ' ')}
+                          {formatRole(user?.role)}
                         </Badge>
                       </div>
                     </div>
