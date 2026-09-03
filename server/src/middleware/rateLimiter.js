@@ -1,6 +1,23 @@
 // server/src/middleware/rateLimiter.js
 const rateLimit = require('express-rate-limit');
 
+/**
+ * Rate limiting is a production concern. Locally it only gets in the way: the
+ * auth limiter allows 5 attempts per 15 minutes, which a developer or an
+ * automated test run exhausts almost immediately and then cannot recover from
+ * without waiting out the window. The limiters defined in `app.js` already skip
+ * localhost in development; the ones here did not, so a mistyped password
+ * during development locked out login for a quarter of an hour.
+ *
+ * Only loopback addresses are skipped, and only when NODE_ENV is development,
+ * so production remains fully rate limited.
+ */
+const skipLocalhostInDev = (req) => {
+  if (process.env.NODE_ENV !== 'development') return false;
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.includes('localhost');
+};
+
 // General API rate limiter
 const generalLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
@@ -31,7 +48,8 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true // Don't count successful requests
+  skipSuccessfulRequests: true, // Don't count successful requests
+  skip: skipLocalhostInDev
 });
 
 // Password reset limiter
@@ -41,7 +59,8 @@ const passwordResetLimiter = rateLimit({
   message: {
     error: 'Too Many Password Reset Attempts',
     message: 'Too many password reset attempts, please try again later'
-  }
+  },
+  skip: skipLocalhostInDev
 });
 
 // OTP send limiter (registration + forgot-password) - prevent enumeration and abuse
@@ -53,7 +72,8 @@ const otpSendLimiter = rateLimit({
     message: 'Too many OTP requests. Please try again later.'
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: skipLocalhostInDev
 });
 
 // File upload limiter
@@ -63,7 +83,8 @@ const uploadLimiter = rateLimit({
   message: {
     error: 'Upload Limit Exceeded',
     message: 'Too many file uploads, please try again later'
-  }
+  },
+  skip: skipLocalhostInDev
 });
 
 // Application submission limiter
@@ -73,7 +94,8 @@ const applicationLimiter = rateLimit({
   message: {
     error: 'Application Limit Exceeded',
     message: 'Too many applications submitted today, please try again tomorrow'
-  }
+  },
+  skip: skipLocalhostInDev
 });
 
 // Search API limiter
@@ -83,7 +105,8 @@ const searchLimiter = rateLimit({
   message: {
     error: 'Search Limit Exceeded',
     message: 'Too many search requests, please slow down'
-  }
+  },
+  skip: skipLocalhostInDev
 });
 
 // Create dynamic limiter based on user role

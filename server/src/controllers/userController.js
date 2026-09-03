@@ -556,7 +556,14 @@ class UserController {
         }
       }
 
-      if (!targetOrgId) {
+      // A platform admin belongs to no organization, so falling back to
+      // `req.user.organizationId` leaves them with nothing to scope by. The
+      // route allows admins, but every unscoped call answered 400 — the one
+      // role meant to see everything was the only one that could not use this
+      // endpoint at all. Absent an explicit `organizationId`, an admin gets
+      // candidates across every organization; any other role still must be
+      // scoped, since their reach is defined by their own organization.
+      if (!targetOrgId && req.user.role !== 'admin') {
         return res.status(400).json({
           error: 'Organization Required',
           message: 'Organization ID is required'
@@ -564,7 +571,7 @@ class UserController {
       }
 
       const jobs = await Job.findAll({
-        where: { organizationId: targetOrgId },
+        where: targetOrgId ? { organizationId: targetOrgId } : {},
         attributes: ['id']
       });
       const jobIds = jobs.map(job => job.id);
