@@ -266,7 +266,7 @@ const Login = ({ isSchoolMode = false, altLink }) => {
           </Link>
         </p>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit} noValidate>
           <FormError>{errors.submit}</FormError>
 
           <Input

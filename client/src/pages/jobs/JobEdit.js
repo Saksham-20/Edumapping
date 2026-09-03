@@ -169,6 +169,20 @@ const JobEdit = () => {
       newErrors.applicationDeadline = 'Application deadline must be in the future';
     }
 
+    // The numeric bounds used to be enforced only by the browser's own
+    // validation, via min/max on the inputs. Now that the form carries
+    // noValidate they have to be checked here, or an out-of-range number would
+    // reach the API and come back as a generic toast.
+    const negative = (v) => v !== '' && v !== null && v !== undefined && Number(v) < 0;
+    if (negative(formData.salaryMin)) newErrors.salaryMin = 'Salary cannot be negative';
+    if (negative(formData.salaryMax)) newErrors.salaryMax = 'Salary cannot be negative';
+    if (negative(formData.experienceRequired)) {
+      newErrors.experienceRequired = 'Experience cannot be negative';
+    }
+    if (formData.totalPositions !== '' && Number(formData.totalPositions) < 1) {
+      newErrors.totalPositions = 'There must be at least one opening';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -279,7 +293,7 @@ const JobEdit = () => {
       />
 
       <Card>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
           <Input
             label="Job title"
             name="title"
@@ -326,6 +340,7 @@ const JobEdit = () => {
               value={formData.salaryMin}
               onChange={handleInputChange}
               placeholder="50000"
+              error={errors.salaryMin}
             />
             <Input
               label="Maximum salary"
@@ -345,6 +360,7 @@ const JobEdit = () => {
               max="20"
               value={formData.experienceRequired}
               onChange={handleInputChange}
+              error={errors.experienceRequired}
             />
             <Input
               label="Total positions"
@@ -354,6 +370,7 @@ const JobEdit = () => {
               max="100"
               value={formData.totalPositions}
               onChange={handleInputChange}
+              error={errors.totalPositions}
             />
             <Input
               label="Eligible branches"

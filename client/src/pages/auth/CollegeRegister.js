@@ -246,7 +246,7 @@ const CollegeRegister = () => {
           </Link>
         </p>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit} noValidate>
           <FormError>{errors.submit}</FormError>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
