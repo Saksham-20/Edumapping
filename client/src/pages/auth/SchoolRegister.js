@@ -164,8 +164,11 @@ const SchoolRegister = () => {
           const orgResponse = await api.post('/organizations/register', orgData);
           const newOrg = orgResponse.organization;
 
-          // Set the role and organizationId for user registration
-          submitData.role = 'student';
+          // Whoever registers a school administers it. This was hardcoded to
+          // 'student', so the person who created a school became a pupil of it
+          // and nobody could administer the institution they had just set up.
+          // The college screen already does the equivalent, assigning 'tpo'.
+          submitData.role = 'school_admin';
           submitData.organizationId = newOrg.id;
 
           // Clean up organization fields

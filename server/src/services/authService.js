@@ -137,20 +137,20 @@ class AuthService {
     let approvalStatus = 'pending';
     let isActive = false;
     
-    if (role === 'admin') {
-      // Admin is auto-approved and active
-      approvalStatus = 'approved';
-      isActive = true;
-    } else if (role === 'student' || role === 'tpo') {
-      // Students and TPOs are auto-approved
-      approvalStatus = 'approved';
-      isActive = true;
-    } else if (role === 'recruiter') {
-      // Recruiters are auto-approved for now (can be changed later for manual approval)
-      approvalStatus = 'approved';
-      isActive = true;
-    } else if (role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') {
-      // School roles are auto-approved
+    // Every role was auto-approved here, including the two that are supposed to
+    // be reviewed. That made the whole approval workflow dead code: the
+    // approvals API, the management screen, the pending-approval page and the
+    // client's own pending branch could only ever be reached by an admin
+    // manually flipping a row in the database.
+    //
+    // A TPO speaks for an institution and a recruiter gets scoped access to
+    // student data, so both wait for review. Students and school staff join an
+    // institution that already exists and are approved on sight, which is how
+    // they behaved before and what keeps ordinary signup usable.
+    if (role === 'tpo' || role === 'recruiter') {
+      approvalStatus = 'pending';
+      isActive = false;
+    } else {
       approvalStatus = 'approved';
       isActive = true;
     }
