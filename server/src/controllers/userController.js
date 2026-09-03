@@ -541,40 +541,52 @@ class UserController {
   async getTopCandidates(req, res, next) {
     try {
       const { limit = 10, organizationId } = req.query;
-      const targetOrgId = organizationId || req.user.organizationId;
-      let allowedOrgIds = [];
+
+      // Two different organizations are involved here and the original code
+      // conflated them into one `targetOrgId`, which broke the endpoint for
+      // the role it exists to serve:
+      //
+      //   * whose jobs the candidates applied to — the hiring company;
+      //   * which institution the candidates come from — the allow-list.
+      //
+      // For a recruiter it defaulted to their own company and then tested that
+      // against the allow-list, which holds universities and so never contains
+      // their own company: every default call returned 403. Passing an allowed
+      // university instead made it look for students who had applied to that
+      // *university's* postings rather than to the recruiter's own, so it
+      // returned an empty list. The endpoint could not succeed either way.
+      //
+      // A recruiter's candidates are now the students who applied to their own
+      // organization's jobs, restricted to the institutions they are allowed to
+      // see. `organizationId` narrows within that allow-list rather than
+      // choosing whose jobs to read.
+      let jobOrgId = null;
+      let studentOrgIds = null;
+
       if (req.user.role === 'recruiter') {
-        allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
+        const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
         if (allowedOrgIds.length === 0) {
           return res.json({
             message: 'Top candidates retrieved successfully',
             candidates: []
           });
         }
-        if (targetOrgId && !allowedOrgIds.includes(parseInt(targetOrgId, 10))) {
+        if (organizationId && !allowedOrgIds.includes(parseInt(organizationId, 10))) {
           return res.status(403).json({
             error: 'Access Forbidden',
             message: 'You do not have access to this organization'
           });
         }
-      }
-
-      // A platform admin belongs to no organization, so falling back to
-      // `req.user.organizationId` leaves them with nothing to scope by. The
-      // route allows admins, but every unscoped call answered 400 — the one
-      // role meant to see everything was the only one that could not use this
-      // endpoint at all. Absent an explicit `organizationId`, an admin gets
-      // candidates across every organization; any other role still must be
-      // scoped, since their reach is defined by their own organization.
-      if (!targetOrgId && req.user.role !== 'admin') {
-        return res.status(400).json({
-          error: 'Organization Required',
-          message: 'Organization ID is required'
-        });
+        jobOrgId = req.user.organizationId;
+        studentOrgIds = organizationId ? [parseInt(organizationId, 10)] : allowedOrgIds;
+      } else {
+        // Admin. `organizationId` selects the hiring organization; a platform
+        // admin belongs to none, so absent it they see candidates everywhere.
+        jobOrgId = organizationId || req.user.organizationId || null;
       }
 
       const jobs = await Job.findAll({
-        where: targetOrgId ? { organizationId: targetOrgId } : {},
+        where: jobOrgId ? { organizationId: jobOrgId } : {},
         attributes: ['id']
       });
       const jobIds = jobs.map(job => job.id);
@@ -590,8 +602,8 @@ class UserController {
         role: 'student',
         isActive: true
       };
-      if (req.user.role === 'recruiter') {
-        candidateWhere.organizationId = { [Op.in]: allowedOrgIds };
+      if (studentOrgIds) {
+        candidateWhere.organizationId = { [Op.in]: studentOrgIds };
       }
 
       const candidates = await User.findAll({
