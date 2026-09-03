@@ -398,14 +398,17 @@ const TPODashboard = () => {
                   </div>
                 </Link>
                 
+                {/* Was /students, which has never existed as a route — the tile
+                    silently bounced to the landing page. The student roster
+                    lives inside the analytics surface. */}
                 <Link
-                  to="/students"
+                  to="/tpo/analytics"
                   className="flex items-center p-4 text-sm text-gray-700 rounded-lg border hover:bg-gray-50 transition-colors"
                 >
                   <AcademicCapIcon className="h-6 w-6 text-green-600 mr-3" />
                   <div>
-                    <h3 className="font-medium">Manage Students</h3>
-                    <p className="text-sm text-gray-600">View and manage student profiles</p>
+                    <h3 className="font-medium">Students & analytics</h3>
+                    <p className="text-sm text-gray-600">Placement performance and student roster</p>
                   </div>
                 </Link>
                 

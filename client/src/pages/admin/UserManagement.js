@@ -57,7 +57,7 @@ const UserManagement = () => {
         )
       });
 
-      const response = await api.get(`/users/admin/all?${params}`);
+      const response = await api.get(`/users?${params}`);
       setUsers(response.users || []);
       setPagination(response.pagination || {});
     } catch (error) {
@@ -92,7 +92,7 @@ const UserManagement = () => {
 
   const viewUser = async (userId) => {
     try {
-      const response = await api.get(`/users/admin/${userId}`);
+      const response = await api.get(`/admin/users/${userId}`);
       setSelectedUser(response.user);
       setShowUserModal(true);
       setEditMode(false);
@@ -120,7 +120,7 @@ const UserManagement = () => {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await api.put(`/users/admin/${selectedUser.id}`, editData);
+      const response = await api.put(`/admin/users/${selectedUser.id}`, editData);
       toast.success('User updated successfully');
       setShowUserModal(false);
       setEditMode(false);
@@ -137,7 +137,7 @@ const UserManagement = () => {
     }
 
     try {
-      await api.delete(`/users/admin/${userId}`);
+      await api.delete(`/admin/users/${userId}`);
       toast.success('User deactivated successfully');
       fetchUsers(pagination.currentPage);
     } catch (error) {

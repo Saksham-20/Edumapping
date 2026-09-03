@@ -54,7 +54,7 @@ const ApprovalManagement = () => {
     }
   };
 
-  const handleApprove = async (itemId, type, action, itemNotes = '') {
+  const handleApprove = async (itemId, type, action, itemNotes = '') => {
     try {
       if (type === 'organization') {
         await approvalService.approveOrganization(itemId, action, itemNotes);

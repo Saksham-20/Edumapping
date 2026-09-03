@@ -50,12 +50,16 @@ const PendingApproval = () => {
                 <p className="text-sm text-gray-600 mb-4">
                   Have questions about your account?
                 </p>
-                <Link
-                  to="/contact"
+                {/* Was a Link to /contact, which is not a route — the landing
+                    page's Connect section is local state, not a URL — so the
+                    button silently bounced to the landing page. A mailto is a
+                    destination that actually exists. */}
+                <a
+                  href="mailto:support@edumapping.com?subject=Question%20about%20my%20pending%20account"
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   Contact Support
-                </Link>
+                </a>
               </div>
             </div>
 

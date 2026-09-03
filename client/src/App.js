@@ -39,6 +39,15 @@ import ApplicationDetail from './pages/applications/ApplicationDetail';
 import Events from './pages/events/Events';
 import EventForm from './pages/events/EventForm';
 import EventDetails from './pages/events/EventDetails';
+import Settings from './pages/Settings';
+import NotFound from './pages/NotFound';
+import ForgotPassword from './pages/auth/ForgotPassword';
+// These three pages were fully written but never imported and never routed —
+// the TPO's analytics and approvals surfaces, and the admin's user manager.
+import UserManagement from './pages/admin/UserManagement';
+import TPOAnalytics from './pages/tpo/TPOAnalytics';
+import ApprovalManagement from './pages/approvals/ApprovalManagement';
+import ConferencesList from './pages/conference/ConferencesList';
 
 import './styles/index.css';
 import './styles/carousel.css';
@@ -162,6 +171,7 @@ function App() {
               <Route path="/register/college" element={<CollegeRegister />} />
               <Route path="/register/school" element={<SchoolRegister />} />
               <Route path="/pending-approval" element={<PendingApproval />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               
               {/* Protected routes */}
@@ -242,8 +252,12 @@ function App() {
                 </ProtectedRoute>
               } />
               
+              {/* Creating an event is server-side restricted to non-students with
+                  an organization (routes/events.js). Without the same guard here
+                  a student could open and fill the whole form, only to be told
+                  403 on submit. */}
               <Route path="/events/new" element={
-                <ProtectedRoute>
+                <ProtectedRoute requiredRoles={['recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor']}>
                   <Header />
                   <EventForm />
                 </ProtectedRoute>
@@ -257,12 +271,47 @@ function App() {
               } />
               
               <Route path="/events/:id/edit" element={
-                <ProtectedRoute>
+                <ProtectedRoute requiredRoles={['recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor']}>
                   <Header />
                   <EventForm />
                 </ProtectedRoute>
               } />
               
+              <Route path="/settings" element={
+                <ProtectedRoute>
+                  <Header />
+                  <Settings />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/conferences" element={
+                <ProtectedRoute>
+                  <Header />
+                  <ConferencesList />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/approvals" element={
+                <ProtectedRoute requiredRoles={['tpo', 'admin']}>
+                  <Header />
+                  <ApprovalManagement />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/tpo/analytics" element={
+                <ProtectedRoute requiredRoles={['tpo', 'admin']}>
+                  <Header />
+                  <TPOAnalytics />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/admin/users" element={
+                <ProtectedRoute requiredRoles={['admin']}>
+                  <Header />
+                  <UserManagement />
+                </ProtectedRoute>
+              } />
+
               {/* Live class / conference room.
                   Deliberately rendered WITHOUT <Header /> — the room is a
                   full-viewport surface and the app chrome would steal height
@@ -285,8 +334,10 @@ function App() {
                 </ProtectedRoute>
               } />
 
-              {/* Catch all route */}
-              <Route path="*" element={<Navigate to="/" replace />} />
+              {/* Catch-all. This used to redirect silently to the landing page,
+                  which made every typo and every dead internal link look like a
+                  successful navigation. */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
             
             {/* WhatsApp Chat Button - appears on all pages */}

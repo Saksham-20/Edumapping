@@ -1,50 +1,30 @@
 // client/src/services/conferences.js
+//
+// Thin wrapper over the /api/conferences endpoints. The axios instance already
+// unwraps to `response.data`, so every method here returns the JSON body.
 import api from './api';
 
-/**
- * Conference API client.
- *
- * Every moderation call here is re-authorised on the server — these helpers are
- * a convenience layer, never the security boundary.
- */
+/** Roles the server lets host a live session (conferenceController HOST_ROLES). */
+export const HOST_ROLES = ['tpo', 'admin', 'teacher', 'principal', 'school_admin', 'career_counselor'];
+
+export const canHostConferences = (role) => HOST_ROLES.includes(role);
+
 const conferenceService = {
-  list: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
-    return api.get(`/conferences${query ? `?${query}` : ''}`);
-  },
+  /**
+   * Everything the caller can see: hosted by them, their org's, or public.
+   * `config` is axios request config, so a caller can pass `{ silent: true }`
+   * to suppress the interceptor's automatic error toast and render its own.
+   */
+  list: (params = {}, config = {}) => api.get('/conferences', { params, ...config }),
 
   get: (id) => api.get(`/conferences/${id}`),
 
   create: (payload) => api.post('/conferences', payload),
 
-  /** Mint a LiveKit token. Returns { token, url, role, conference }. */
-  getToken: (id) => api.post(`/conferences/${id}/token`),
-
-  listParticipants: (id) => api.get(`/conferences/${id}/participants`),
-
-  updateSettings: (id, settings) => api.patch(`/conferences/${id}/settings`, { settings }),
-
+  /** Ends a live session for everyone. Host and admin only, server-enforced. */
   end: (id) => api.post(`/conferences/${id}/end`),
 
-  /* ------------------------------------------------------------ attendee */
-  setHand: (id, raised) => api.post(`/conferences/${id}/hand`, { raised }),
-
-  /* ---------------------------------------------------------- moderation */
-  /** `hard: true` revokes publish rights so the student cannot self-unmute. */
-  mute: (id, userId, hard = false) =>
-    api.post(`/conferences/${id}/participants/${userId}/mute`, { hard }),
-
-  unmute: (id, userId) => api.post(`/conferences/${id}/participants/${userId}/unmute`),
-
-  muteAll: (id) => api.post(`/conferences/${id}/mute-all`),
-
-  /** `ban: true` (default) also blocks rejoin. */
-  remove: (id, userId, ban = true) =>
-    api.delete(`/conferences/${id}/participants/${userId}`, { data: { ban } }),
-
-  readmit: (id, userId) => api.post(`/conferences/${id}/participants/${userId}/readmit`),
-
-  lowerHand: (id, userId) => api.post(`/conferences/${id}/participants/${userId}/lower-hand`)
+  updateSettings: (id, settings) => api.patch(`/conferences/${id}/settings`, settings)
 };
 
 export default conferenceService;
