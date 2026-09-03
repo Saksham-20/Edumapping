@@ -119,6 +119,78 @@ class AssessmentController {
     }
   }
 
+  /**
+   * Results for an assessment, for the person who set it.
+   *
+   * `AssessmentResult` rows have always been written and never read back —
+   * there was no endpoint at all that returned a score to the recruiter or TPO
+   * who created the test. A test whose results are invisible to its author is
+   * not a feature.
+   */
+  async getAssessmentResults(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      const assessment = await Assessment.findByPk(id);
+      if (!assessment) {
+        return res.status(404).json({
+          error: 'Assessment Not Found',
+          message: 'Assessment not found'
+        });
+      }
+
+      // Its author, or an admin. A recruiter must not be able to read the
+      // scores on a test somebody else set.
+      const canView = req.user.role === 'admin' || assessment.createdBy === req.user.id;
+      if (!canView) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only view results for assessments you created'
+        });
+      }
+
+      const results = await AssessmentResult.findAll({
+        where: { assessmentId: id },
+        include: [
+          {
+            model: User,
+            as: 'student',
+            attributes: ['id', 'firstName', 'lastName', 'email']
+          }
+        ],
+        order: [['percentage', 'DESC']]
+      });
+
+      const completed = results.filter((r) => r.status === 'completed');
+      const passed = completed.filter((r) => Number(r.percentage) >= assessment.passingMarks);
+
+      res.json({
+        message: 'Assessment results retrieved successfully',
+        assessment: {
+          id: assessment.id,
+          title: assessment.title,
+          totalMarks: assessment.totalMarks,
+          passingMarks: assessment.passingMarks,
+          duration: assessment.duration
+        },
+        results,
+        summary: {
+          attempts: results.length,
+          completed: completed.length,
+          passed: passed.length,
+          averagePercentage: completed.length
+            ? Math.round(
+                (completed.reduce((sum, r) => sum + Number(r.percentage || 0), 0) /
+                  completed.length) * 10
+              ) / 10
+            : 0
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async submitAssessment(req, res, next) {
     try {
       const { id } = req.params;
@@ -136,7 +208,32 @@ class AssessmentController {
         });
       }
 
+      // A completed attempt must not be overwritten. Nothing stopped a student
+      // re-POSTing this endpoint with better answers and replacing their score.
+      if (result.status === 'completed') {
+        return res.status(409).json({
+          error: 'Already Submitted',
+          message: 'You have already submitted this assessment'
+        });
+      }
+
       const assessment = await Assessment.findByPk(id);
+
+      // Enforce the time limit against the server's own clock. `duration` was
+      // stored and shown to the student but never checked, and the elapsed time
+      // recorded was whatever `timeSpent` the client chose to send — so the
+      // timer was decorative.
+      const startedAt = result.startedAt ? new Date(result.startedAt) : null;
+      const elapsedMinutes = startedAt ? (Date.now() - startedAt.getTime()) / 60000 : 0;
+      // One minute of slack for the round trip, so a submission sent just
+      // inside the limit is not rejected by network latency.
+      if (assessment.duration && startedAt && elapsedMinutes > assessment.duration + 1) {
+        await result.update({ status: 'expired', submittedAt: new Date() });
+        return res.status(400).json({
+          error: 'Time Expired',
+          message: `This assessment allowed ${assessment.duration} minutes and was started ${Math.round(elapsedMinutes)} minutes ago.`
+        });
+      }
       
       // Calculate score
       let score = 0;
@@ -155,7 +252,9 @@ class AssessmentController {
         answers,
         score,
         percentage,
-        timeSpent,
+        // Measured server-side. `timeSpent` arrives from the browser and a
+        // student can send any number they like.
+        timeSpent: startedAt ? Math.round(elapsedMinutes) : timeSpent,
         status: 'completed',
         submittedAt: new Date()
       });

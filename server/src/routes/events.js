@@ -146,6 +146,41 @@ router.post('/:id/register',
  *     security:
  *       - bearerAuth: []
  */
+/**
+ * @swagger
+ * /api/events/{id}/registrations:
+ *   get:
+ *     summary: List who registered for an event (organisers only)
+ *     tags: [Events]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get('/:id/registrations',
+  authenticateToken,
+  requireNotRole('student'),
+  eventController.listEventRegistrations
+);
+
+/**
+ * @swagger
+ * /api/events/{id}/attendance:
+ *   patch:
+ *     summary: Mark attendance for one or more registrations (organisers only)
+ *     tags: [Events]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.patch('/:id/attendance',
+  authenticateToken,
+  requireNotRole('student'),
+  [
+    body('userIds').isArray({ min: 1 }).withMessage('userIds must be a non-empty array'),
+    body('userIds.*').isInt({ min: 1 }).withMessage('Each user id must be a positive integer'),
+    body('status')
+      .isIn(['registered', 'attended', 'no_show'])
+      .withMessage('status must be one of: registered, attended, no_show')
+  ],
+  eventController.markEventAttendance
+);
+
 router.post('/:id/cancel', 
   authenticateToken, 
   eventController.cancelEventRegistration

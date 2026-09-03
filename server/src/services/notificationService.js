@@ -1,5 +1,8 @@
 // server/src/services/notificationService.js
-const { Notification, User, Application, Job, Organization } = require('../models');
+// `Event` was missing here while notifyEventReminder referenced it — the method
+// would have thrown a ReferenceError on its first call. It had no callers, so
+// nothing ever found out.
+const { Notification, User, Application, Job, Organization, Event } = require('../models');
 const emailService = require('./emailService');
 const logger = require('../utils/logger');
 

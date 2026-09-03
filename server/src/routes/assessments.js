@@ -48,6 +48,20 @@ router.post('/',
  *     security:
  *       - bearerAuth: []
  */
+/**
+ * @swagger
+ * /api/assessments/{id}/results:
+ *   get:
+ *     summary: Results for an assessment, for the person who created it
+ *     tags: [Assessments]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get('/:id/results',
+  authenticateToken,
+  requireRole('recruiter', 'tpo', 'admin'),
+  assessmentController.getAssessmentResults
+);
+
 router.post('/:id/take', 
   authenticateToken, 
   requireRole('student'),

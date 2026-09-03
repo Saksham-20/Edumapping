@@ -2,6 +2,7 @@
 const { Event, Organization, User, EventRegistration } = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 let cachedEduMappingOrgId = undefined;
 const getEduMappingOrgId = async () => {
@@ -346,6 +347,110 @@ class EventController {
       res.status(201).json({
         message: 'Successfully registered for event',
         registration
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * The registration list for an event, for whoever runs it.
+   *
+   * There was no way to see who had signed up — `POST /:id/register` and
+   * `/:id/cancel` were the only two routes that touched a registration, both
+   * from the attendee's side. An organiser could not take a register.
+   */
+  async listEventRegistrations(req, res, next) {
+    try {
+      const { id } = req.params;
+      const event = await Event.findByPk(id);
+      if (!event) {
+        return res.status(404).json({ error: 'Event Not Found', message: 'Event not found' });
+      }
+      if (req.user.role !== 'admin' && event.organizationId !== req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only view registrations for your own organization\'s events'
+        });
+      }
+
+      const registrations = await EventRegistration.findAll({
+        where: { eventId: id },
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'organizationId']
+          }
+        ],
+        order: [['registeredAt', 'ASC']]
+      });
+
+      const counts = registrations.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+      }, {});
+
+      res.json({
+        message: 'Registrations retrieved successfully',
+        registrations,
+        counts,
+        total: registrations.length
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Mark attendance for one or many registrations.
+   *
+   * `EventRegistration.status` has carried 'attended' and 'no_show' since the
+   * first migration, and the UI even has a colour ready for a no-show, but
+   * nothing in the codebase could ever write either value. Without attendance
+   * a workshop cannot report turnout against sign-ups, cannot issue a
+   * certificate, and cannot enforce a no-show policy.
+   */
+  async markEventAttendance(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { userIds, status } = req.body;
+
+      const event = await Event.findByPk(id);
+      if (!event) {
+        return res.status(404).json({ error: 'Event Not Found', message: 'Event not found' });
+      }
+      if (req.user.role !== 'admin' && event.organizationId !== req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only mark attendance for your own organization\'s events'
+        });
+      }
+
+      // Scoped to this event's registrations, so a stray user id cannot be used
+      // to touch a row belonging to a different event.
+      const [updatedCount] = await EventRegistration.update(
+        { status },
+        { where: { eventId: id, userId: { [Op.in]: userIds } } }
+      );
+
+      logger.info('Event attendance marked', {
+        eventId: id,
+        status,
+        requested: userIds.length,
+        updated: updatedCount,
+        by: req.user.id
+      });
+
+      res.json({
+        message: `${updatedCount} registration${updatedCount === 1 ? '' : 's'} marked ${status}`,
+        updatedCount,
+        status
       });
     } catch (error) {
       next(error);

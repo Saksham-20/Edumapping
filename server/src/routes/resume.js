@@ -4,6 +4,7 @@ const multer = require('multer');
 const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const resumeService = require('../services/resumeService');
+const { uploadLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -125,6 +126,53 @@ router.get('/download/:fileId',
       // This will be handled by the files route
       // Redirect to the files download endpoint
       res.redirect(`/api/files/${fileId}/download`);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/resume/upload:
+ *   post:
+ *     summary: Upload your own resume PDF
+ *     tags: [Resume]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               resume:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Resume uploaded
+ *       400:
+ *         description: No file, or not a PDF
+ */
+// `resumeService.uploadCustomResume` has been fully implemented all along with
+// no route to reach it, so a student's only possible resume was the pdfkit
+// output generated from their profile form — an existing, better CV could not
+// be used at all.
+router.post('/upload',
+  authenticateToken,
+  requireRole('student'),
+  uploadLimiter,
+  upload.single('resume'),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'No File',
+          message: 'Attach a PDF file in the "resume" field'
+        });
+      }
+      const result = await resumeService.uploadCustomResume(req.user.id, req.file);
+      res.json({ message: 'Resume uploaded successfully', ...result });
     } catch (error) {
       next(error);
     }

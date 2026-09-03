@@ -119,9 +119,21 @@ class JobController {
       const offset = (page - 1) * limit;
       const whereClause = {};
 
-      // Filters - only apply status filter if explicitly provided
-      // For recruiters viewing their own jobs, show all statuses by default
-      if (status) whereClause.status = status;
+      // Who is allowed to see a job that is not live?
+      //
+      // Only the people who manage postings. This endpoint is `optionalAuth`,
+      // and it used to apply a status filter only when one was supplied — so an
+      // unauthenticated GET /api/jobs returned every row in the table,
+      // including `draft` (the default for a new job) and `cancelled` ones. A
+      // recruiter part-way through writing a req had it published to the world.
+      const canSeeUnpublished = ['recruiter', 'tpo', 'admin'].includes(req.user?.role);
+      if (canSeeUnpublished) {
+        if (status) whereClause.status = status;
+      } else {
+        // Never honour a caller-supplied status here: `?status=draft` would
+        // otherwise be the same leak with an extra step.
+        whereClause.status = 'active';
+      }
       if (jobType) whereClause.jobType = jobType;
       if (location) whereClause.location = { [Op.iLike]: `%${location}%` };
       if (organizationId) whereClause.organizationId = organizationId;

@@ -6,6 +6,35 @@ const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { checkEligibility } = require('../utils/eligibility');
 
+/**
+ * Keep `student_profiles.placement_status` in step with the student's
+ * applications.
+ *
+ * Nothing used to write this column outside the seeders, while every placement
+ * figure the product reports reads it — the admin and TPO dashboards, the TPO
+ * analytics `placements.placed` and `byBranch`, the placement rate, and the CSV
+ * export. A placement cell could run a whole drive, mark sixty students
+ * selected, and still see "0 placed, 0% placement rate", which is the single
+ * number they are judged on.
+ *
+ * Derived from the applications rather than set as a one-way flag, so undoing a
+ * selection (a rejection after the fact, a withdrawal) correctly takes the
+ * student back to unplaced. `deferred` is a manual state a TPO sets for
+ * students sitting out the season, so it is never overwritten here.
+ */
+const syncPlacementStatus = async (studentId) => {
+  const profile = await StudentProfile.findOne({ where: { userId: studentId } });
+  if (!profile || profile.placementStatus === 'deferred') return;
+
+  const selectedCount = await Application.count({
+    where: { studentId, status: 'selected' }
+  });
+  const next = selectedCount > 0 ? 'placed' : 'unplaced';
+  if (profile.placementStatus !== next) {
+    await profile.update({ placementStatus: next });
+  }
+};
+
 class ApplicationController {
   async submitApplication(req, res, next) {
     try {
@@ -454,6 +483,17 @@ class ApplicationController {
 
       await application.update(updateData);
 
+      // A selection (or the reversal of one) changes whether this student
+      // counts as placed.
+      try {
+        await syncPlacementStatus(application.studentId);
+      } catch (placementError) {
+        logger.error('Failed to sync placement status', placementError, {
+          applicationId: application.id,
+          studentId: application.studentId
+        });
+      }
+
       // Send notification to student
       try {
         await notificationService.notifyApplicationStatusUpdate(application.id, status);
@@ -649,9 +689,46 @@ class ApplicationController {
           break;
       }
 
+      // Read the affected rows before updating: the UPDATE returns only a
+      // count, and both the notifications and the placement sync below need to
+      // know which students were actually touched (the scoping above may have
+      // excluded some of the requested ids).
+      const affected = await Application.findAll({
+        where: whereClause,
+        attributes: ['id', 'studentId']
+      });
+
       const [updatedCount] = await Application.update(updateData, {
         where: whereClause
       });
+
+      // Notify each student. The single-row path has always done this, so
+      // shortlisting one student at a time told them and shortlisting two
+      // hundred at once told none of them — the larger the action, the quieter
+      // it was. Failures are logged, never fatal to the update that succeeded.
+      await Promise.allSettled(
+        affected.map((application) =>
+          notificationService
+            .notifyApplicationStatusUpdate(application.id, status)
+            .catch((notifError) =>
+              logger.error('Bulk notification error', notifError, {
+                applicationId: application.id,
+                status
+              })
+            )
+        )
+      );
+
+      // A bulk rejection can take a previously selected student back to
+      // unplaced, so placement status has to be recomputed here too.
+      const studentIds = [...new Set(affected.map((a) => a.studentId))];
+      await Promise.allSettled(
+        studentIds.map((studentId) =>
+          syncPlacementStatus(studentId).catch((placementError) =>
+            logger.error('Failed to sync placement status', placementError, { studentId })
+          )
+        )
+      );
 
       res.json({
         message: `${updatedCount} applications updated successfully`,
