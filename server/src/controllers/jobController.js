@@ -3,6 +3,7 @@ const { Job, Organization, User, Application, Assessment, StudentProfile } = req
 const { validationResult } = require('express-validator');
 const { Op, cast, col, where } = require('sequelize');
 const logger = require('../utils/logger');
+const notificationService = require('../services/notificationService');
 const { checkEligibility, describeEligibility } = require('../utils/eligibility');
 
 class JobController {
@@ -74,6 +75,16 @@ class JobController {
         message: 'Job created successfully',
         job: jobWithDetails
       });
+
+      // Alert eligible students, after the response. A campus-wide fan-out of
+      // one notification and one email per student must not hold up the
+      // recruiter's request, and a failure to notify is not a reason to report
+      // that the job was not created — it was.
+      if (job.status === 'active') {
+        notificationService
+          .notifyEligibleStudentsOfJob(job.id)
+          .catch((err) => logger.error('Job alert fan-out failed', err, { jobId: job.id }));
+      }
     } catch (error) {
       // Log detailed error information for debugging
       logger.error('Error creating job', error, {

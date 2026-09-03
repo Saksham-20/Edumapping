@@ -2,9 +2,10 @@
 // `Event` was missing here while notifyEventReminder referenced it — the method
 // would have thrown a ReferenceError on its first call. It had no callers, so
 // nothing ever found out.
-const { Notification, User, Application, Job, Organization, Event } = require('../models');
+const { Notification, User, Application, Job, Organization, Event, StudentProfile } = require('../models');
 const emailService = require('./emailService');
 const logger = require('../utils/logger');
+const { checkEligibility } = require('../utils/eligibility');
 
 class NotificationService {
   async createNotification(userId, title, message, type = 'general', metadata = {}, priority = 'medium') {
@@ -155,6 +156,65 @@ class NotificationService {
     } catch (error) {
       logger.error('Error sending job alert', error, { userId, jobId });
     }
+  }
+
+  /**
+   * Alert the students who are actually eligible for a newly published job.
+   *
+   * `notifyJobAlert` has existed since the notification service was written and
+   * had no caller, so posting a job told nobody — a student only ever found a
+   * new opening by going and looking for it.
+   *
+   * Eligibility is evaluated per student against the job's criteria, so this
+   * does not spam a whole campus with a role none of them can apply for.
+   * Returns the number notified.
+   */
+  async notifyEligibleStudentsOfJob(jobId) {
+    const job = await Job.findByPk(jobId);
+    if (!job || job.status !== 'active') return 0;
+
+    const students = await User.findAll({
+      where: { role: 'student', isActive: true },
+      include: [
+        // `required: true` — a student with no profile has no CGPA, branch or
+        // batch to match against, so `checkEligibility` would wave them
+        // through. That is the right answer when deciding whether to BLOCK an
+        // application (absent data must not be read as a low score) but the
+        // wrong one here: alerting someone we know nothing about is spam.
+        { model: StudentProfile, as: 'studentProfile', required: true },
+        // School students have no jobs surface at all — the app hides the whole
+        // section from them — so a full-time vacancy is not something to put in
+        // front of a Year 9 pupil.
+        {
+          model: Organization,
+          as: 'organization',
+          required: false,
+          attributes: ['id', 'type']
+        }
+      ],
+      attributes: ['id']
+    });
+
+    const eligible = students.filter(
+      (student) =>
+        student.organization?.type !== 'school' &&
+        checkEligibility(job.eligibilityCriteria, student.studentProfile).eligible
+    );
+
+    // Sequentially rather than all at once: this fans out one database write
+    // and one email per student, and a large campus would otherwise open
+    // hundreds of concurrent connections the moment a job is posted.
+    for (const student of eligible) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.notifyJobAlert(student.id, jobId);
+    }
+
+    logger.info('Job alert fan-out complete', {
+      jobId,
+      considered: students.length,
+      notified: eligible.length
+    });
+    return eligible.length;
   }
 
   async notifyEventReminder(userId, eventId) {
