@@ -6,15 +6,20 @@
 // Endpoints this role is permitted to call, verified against the running API:
 //   GET /api/jobs           — optionalAuth; the opportunity landscape
 //   GET /api/events         — scoped to the school with organizationId
-//   GET /api/assessments    — what a student can be assessed on
 //   GET /api/conferences    — counselling sessions (this role may host)
 //
-// A counsellor's most important view — the students they advise, and how those
-// students are progressing — has no endpoint behind it. `GET /api/users` is
-// admin/TPO only, `GET /api/applications` returns only the caller's own
-// applications for a non-recruiter, and `GET /api/achievements` has no
-// organization filter, only `userId`. The students panel says so instead of
-// listing strangers from other institutions.
+//   GET /api/users?organizationId=  — the students at this school
+//
+// The Students tab used to be an empty state claiming `GET /api/users` was
+// admin/TPO only. It is not: `routes/users.js` allows `career_counselor`
+// alongside `principal` and `school_admin`, and the controller pins the
+// organization filter, so the call returns this school's own students and
+// nobody else's. Verified against the running API: 200.
+//
+// Progression is still genuinely out of reach — `GET /api/applications` returns
+// only the caller's own rows for a non-recruiter, and `GET /api/achievements`
+// has no organization filter, only `userId` — so the panel lists who a
+// counsellor advises without pretending to know how they are doing.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
@@ -22,17 +27,20 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   EVENT_TYPE_LABELS,
   formatEventWhen,
+  fullName,
   isUpcomingEvent,
-  listAssessments,
   listConferences,
   listEvents,
+  listOrganizationUsers,
   toErrorState
 } from '../../services/school';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
   EmptyState,
+  Input,
   ErrorState,
   PageHeader,
   PageShell,
@@ -43,9 +51,10 @@ import {
   Tabs
 } from '../../components/ui';
 import {
+  AcademicCapIcon,
   BriefcaseIcon,
   CalendarIcon,
-  ClipboardDocumentCheckIcon,
+  MagnifyingGlassIcon,
   ClockIcon,
   MapPinIcon,
   PlusIcon,
@@ -71,17 +80,19 @@ const CareerCounselorDashboard = () => {
   const [jobs, setJobs] = useState([]);
   const [events, setEvents] = useState([]);
   const [conferences, setConferences] = useState([]);
-  const [assessments, setAssessments] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [studentSearch, setStudentSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setErrors({});
 
-    const [jobsRes, eventsRes, confRes, assessRes] = await Promise.allSettled([
+    const [jobsRes, eventsRes, confRes, studentsRes] = await Promise.allSettled([
       api.get('/jobs', { params: { limit: 50, status: 'active' }, silent: true }),
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
       listConferences(),
-      listAssessments()
+      // Only the students: a counsellor's caseload is not their colleagues.
+      orgId ? listOrganizationUsers(orgId, { role: 'student' }) : Promise.resolve(null)
     ]);
 
     const nextErrors = {};
@@ -114,10 +125,14 @@ const CareerCounselorDashboard = () => {
           : toErrorState(confRes.reason, 'Could not load counselling sessions');
     }
 
-    if (assessRes.status === 'fulfilled') {
-      setAssessments((assessRes.value.assessments || []).filter((a) => a.isActive !== false));
+    if (studentsRes.status === 'fulfilled') {
+      setStudents(
+        (studentsRes.value?.users || []).sort((a, b) =>
+          fullName(a).localeCompare(fullName(b))
+        )
+      );
     } else {
-      nextErrors.assessments = toErrorState(assessRes.reason, 'Could not load assessments');
+      nextErrors.students = toErrorState(studentsRes.reason, 'Could not load your students');
     }
 
     setErrors(nextErrors);
@@ -299,24 +314,95 @@ const CareerCounselorDashboard = () => {
     );
   };
 
-  const studentsPanel = () => (
-    <EmptyState
-      icon={UserGroupIcon}
-      title="Student caseloads need a school-scoped endpoint"
-      description={
-        'Listing the students at your school, their applications or their achievements is not ' +
-        'possible from this role today. GET /api/users is restricted to admins and placement ' +
-        'officers, GET /api/applications returns only your own applications, and achievements can ' +
-        'only be fetched one known user at a time. Nothing is shown here rather than a list ' +
-        'assembled from other institutions.'
-      }
-      action={
-        <Button as={Link} to="/events" variant="secondary">
-          Reach students through events
-        </Button>
-      }
-    />
-  );
+  const visibleStudents = (() => {
+    const q = studentSearch.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter(
+      (u) =>
+        fullName(u).toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.studentProfile?.branch?.toLowerCase().includes(q)
+    );
+  })();
+
+  const studentsPanel = () => {
+    if (errors.students) return <ErrorState {...errors.students} onRetry={load} />;
+    if (!students.length) {
+      return (
+        <EmptyState
+          icon={AcademicCapIcon}
+          title="No students at your school yet"
+          description="Students who register against your school appear here as your caseload."
+          action={
+            <Button as={Link} to="/events" variant="secondary">
+              Reach students through events
+            </Button>
+          }
+        />
+      );
+    }
+    return (
+      <>
+        <Input
+          className="mb-5 w-full sm:max-w-sm"
+          aria-label="Search students"
+          icon={MagnifyingGlassIcon}
+          placeholder="Search by name, email or stream"
+          value={studentSearch}
+          onChange={(e) => setStudentSearch(e.target.value)}
+        />
+        {visibleStudents.length === 0 ? (
+          <EmptyState
+            icon={MagnifyingGlassIcon}
+            title="No student matches that search"
+            description="Try a different name, email address or stream."
+            action={
+              <Button variant="secondary" onClick={() => setStudentSearch('')}>
+                Clear the search
+              </Button>
+            }
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleStudents.map((u) => (
+              <Card key={u.id} className="flex items-start gap-3">
+                <Avatar src={u.profilePicture} name={fullName(u)} size="md" />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-ink-950">
+                    {fullName(u) || 'Unnamed account'}
+                  </p>
+                  <p className="truncate text-xs text-ink-500">{u.email}</p>
+                  {/* studentProfile is included by the users endpoint and is
+                      null for accounts that never completed onboarding, so
+                      each line is rendered only when it actually has a value. */}
+                  {u.studentProfile?.course && (
+                    <p className="mt-1.5 text-xs text-ink-600">{u.studentProfile.course}</p>
+                  )}
+                  {u.studentProfile?.branch && (
+                    <Badge tone="neutral" className="mt-1.5">
+                      {u.studentProfile.branch}
+                    </Badge>
+                  )}
+                  {!u.isActive && (
+                    <Badge tone="neutral" className="mt-1.5">
+                      Inactive
+                    </Badge>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+        <p className="mt-5 text-xs text-ink-500">
+          Names and streams only. How a student is progressing — their applications and
+          achievements — has no endpoint this role can call:{' '}
+          <code className="text-ink-700">GET /api/applications</code> returns only your own rows,
+          and <code className="text-ink-700">GET /api/achievements</code> filters by a single
+          known <code className="text-ink-700">userId</code>.
+        </p>
+      </>
+    );
+  };
 
   const panels = {
     jobs: jobsPanel,
@@ -346,6 +432,13 @@ const CareerCounselorDashboard = () => {
       <SectionBlock>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile
+            label="Students you advise"
+            value={errors.students ? '—' : students.length}
+            icon={AcademicCapIcon}
+            loading={loading}
+            hint={errors.students ? 'Unavailable' : 'At your school'}
+          />
+          <StatTile
             label="Open roles"
             value={errors.jobs ? '—' : jobs.length}
             icon={BriefcaseIcon}
@@ -367,14 +460,6 @@ const CareerCounselorDashboard = () => {
             accent="azure"
             loading={loading}
             to="/conferences"
-          />
-          <StatTile
-            label="Assessments published"
-            value={errors.assessments ? '—' : assessments.length}
-            icon={ClipboardDocumentCheckIcon}
-            accent="saffron"
-            loading={loading}
-            hint="Platform-wide"
           />
         </div>
       </SectionBlock>

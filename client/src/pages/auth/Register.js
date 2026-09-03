@@ -187,6 +187,15 @@ const Register = () => {
 
       const response = await register(submitData);
 
+      // Where to land afterwards. Registration signs the user straight in — the
+      // service stores the returned tokens — so sending them to '/' dropped a
+      // freshly authenticated user back onto the marketing landing page, which
+      // is what both branches below used to do. The college and school
+      // registration screens already go to /dashboard; this now matches them,
+      // and ProtectedRoute redirects to /pending-approval on its own if the
+      // account is not approved.
+      const land = () => navigate('/dashboard', { replace: true });
+
       // Check if user needs approval
       if (response.user.approvalStatus === 'pending') {
         // Show appropriate message based on registration type
@@ -201,7 +210,7 @@ const Register = () => {
         } else {
           toast.success('Registration successful! Your account is pending approval. Redirecting...');
         }
-        navigate('/', { replace: true });
+        land();
       } else {
         // User is auto-approved, redirect to dashboard
         if (formData.role === 'new_university' || formData.role === 'new_company') {
@@ -210,7 +219,7 @@ const Register = () => {
             { duration: 5000 }
           );
         }
-        navigate('/', { replace: true });
+        land();
       }
     } catch (error) {
       setErrors({

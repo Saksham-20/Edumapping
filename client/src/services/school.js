@@ -50,6 +50,55 @@ export const listAchievements = (params = {}) =>
 
 export const getOrganization = (id) => api.get(`/organizations/${id}`, { silent: true });
 
+/**
+ * The people at one school.
+ *
+ * Three of these dashboards used to render a panel saying no such call was
+ * possible — "GET /api/users is restricted to admins and placement officers".
+ * That was true once and is not any more: `routes/users.js` lists
+ * `requireRole('admin', 'tpo', 'principal', 'school_admin', 'career_counselor')`,
+ * and the controller forces the organization filter for school leadership
+ * rather than trusting the query string. Verified against the running API:
+ * principal, school_admin and career_counselor all get 200 with the school's
+ * own users; `teacher` and `student` are the two school roles still outside the
+ * allow-list and do get a 403, so callers must be one of the three above.
+ *
+ * `organizationId` is still sent explicitly. The server would scope it anyway,
+ * but sending it keeps the request honest about what it is asking for and
+ * means an admin-role caller gets the same shape.
+ */
+export const listOrganizationUsers = (organizationId, params = {}) =>
+  api.get('/users', { params: { organizationId, limit: 200, ...params }, silent: true });
+
+/** Roles a school account can hold, in the order a roster should list them. */
+export const SCHOOL_ROLE_LABELS = {
+  principal: 'Principal',
+  school_admin: 'School admin',
+  career_counselor: 'Career counsellor',
+  teacher: 'Teacher',
+  student: 'Student'
+};
+
+const ROLE_ORDER = Object.keys(SCHOOL_ROLE_LABELS);
+
+/** Sorts a user list by role seniority, then by name. */
+export const sortByRoleThenName = (users = []) =>
+  [...users].sort((a, b) => {
+    const ra = ROLE_ORDER.indexOf(a.role);
+    const rb = ROLE_ORDER.indexOf(b.role);
+    if (ra !== rb) return (ra === -1 ? ROLE_ORDER.length : ra) - (rb === -1 ? ROLE_ORDER.length : rb);
+    return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+  });
+
+/** `{ student: 3, teacher: 1, ... }` for a user list. */
+export const countByRole = (users = []) =>
+  users.reduce((acc, u) => {
+    acc[u.role] = (acc[u.role] || 0) + 1;
+    return acc;
+  }, {});
+
+export const fullName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim();
+
 /* ------------------------------------------------------------------ helpers */
 
 const isFuture = (iso) => {

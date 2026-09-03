@@ -38,6 +38,12 @@ import {
   LockClosedIcon
 } from '@heroicons/react/24/outline';
 
+/**
+ * Past tense of an action, for the confirmation toast. `${action}d` reads
+ * correctly for "approve" and produced "rejectd" for the other one.
+ */
+const PAST_TENSE = { approve: 'approved', reject: 'rejected' };
+
 /** Pulls one status count out of the `[{ approvalStatus, count }]` shape. */
 const countFor = (rows, status) => {
   const hit = (rows || []).find((r) => r.approvalStatus === status);
@@ -108,7 +114,9 @@ const ApprovalManagement = () => {
             ? `/approvals/organizations/${item.id}`
             : `/approvals/recruiters/${item.id}`;
         await api.patch(path, { action, notes }, { silent: true });
-        toast.success(`${type === 'organization' ? 'Company' : 'Recruiter'} ${action}d`);
+        toast.success(
+          `${type === 'organization' ? 'Company' : 'Recruiter'} ${PAST_TENSE[action]}`
+        );
       } else {
         // One request for the whole selection: the server applies it in a
         // single transaction, so the batch cannot land half-applied the way a
@@ -119,7 +127,7 @@ const ApprovalManagement = () => {
           { silent: true }
         );
         const count = body?.updatedCount ?? selected.length;
-        toast.success(`${count} compan${count === 1 ? 'y' : 'ies'} ${action}d`);
+        toast.success(`${count} compan${count === 1 ? 'y' : 'ies'} ${PAST_TENSE[action]}`);
       }
       setConfirm(null);
       await load();

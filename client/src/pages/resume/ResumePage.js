@@ -24,6 +24,13 @@ import {
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
 
+// `REACT_APP_API_URL` already ends in `/api` (services/api.js uses it verbatim
+// as the axios baseURL). Appending another `/api` here produced
+// `/api/api/files/…`, which 404s, and the `resumeUrl` fallback pointed at
+// `/api/uploads/…` instead of `/uploads/…`. Strip the suffix and keep the
+// origin; unset in dev this collapses to a relative URL the CRA proxy forwards.
+const API_ORIGIN = (process.env.REACT_APP_API_URL || '').replace(/\/api\/?$/, '');
+
 /** Threshold at which the API will accept a generate request. */
 const COMPLETE_AT = 80;
 
@@ -209,8 +216,7 @@ const ResumePage = () => {
       if (resumeData?.profile?.resumeFileId) {
         // Built from REACT_APP_API_URL directly rather than through services/api
         // because this is a raw fetch for a binary body, not a JSON call.
-        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-        const downloadUrl = `${apiBaseUrl}/api/files/${resumeData.profile.resumeFileId}/download`;
+        const downloadUrl = `${API_ORIGIN}/api/files/${resumeData.profile.resumeFileId}/download`;
 
         const token = authService.getAccessToken();
         if (!token) {
@@ -240,9 +246,8 @@ const ResumePage = () => {
         }
       } else if (resumeData?.profile?.resumeUrl) {
         // Fallback for backward compatibility with old resumeUrl format
-        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
         const link = document.createElement('a');
-        link.href = `${apiBaseUrl}${resumeData.profile.resumeUrl}`;
+        link.href = `${API_ORIGIN}${resumeData.profile.resumeUrl}`;
         link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
         link.target = '_blank';
         document.body.appendChild(link);

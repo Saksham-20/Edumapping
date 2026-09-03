@@ -65,13 +65,16 @@ const JOB_TYPE_OPTIONS = [
   { value: 'internship', label: 'Internship' }
 ];
 
+// The API filters `experienceRequired <= value` — it answers "what can someone
+// with N years apply to", not "what demands at least N years". The old "2+
+// years" labels claimed the opposite of what the control does.
 const EXPERIENCE_OPTIONS = [
   { value: '', label: 'Any experience' },
-  { value: '0', label: 'Entry level (0 years)' },
-  { value: '1', label: '1+ years' },
-  { value: '2', label: '2+ years' },
-  { value: '3', label: '3+ years' },
-  { value: '5', label: '5+ years' }
+  { value: '0', label: 'No experience needed' },
+  { value: '1', label: 'Up to 1 year needed' },
+  { value: '2', label: 'Up to 2 years needed' },
+  { value: '3', label: 'Up to 3 years needed' },
+  { value: '5', label: 'Up to 5 years needed' }
 ];
 
 const formatSalary = (min, max) => {
@@ -316,7 +319,10 @@ const JobsList = () => {
             label="Search jobs"
             type="search"
             icon={MagnifyingGlassIcon}
-            placeholder="Title, company, or skill"
+            /* The API searches title, description and required skills. It does
+               not join the organization, so promising "company" here sends
+               people looking for an employer to an empty result set. */
+            placeholder="Title, description, or skill"
             value={filters.search}
             onChange={(e) => handleFilterChange('search', e.target.value)}
             className="sm:min-w-[18rem]"

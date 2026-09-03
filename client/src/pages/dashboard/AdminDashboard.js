@@ -120,6 +120,25 @@ const RowActions = ({ children }) => (
   <div className="flex items-center justify-end gap-1.5">{children}</div>
 );
 
+/**
+ * Normalises an organization form before it is sent.
+ *
+ * The optional inputs hold `''` when left blank, and the Organization model
+ * validates `website` with `isUrl` and `contactEmail` with `isEmail`. Sequelize
+ * skips a validator on `null` but runs it on `''`, so editing any organization
+ * that has no website — every seeded one — failed with "Validation isUrl on
+ * website failed" even when the admin only changed the name. `POST` got away
+ * with it because the create handler coerces `website || null` server-side;
+ * `PUT` passes the body straight to `organization.update()`.
+ */
+const orgPayload = (formData, type) => {
+  const out = { ...formData, type };
+  ['website', 'address', 'contactPhone', 'domain', 'contactEmail'].forEach((key) => {
+    if (typeof out[key] === 'string' && out[key].trim() === '') out[key] = null;
+  });
+  return out;
+};
+
 const AdminDashboard = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
@@ -625,16 +644,13 @@ const AdminDashboard = () => {
     e.preventDefault();
     try {
       if (selectedUniversity) {
-        await adminService.updateOrganization(selectedUniversity.id, {
-          ...universityFormData,
-          type: 'university'
-        });
+        await adminService.updateOrganization(
+          selectedUniversity.id,
+          orgPayload(universityFormData, 'university')
+        );
         toast.success('University updated successfully');
       } else {
-        await adminService.createOrganization({
-          ...universityFormData,
-          type: 'university'
-        });
+        await adminService.createOrganization(orgPayload(universityFormData, 'university'));
         toast.success('University created successfully');
       }
       setShowUniversityModal(false);
@@ -649,11 +665,11 @@ const AdminDashboard = () => {
   const handleDeleteUniversity = async (universityId) => {
     try {
       await adminService.deleteOrganization(universityId);
-      toast.success('University deleted successfully');
+      toast.success('University deactivated');
       fetchUniversities();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to delete university');
+      toast.error(error.message || 'Failed to deactivate university');
     }
   };
 
@@ -700,16 +716,13 @@ const AdminDashboard = () => {
     e.preventDefault();
     try {
       if (selectedCompany) {
-        await adminService.updateOrganization(selectedCompany.id, {
-          ...companyFormData,
-          type: 'company'
-        });
+        await adminService.updateOrganization(
+          selectedCompany.id,
+          orgPayload(companyFormData, 'company')
+        );
         toast.success('Company updated successfully');
       } else {
-        await adminService.createOrganization({
-          ...companyFormData,
-          type: 'company'
-        });
+        await adminService.createOrganization(orgPayload(companyFormData, 'company'));
         toast.success('Company created successfully');
       }
       setShowCompanyModal(false);
@@ -724,11 +737,11 @@ const AdminDashboard = () => {
   const handleDeleteCompany = async (companyId) => {
     try {
       await adminService.deleteOrganization(companyId);
-      toast.success('Company deleted successfully');
+      toast.success('Company deactivated');
       fetchCompanies();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to delete company');
+      toast.error(error.message || 'Failed to deactivate company');
     }
   };
 
@@ -774,16 +787,13 @@ const AdminDashboard = () => {
     e.preventDefault();
     try {
       if (selectedSchool) {
-        await adminService.updateOrganization(selectedSchool.id, {
-          ...schoolFormData,
-          type: 'school'
-        });
+        await adminService.updateOrganization(
+          selectedSchool.id,
+          orgPayload(schoolFormData, 'school')
+        );
         toast.success('School updated successfully');
       } else {
-        await adminService.createOrganization({
-          ...schoolFormData,
-          type: 'school'
-        });
+        await adminService.createOrganization(orgPayload(schoolFormData, 'school'));
         toast.success('School created successfully');
       }
       setShowSchoolModal(false);
@@ -799,11 +809,11 @@ const AdminDashboard = () => {
   const handleDeleteSchool = async (schoolId) => {
     try {
       await adminService.deleteOrganization(schoolId);
-      toast.success('School deleted successfully');
+      toast.success('School deactivated');
       fetchSchools();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to delete school');
+      toast.error(error.message || 'Failed to deactivate school');
     }
   };
 
@@ -1723,12 +1733,19 @@ const AdminDashboard = () => {
                 size="sm"
                 variant="danger"
                 icon={TrashIcon}
-                label={`Delete ${row.name}`}
+                label={`Deactivate ${row.name}`}
                 onClick={() =>
                   askToConfirm({
-                    title: `Delete ${row.name}?`,
-                    description: `This removes the ${type} from the platform. Accounts attached to it lose their organization.`,
-                    confirmLabel: 'Delete',
+                    title: `Deactivate ${row.name}?`,
+                    // `DELETE /admin/organizations/:id` only hard-deletes with
+                    // `?hardDelete=true`, which this screen never sends. Without
+                    // it the server sets `approvalStatus: 'rejected'` and
+                    // `isVerified: false` and answers "deactivated" — the row
+                    // stays in this table. The copy used to promise the record
+                    // was removed from the platform and could not be undone,
+                    // which is the opposite of what the button does.
+                    description: `This marks the ${type} rejected and unverified. Nobody can register against it and it stops appearing to students, but the record and its accounts are kept. Approve it again to reverse this.`,
+                    confirmLabel: 'Deactivate',
                     run: () => onDelete(row.id)
                   })
                 }
@@ -2161,11 +2178,16 @@ const AdminDashboard = () => {
         })}
       {activeTab === 'recruiter-permissions' && renderRecruiterPermissionsTab()}
 
-      {/* New organizations land in `pending`; this says so before the form. */}
+      {/* `POST /admin/organizations` stamps isVerified and approvalStatus
+          'approved' on anything an admin creates, so this panel says the
+          account goes live immediately. It used to promise the opposite —
+          that the record lands in `pending` and needs approving from this tab
+          — which sent admins hunting for an Approve button that is never
+          rendered for a row that is already approved. */}
       <AdminModal
         isOpen={showApprovalInfo}
         onClose={() => setShowApprovalInfo(false)}
-        title={`New ${approvalInfoType} needs approval`}
+        title={`New ${approvalInfoType} goes live immediately`}
         size="sm"
         footer={
           <>
@@ -2180,10 +2202,11 @@ const AdminDashboard = () => {
           <InformationCircleIcon aria-hidden="true" className="h-6 w-6 shrink-0 text-saffron-600" />
           <ul className="list-inside list-disc space-y-1.5 text-sm text-ink-700">
             <li>
-              The {approvalInfoType} is created with <strong>pending</strong> approval status.
+              Because you are an admin, the {approvalInfoType} is created{' '}
+              <strong>approved and verified</strong> — it does not enter the approval queue.
             </li>
-            <li>Nobody can register against it until an admin approves it.</li>
-            <li>You can approve it from this tab straight after creating it.</li>
+            <li>People can register against its domain as soon as you save.</li>
+            <li>Delete it from this tab if you created it by mistake.</li>
           </ul>
         </div>
       </AdminModal>

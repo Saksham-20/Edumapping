@@ -6,13 +6,15 @@
 //   GET /api/conferences   — live classes, split into "mine" and "my school's"
 //   GET /api/events        — school events, scoped with organizationId
 //   GET /api/assessments   — every published assessment
+//   GET /api/users         — the school's students, scoped by the server
 //
-// Two things a teacher screen would obviously want are deliberately absent
-// rather than faked:
+// The student roster comes from `GET /api/users`, which is pinned server-side
+// to the caller's own organization for school roles, so it can only ever return
+// this teacher's school.
 //
-//   * A class roster. `GET /api/users` is `requireRole('admin', 'tpo')`, so a
-//     teacher gets a 403. There is no per-organization user listing any role
-//     below TPO can call.
+// One thing a teacher screen would obviously want is deliberately absent rather
+// than faked:
+//
 //   * "Assessments I set". `POST /api/assessments` is
 //     `requireRole('recruiter', 'tpo', 'admin')` — a teacher cannot create one,
 //     and `GET /api/assessments` has no `createdBy` filter. So the panel shows
@@ -24,17 +26,21 @@ import {
   EVENT_TYPE_LABELS,
   formatEventWhen,
   isUpcomingEvent,
+  fullName,
   listAssessments,
   listConferences,
   listEvents,
+  listOrganizationUsers,
   toErrorState
 } from '../../services/school';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
   EmptyState,
   ErrorState,
+  Input,
   PageHeader,
   PageShell,
   SectionBlock,
@@ -56,7 +62,8 @@ import {
 const TABS = [
   { value: 'live', label: 'Live classes', icon: VideoCameraIcon },
   { value: 'events', label: 'School events', icon: CalendarIcon },
-  { value: 'assessments', label: 'Assessments', icon: ClipboardDocumentCheckIcon }
+  { value: 'assessments', label: 'Assessments', icon: ClipboardDocumentCheckIcon },
+  { value: 'students', label: 'My students', icon: UserGroupIcon }
 ];
 
 const ConferenceCard = ({ conference, mine }) => (
@@ -142,6 +149,8 @@ const TeacherDashboard = () => {
   const [conferences, setConferences] = useState([]);
   const [events, setEvents] = useState([]);
   const [assessments, setAssessments] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [studentQuery, setStudentQuery] = useState('');
 
   const orgId = user?.organizationId;
 
@@ -149,13 +158,14 @@ const TeacherDashboard = () => {
     setLoading(true);
     setErrors({});
 
-    const [confRes, eventsRes, assessRes] = await Promise.allSettled([
+    const [confRes, eventsRes, assessRes, studentsRes] = await Promise.allSettled([
       listConferences(),
       // Unlike students, a teacher is not special-cased by the events
       // controller, so the organizationId param is honoured and scopes the
       // list to their own school rather than every organization on the server.
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
-      listAssessments()
+      listAssessments(),
+      orgId ? listOrganizationUsers(orgId, { role: 'student' }) : Promise.resolve(null)
     ]);
 
     const nextErrors = {};
@@ -187,6 +197,12 @@ const TeacherDashboard = () => {
       setAssessments((assessRes.value.assessments || []).filter((a) => a.isActive !== false));
     } else {
       nextErrors.assessments = toErrorState(assessRes.reason, 'Could not load assessments');
+    }
+
+    if (studentsRes.status === 'fulfilled') {
+      setStudents(studentsRes.value?.users || []);
+    } else {
+      nextErrors.students = toErrorState(studentsRes.reason, 'Could not load your students');
     }
 
     setErrors(nextErrors);
@@ -346,7 +362,69 @@ const TeacherDashboard = () => {
     );
   };
 
-  const panels = { live: livePanel, events: eventsPanel, assessments: assessmentsPanel };
+  const visibleStudents = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter(
+      (u) => fullName(u).toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+    );
+  }, [students, studentQuery]);
+
+  const studentsPanel = () => {
+    if (errors.students) return <ErrorState {...errors.students} onRetry={load} />;
+    if (!students.length) {
+      return (
+        <EmptyState
+          icon={UserGroupIcon}
+          title="No students have registered against your school yet"
+          description="Students who sign up under your school appear here."
+        />
+      );
+    }
+    return (
+      <div className="space-y-5">
+        <Input
+          label="Find a student"
+          placeholder="Search by name or email"
+          value={studentQuery}
+          onChange={(e) => setStudentQuery(e.target.value)}
+        />
+        {visibleStudents.length === 0 ? (
+          <EmptyState
+            icon={UserGroupIcon}
+            title="No student matches that search"
+            description="Try a different name or email address."
+          />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleStudents.map((u) => (
+              <Card key={u.id} className="flex items-center gap-3">
+                <Avatar src={u.profilePicture} name={fullName(u)} size="md" />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-ink-950">
+                    {fullName(u) || 'Unnamed account'}
+                  </p>
+                  <p className="truncate text-xs text-ink-500">{u.email}</p>
+                  {!u.isActive && (
+                    <Badge tone="neutral" className="mt-1.5">
+                      Inactive
+                    </Badge>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const panels = {
+    live: livePanel,
+    events: eventsPanel,
+    assessments: assessmentsPanel,
+    students: studentsPanel
+  };
 
   return (
     <PageShell>
@@ -413,24 +491,6 @@ const TeacherDashboard = () => {
         panels[tab]()
       )}
 
-      <SectionBlock className="mt-10 mb-0">
-        <Card className="border-dashed">
-          <div className="flex items-start gap-3">
-            <UserGroupIcon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-ink-600" />
-            <div>
-              <h2 className="font-display text-base font-bold text-ink-950">
-                Class rosters are not available yet
-              </h2>
-              <p className="mt-1 text-sm text-ink-600">
-                Listing the students at your school needs an endpoint a teacher is
-                allowed to call. Today <code className="text-ink-800">GET /api/users</code>{' '}
-                is restricted to admins and placement officers, so nothing here can
-                show a roster without inventing one.
-              </p>
-            </div>
-          </div>
-        </Card>
-      </SectionBlock>
     </PageShell>
   );
 };

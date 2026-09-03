@@ -81,14 +81,19 @@ const DATE_RANGES = [
   { value: 'year', label: 'This year' }
 ];
 
+// Exactly the values in the `applications.status` Postgres enum. Anything else
+// reaches the database as an invalid enum literal and the endpoint 500s, so
+// this list is not a place to be approximate — `pending` used to sit at the top
+// of it and every selection of it returned "Could not load analytics".
 const APPLICATION_STATUSES = [
   '',
-  'pending',
+  'applied',
   'screening',
   'shortlisted',
   'interviewed',
   'selected',
-  'rejected'
+  'rejected',
+  'withdrawn'
 ];
 
 const BRANCHES = [

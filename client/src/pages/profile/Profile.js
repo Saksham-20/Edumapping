@@ -61,17 +61,22 @@ const YEAR_OPTIONS = [
   { value: '6', label: '6th year' }
 ];
 
+// `REACT_APP_API_URL` already ends in `/api` (see services/api.js, which uses
+// it verbatim as the axios baseURL). Appending another `/api` here produced
+// `/api/api/files/…`, which 404s — so strip the suffix and keep the origin.
+// Unset in dev, this collapses to a relative URL that the CRA proxy forwards.
+const API_ORIGIN = (process.env.REACT_APP_API_URL || '').replace(/\/api\/?$/, '');
+
 /** Downloads a stored file through the API, honouring the bearer token. */
 const fetchResumeBlob = async (fileId) => {
   // Built from REACT_APP_API_URL directly rather than through services/api
   // because this is a raw fetch for a binary body, not a JSON call.
-  const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
   const token = authService.getAccessToken();
   if (!token) {
     toast.error('Authentication required. Please login again.');
     return null;
   }
-  const response = await fetch(`${apiBaseUrl}/api/files/${fileId}/download`, {
+  const response = await fetch(`${API_ORIGIN}/api/files/${fileId}/download`, {
     headers: { Authorization: `Bearer ${token}` },
     credentials: 'include'
   });

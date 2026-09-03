@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { EnvelopeIcon } from '@heroicons/react/24/outline';
+import { UserIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Card, Divider, Input, PageLoader } from '../../components/ui';
 import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
@@ -120,6 +120,20 @@ const EnquiryForm = () => {
  * rendered inside the card rather than by the wrapper pages, which would strand
  * it below a full-viewport screen.
  */
+// The API's login identifier is an email *or* a phone number: the route builds
+// `_loginId` from `identifier || email`, and authService._findUserByIdentifier
+// treats anything without an `@` as a phone and matches `phone` exactly. This
+// screen used to declare the field `type="email"` and gate it behind an
+// email-only regex, so the phone half of that contract was unreachable from the
+// UI — a seeded account like +91-9876543210 could sign in through curl but not
+// through the app.
+//
+// Phones are matched verbatim server-side, so nothing is normalised here; the
+// check only has to be loose enough to let a plausible phone number through and
+// tight enough to still catch a typo'd email.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[+]?[\d][\d\s().-]{5,19}$/;
+
 const Login = ({ isSchoolMode = false, altLink }) => {
   const [formData, setFormData] = useState({
     email: '',
@@ -165,10 +179,11 @@ const Login = ({ isSchoolMode = false, altLink }) => {
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
+    const identifier = formData.email.trim();
+    if (!identifier) {
+      newErrors.email = 'Email or phone number is required';
+    } else if (!EMAIL_RE.test(identifier) && !PHONE_RE.test(identifier)) {
+      newErrors.email = 'Enter a valid email address or phone number';
     }
 
     if (!formData.password) {
@@ -190,7 +205,7 @@ const Login = ({ isSchoolMode = false, altLink }) => {
     setErrors({});
 
     try {
-      await login(formData.email, formData.password);
+      await login(formData.email.trim(), formData.password);
       navigate(from, { replace: true });
     } catch (error) {
       let errorMessage = 'Login failed. Please try again.';
@@ -217,7 +232,7 @@ const Login = ({ isSchoolMode = false, altLink }) => {
         });
       } else if (errorMessage.toLowerCase().includes('invalid credentials') || errorMessage.toLowerCase().includes('invalid')) {
         setErrors({
-          submit: 'Invalid email or password. Please check your credentials and try again.'
+          submit: 'Those sign-in details were not recognised. Check your email or phone number and password, then try again.'
         });
       } else if (errorMessage.toLowerCase().includes('disabled')) {
         setErrors({
@@ -255,15 +270,16 @@ const Login = ({ isSchoolMode = false, altLink }) => {
           <FormError>{errors.submit}</FormError>
 
           <Input
-            label="Email address"
+            label="Email or phone number"
             name="email"
-            type="email"
-            autoComplete="email"
+            type="text"
+            inputMode="email"
+            autoComplete="username"
             value={formData.email}
             onChange={handleChange}
             error={errors.email}
-            icon={EnvelopeIcon}
-            placeholder="you@example.com"
+            icon={UserIcon}
+            placeholder="you@example.com or +91 9876543210"
           />
 
           <PasswordField

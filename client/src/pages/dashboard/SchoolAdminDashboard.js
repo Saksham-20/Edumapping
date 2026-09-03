@@ -2,30 +2,36 @@
 //
 // The school administrator's screen.
 //
-// This is the dashboard most constrained by the API. Roster administration —
-// the whole point of the role — needs a user listing scoped to one school, and
-// no such endpoint exists: `GET /api/users` and `GET /api/users/role/:role` are
-// both `requireRole('admin', 'tpo', …)`, so a `school_admin` gets a 403
-// (verified against the running API), and there is no organization-scoped
-// alternative. `/api/approvals` is likewise TPO/admin only.
+// It administers the school's own events and their registration numbers, its
+// live classes, its people, and its organization record.
 //
-// So the page administers what a school admin *can* administer through the API:
-// the school's own events and their registration numbers, its live classes, and
-// its organization record. The roster panel states the gap instead of faking a
-// table of people.
+// The People tab used to be an empty state asserting that `GET /api/users` was
+// "restricted to admins and placement officers" and that no organization-scoped
+// alternative existed. That is no longer true — `routes/users.js` allows
+// `principal`, `school_admin` and `career_counselor`, and the controller pins
+// the organization filter for them — so the panel was withholding a roster the
+// role can genuinely read. Verified against the running API: this role gets 200
+// and the school's own users. `/api/approvals` really is still TPO/admin only,
+// so nothing here offers to approve anyone.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   EVENT_TYPE_LABELS,
   formatEventWhen,
+  SCHOOL_ROLE_LABELS,
+  countByRole,
+  fullName,
   getOrganization,
   isUpcomingEvent,
   listConferences,
   listEvents,
+  listOrganizationUsers,
+  sortByRoleThenName,
   toErrorState
 } from '../../services/school';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -49,6 +55,7 @@ import {
   Tr
 } from '../../components/ui';
 import {
+  AcademicCapIcon,
   BuildingOffice2Icon,
   CalendarIcon,
   MagnifyingGlassIcon,
@@ -74,16 +81,20 @@ const SchoolAdminDashboard = () => {
   const [events, setEvents] = useState([]);
   const [conferences, setConferences] = useState([]);
   const [organization, setOrganization] = useState(null);
+  const [people, setPeople] = useState([]);
   const [search, setSearch] = useState('');
+  const [peopleSearch, setPeopleSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
 
   const load = useCallback(async () => {
     setLoading(true);
     setErrors({});
 
-    const [eventsRes, confRes, orgRes] = await Promise.allSettled([
+    const [eventsRes, confRes, orgRes, peopleRes] = await Promise.allSettled([
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
       listConferences(),
-      orgId ? getOrganization(orgId) : Promise.resolve(null)
+      orgId ? getOrganization(orgId) : Promise.resolve(null),
+      orgId ? listOrganizationUsers(orgId) : Promise.resolve(null)
     ]);
 
     const nextErrors = {};
@@ -116,6 +127,12 @@ const SchoolAdminDashboard = () => {
       nextErrors.school = toErrorState(orgRes.reason, 'Could not load the school record');
     }
 
+    if (peopleRes.status === 'fulfilled') {
+      setPeople(sortByRoleThenName(peopleRes.value?.users || []));
+    } else {
+      nextErrors.people = toErrorState(peopleRes.reason, 'Could not load the people at your school');
+    }
+
     setErrors(nextErrors);
     setLoading(false);
   }, [orgId]);
@@ -129,6 +146,21 @@ const SchoolAdminDashboard = () => {
     () => events.reduce((sum, e) => sum + (e.registrationCount || 0), 0),
     [events]
   );
+  const roleCounts = useMemo(() => countByRole(people), [people]);
+  const studentCount = roleCounts.student || 0;
+  const staffCount = people.length - studentCount;
+
+  // Both lists are filtered locally: each is already loaded whole in one
+  // request, so a round trip per keystroke would buy nothing.
+  const visiblePeople = useMemo(() => {
+    const q = peopleSearch.trim().toLowerCase();
+    return people.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (!q) return true;
+      return fullName(u).toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+    });
+  }, [people, peopleSearch, roleFilter]);
+
   // Filtering happens locally: the whole school's event list is already loaded
   // in one request, so a round trip per keystroke would buy nothing.
   const visibleEvents = useMemo(() => {
@@ -290,23 +322,117 @@ const SchoolAdminDashboard = () => {
     );
   };
 
-  const peoplePanel = () => (
-    <EmptyState
-      icon={UserGroupIcon}
-      title="Roster administration needs a school-scoped user endpoint"
-      description={
-        'Listing, searching or deactivating the accounts at your school is not possible from this ' +
-        'role today. GET /api/users and GET /api/users/role/:role are both restricted to admins ' +
-        'and placement officers, and there is no organization-scoped alternative — so this panel ' +
-        'shows nothing rather than a list it cannot actually fetch.'
-      }
-      action={
-        <Button as={Link} to="/profile" variant="secondary">
-          Manage your own account
-        </Button>
-      }
-    />
-  );
+  const peoplePanel = () => {
+    if (errors.people) return <ErrorState {...errors.people} onRetry={load} />;
+    if (!people.length) {
+      return (
+        <EmptyState
+          icon={UserGroupIcon}
+          title="No accounts at your school yet"
+          description="Everyone who registers against your school — students, teachers and leadership — appears here."
+        />
+      );
+    }
+    // Only the roles actually present get a filter chip, so the row never
+    // offers a filter that would empty the table.
+    const presentRoles = Object.keys(SCHOOL_ROLE_LABELS).filter((r) => roleCounts[r]);
+    return (
+      <>
+        <Toolbar>
+          <Input
+            className="w-full sm:max-w-sm"
+            aria-label="Search people"
+            icon={MagnifyingGlassIcon}
+            placeholder="Search by name or email"
+            value={peopleSearch}
+            onChange={(e) => setPeopleSearch(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {['all', ...presentRoles].map((r) => (
+              <button
+                key={r}
+                type="button"
+                aria-pressed={roleFilter === r}
+                onClick={() => setRoleFilter(r)}
+                className={
+                  roleFilter === r
+                    ? 'rounded-full border border-ink-950 bg-ink-950 px-3 py-1.5 text-xs font-semibold text-bone-50'
+                    : 'rounded-full border border-ink-950/15 bg-white px-3 py-1.5 text-xs font-medium text-ink-700 hover:border-ink-950/40'
+                }
+              >
+                {r === 'all' ? `Everyone (${people.length})` : `${SCHOOL_ROLE_LABELS[r]} (${roleCounts[r]})`}
+              </button>
+            ))}
+          </div>
+        </Toolbar>
+        {visiblePeople.length === 0 ? (
+          <EmptyState
+            icon={MagnifyingGlassIcon}
+            title="Nobody matches that search"
+            description="Try a different name or email address."
+            action={
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPeopleSearch('');
+                  setRoleFilter('all');
+                }}
+              >
+                Clear the filters
+              </Button>
+            }
+          />
+        ) : (
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>Name</Th>
+                <Th>Role</Th>
+                <Th>Status</Th>
+                <Th>Last signed in</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {visiblePeople.map((u) => (
+                <Tr key={u.id}>
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <Avatar src={u.profilePicture} name={fullName(u)} size="sm" />
+                      <div className="min-w-0">
+                        <span className="block font-semibold text-ink-950">
+                          {fullName(u) || 'Unnamed account'}
+                        </span>
+                        <span className="block truncate text-xs text-ink-500">{u.email}</span>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td>{SCHOOL_ROLE_LABELS[u.role] || u.role?.replace(/_/g, ' ')}</Td>
+                  <Td>
+                    {u.isActive ? (
+                      <StatusBadge status={u.approvalStatus || 'approved'} />
+                    ) : (
+                      <Badge tone="neutral">Inactive</Badge>
+                    )}
+                  </Td>
+                  <Td className="text-ink-600">
+                    {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        )}
+        {/* Approving or deactivating an account is genuinely out of reach:
+            /api/approvals and PUT /api/users/:id/status are both TPO/admin
+            only, so this table reads rather than administers. */}
+        <p className="mt-4 text-xs text-ink-500">
+          Read-only. Activating, deactivating or approving an account still needs an
+          admin or placement officer — <code className="text-ink-700">/api/approvals</code> is
+          not open to this role.
+        </p>
+      </>
+    );
+  };
 
   const schoolPanel = () => {
     if (errors.school) return <ErrorState {...errors.school} onRetry={load} />;
@@ -362,26 +488,28 @@ const SchoolAdminDashboard = () => {
       <SectionBlock>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile
-            label="Events on record"
-            value={errors.events ? '—' : events.length}
-            icon={CalendarIcon}
+            label="Students"
+            value={errors.people ? '—' : studentCount}
+            icon={AcademicCapIcon}
             loading={loading}
-            to="/events"
+            hint={errors.people ? 'Unavailable' : 'Accounts at your school'}
           />
           <StatTile
-            label="Upcoming"
-            value={errors.events ? '—' : upcoming.length}
-            icon={CalendarIcon}
+            label="Staff"
+            value={errors.people ? '—' : staffCount}
+            icon={UserGroupIcon}
             accent="saffron"
             loading={loading}
+            hint={errors.people ? 'Unavailable' : 'Teaching and leadership'}
           />
           <StatTile
-            label="Event sign-ups"
-            value={errors.events ? '—' : totalSignups}
-            icon={UserGroupIcon}
+            label="Upcoming events"
+            value={errors.events ? '—' : upcoming.length}
+            icon={CalendarIcon}
             accent="india"
             loading={loading}
-            hint="Registrations, not distinct students"
+            hint={errors.events ? 'Unavailable' : `${events.length} on record, ${totalSignups} sign-ups`}
+            to="/events"
           />
           <StatTile
             label="Live classes"

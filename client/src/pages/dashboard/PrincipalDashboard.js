@@ -2,15 +2,19 @@
 //
 // The principal's view of their school.
 //
-// The obvious thing a principal wants — headcounts of students and staff — has
-// no endpoint they are allowed to call. `GET /api/statistics/*` is
-// `requireRole('admin')` or `requireRole('tpo')`, and `GET /api/users` is
-// `requireRole('admin', 'tpo')`; a principal gets a 403 from every one of them
-// (verified against the running API). Rather than print a plausible-looking
-// number, this page counts only what it can actually read and says plainly
-// what is missing and why.
+// The obvious thing a principal wants is headcounts of students and staff, and
+// this page used to carry a card saying those were impossible — that
+// `GET /api/users` was `requireRole('admin', 'tpo')` and a principal got a 403.
+// That claim was stale. `routes/users.js` allows `principal`, `school_admin`
+// and `career_counselor`, and the controller pins the organization filter for
+// them, so the call returns this school's own roster. Verified against the
+// running API: 200, with every account attached to the school.
 //
-// What it does read:
+// `GET /api/statistics/*` genuinely is admin/TPO only, so pass rates and
+// placement percentages still have nothing behind them and are not shown.
+//
+// What it reads:
+//   GET /api/users?organizationId=   — the roster, and the headcounts from it
 //   GET /api/events?organizationId=  — the school's own activity
 //   GET /api/conferences             — live teaching happening in the school
 //   GET /api/assessments             — what students can be assessed on
@@ -20,15 +24,21 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   EVENT_TYPE_LABELS,
+  SCHOOL_ROLE_LABELS,
+  countByRole,
   formatEventWhen,
+  fullName,
   getOrganization,
   isUpcomingEvent,
   listAssessments,
   listConferences,
   listEvents,
+  listOrganizationUsers,
+  sortByRoleThenName,
   toErrorState
 } from '../../services/school';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -44,6 +54,7 @@ import {
   Tabs
 } from '../../components/ui';
 import {
+  AcademicCapIcon,
   BuildingOffice2Icon,
   CalendarIcon,
   ClipboardDocumentCheckIcon,
@@ -56,6 +67,7 @@ import {
 
 const TABS = [
   { value: 'activity', label: 'Activity', icon: CalendarIcon },
+  { value: 'people', label: 'People', icon: UserGroupIcon },
   { value: 'live', label: 'Live teaching', icon: VideoCameraIcon },
   { value: 'school', label: 'School record', icon: BuildingOffice2Icon }
 ];
@@ -71,16 +83,18 @@ const PrincipalDashboard = () => {
   const [conferences, setConferences] = useState([]);
   const [assessments, setAssessments] = useState([]);
   const [organization, setOrganization] = useState(null);
+  const [people, setPeople] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErrors({});
 
-    const [eventsRes, confRes, assessRes, orgRes] = await Promise.allSettled([
+    const [eventsRes, confRes, assessRes, orgRes, peopleRes] = await Promise.allSettled([
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
       listConferences(),
       listAssessments(),
-      orgId ? getOrganization(orgId) : Promise.resolve(null)
+      orgId ? getOrganization(orgId) : Promise.resolve(null),
+      orgId ? listOrganizationUsers(orgId) : Promise.resolve(null)
     ]);
 
     const nextErrors = {};
@@ -119,6 +133,12 @@ const PrincipalDashboard = () => {
       nextErrors.school = toErrorState(orgRes.reason, 'Could not load the school record');
     }
 
+    if (peopleRes.status === 'fulfilled') {
+      setPeople(sortByRoleThenName(peopleRes.value?.users || []));
+    } else {
+      nextErrors.people = toErrorState(peopleRes.reason, 'Could not load your school roster');
+    }
+
     setErrors(nextErrors);
     setLoading(false);
   }, [orgId]);
@@ -137,6 +157,9 @@ const PrincipalDashboard = () => {
     [events]
   );
   const liveNow = useMemo(() => conferences.filter((c) => c.status === 'live'), [conferences]);
+  const roleCounts = useMemo(() => countByRole(people), [people]);
+  const studentCount = roleCounts.student || 0;
+  const staffCount = people.length - studentCount;
 
   const eventRow = (e) => (
     <Card key={e.id} className="flex flex-col">
@@ -290,7 +313,61 @@ const PrincipalDashboard = () => {
     );
   };
 
-  const panels = { activity: activityPanel, live: livePanel, school: schoolPanel };
+  const peoplePanel = () => {
+    if (errors.people) return <ErrorState {...errors.people} onRetry={load} />;
+    if (!people.length) {
+      return (
+        <EmptyState
+          icon={UserGroupIcon}
+          title="Nobody has registered against your school yet"
+          description="Students, teachers and leadership who sign up under your school appear here."
+        />
+      );
+    }
+    // Grouped by role rather than one long table: a principal reads this as
+    // "who is on my staff", not as a searchable index.
+    const groups = Object.keys(SCHOOL_ROLE_LABELS).filter((r) => roleCounts[r]);
+    return (
+      <div className="space-y-8">
+        {groups.map((role) => (
+          <SectionBlock
+            key={role}
+            className="mb-0"
+            title={`${SCHOOL_ROLE_LABELS[role]}s`}
+            description={`${roleCounts[role]} account${roleCounts[role] === 1 ? '' : 's'}`}
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {people
+                .filter((u) => u.role === role)
+                .map((u) => (
+                  <Card key={u.id} className="flex items-center gap-3">
+                    <Avatar src={u.profilePicture} name={fullName(u)} size="md" />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-ink-950">
+                        {fullName(u) || 'Unnamed account'}
+                      </p>
+                      <p className="truncate text-xs text-ink-500">{u.email}</p>
+                      {!u.isActive && (
+                        <Badge tone="neutral" className="mt-1.5">
+                          Inactive
+                        </Badge>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+            </div>
+          </SectionBlock>
+        ))}
+      </div>
+    );
+  };
+
+  const panels = {
+    activity: activityPanel,
+    people: peoplePanel,
+    live: livePanel,
+    school: schoolPanel
+  };
 
   return (
     <PageShell>
@@ -308,20 +385,28 @@ const PrincipalDashboard = () => {
       <SectionBlock>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile
-            label="Upcoming events"
-            value={errors.activity ? '—' : upcoming.length}
-            icon={CalendarIcon}
+            label="Students"
+            value={errors.people ? '—' : studentCount}
+            icon={AcademicCapIcon}
             loading={loading}
-            hint="Scheduled under your school"
-            to="/events"
+            hint={errors.people ? 'Unavailable' : 'Accounts at your school'}
           />
           <StatTile
-            label="Event sign-ups"
-            value={errors.activity ? '—' : totalSignups}
+            label="Staff"
+            value={errors.people ? '—' : staffCount}
             icon={UserGroupIcon}
             accent="india"
             loading={loading}
-            hint="Registrations, not distinct students"
+            hint={errors.people ? 'Unavailable' : 'Teaching and leadership'}
+          />
+          <StatTile
+            label="Upcoming events"
+            value={errors.activity ? '—' : upcoming.length}
+            icon={CalendarIcon}
+            accent="saffron"
+            loading={loading}
+            hint={errors.activity ? 'Unavailable' : `${totalSignups} sign-ups so far`}
+            to="/events"
           />
           <StatTile
             label="Live classes"
@@ -331,14 +416,6 @@ const PrincipalDashboard = () => {
             loading={loading}
             hint={errors.live ? 'Unavailable' : `${liveNow.length} running now`}
             to="/conferences"
-          />
-          <StatTile
-            label="Assessments published"
-            value={errors.assessments ? '—' : assessments.length}
-            icon={ClipboardDocumentCheckIcon}
-            accent="saffron"
-            loading={loading}
-            hint="Platform-wide"
           />
         </div>
       </SectionBlock>
@@ -358,23 +435,28 @@ const PrincipalDashboard = () => {
       <SectionBlock className="mt-10 mb-0">
         <Card className="border-dashed">
           <div className="flex items-start gap-3">
-            <UserGroupIcon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-ink-600" />
+            <ClipboardDocumentCheckIcon
+              aria-hidden="true"
+              className="mt-0.5 h-5 w-5 shrink-0 text-ink-600"
+            />
             <div>
               <h2 className="font-display text-base font-bold text-ink-950">
-                Student and staff headcounts are not available yet
+                Outcome reporting is not available yet
               </h2>
               <p className="mt-1 text-sm text-ink-600">
-                The API exposes no per-organization statistics or user listing a
-                principal may call: <code className="text-ink-800">GET /api/statistics/*</code>{' '}
-                is limited to admins and placement officers, and{' '}
-                <code className="text-ink-800">GET /api/users</code> to admins and
-                placement officers. Until a school-scoped endpoint exists, this page
-                will not display a headcount rather than estimate one.
+                Pass rates, placement percentages and year-on-year trends would come from{' '}
+                <code className="text-ink-800">GET /api/statistics/*</code>, which is limited to
+                admins and placement officers — a principal gets a 403. Headcounts and activity
+                above are counted from records this account can actually read; nothing on this
+                page is estimated. {assessments.length} assessment
+                {assessments.length === 1 ? ' is' : 's are'} published platform-wide for your
+                students to take.
               </p>
             </div>
           </div>
         </Card>
       </SectionBlock>
+
     </PageShell>
   );
 };

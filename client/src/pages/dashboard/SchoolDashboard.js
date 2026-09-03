@@ -616,7 +616,7 @@ const SchoolDashboard = () => {
       <PageHeader
         eyebrow={user?.organization?.name || 'School'}
         title={`Welcome back, ${user?.firstName || 'student'}`}
-        lead="Everything your school has scheduled for you, in one place."
+        lead="Events, assessments and live classes open to you across EduMapping."
         actions={
           <Button as={Link} to="/events" variant="secondary" icon={CalendarIcon}>
             All events

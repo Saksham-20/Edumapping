@@ -8,6 +8,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+// The shared helper, not a local copy: this file used to carry its own
+// unweighted version that ignored achievements and linkedinUrl, so the
+// dashboard called a profile "complete" that the Profile page scored at 90%.
+import { calculateProfileCompletion } from '../../utils/helpers';
 import {
   Button,
   Card,
@@ -67,29 +71,6 @@ const sumByStatus = (rows, statuses) =>
   (Array.isArray(rows) ? rows : [])
     .filter((r) => r?.status && (!statuses || statuses.includes(r.status)))
     .reduce((sum, r) => sum + (parseInt(r.count, 10) || 0), 0);
-
-/**
- * Profile completeness, using the same field list as the Profile page so the
- * two screens can never disagree about what "complete" means.
- */
-const calculateProfileCompletion = (profile, role) => {
-  if (!profile) return 0;
-  const baseFields = ['firstName', 'lastName', 'email', 'phone'];
-  const studentFields = ['course', 'branch', 'yearOfStudy', 'graduationYear', 'cgpa', 'skills', 'bio'];
-
-  let total = baseFields.length;
-  let done = baseFields.filter((f) => !!profile[f]).length;
-
-  if (role === 'student' && profile.studentProfile) {
-    total += studentFields.length;
-    done += studentFields.filter((f) => {
-      const value = profile.studentProfile[f];
-      return Array.isArray(value) ? value.length > 0 : !!value;
-    }).length;
-  }
-
-  return total > 0 ? Math.round((done / total) * 100) : 0;
-};
 
 const ProgressBar = ({ value, label }) => (
   <div
@@ -176,7 +157,10 @@ const StudentDashboard = () => {
       api.get('/jobs/recommended', { params: { limit: 6 }, silent: true }),
       api.get('/events', { params: { upcoming: true, limit: 5 }, silent: true }),
       api.get('/applications/stats', { silent: true }),
-      api.get('/achievements', { params: { limit: 5 }, silent: true }),
+      // Scoped to this student explicitly: unscoped, `/achievements` returns
+      // every user's achievements — this panel was showing other students'
+      // awards, from other organizations, as the viewer's own.
+      api.get('/achievements', { params: { userId: user?.id, limit: 5 }, silent: true }),
       api.get('/users/profile', { silent: true })
     ]);
 
@@ -194,7 +178,7 @@ const StudentDashboard = () => {
 
     setAllFailed(results.every((r) => r.status === 'rejected'));
     setLoading(false);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     load();
@@ -216,6 +200,13 @@ const StudentDashboard = () => {
   }, [data, user?.role]);
 
   const complete = stats.profileCompletion === 100;
+
+  // The recommendation endpoint scores on skills, branch and CGPA. If those are
+  // filled in, an empty list means "nothing open matches", not "finish your
+  // profile" — the two need different empty states.
+  const profileHasMatchingFields = Boolean(
+    stats.skillsCount > 0 && data.profile?.studentProfile?.branch
+  );
 
   if (allFailed) {
     return (
@@ -492,16 +483,32 @@ const StudentDashboard = () => {
               </ul>
             ) : (
               <div className="border-t border-ink-950/10 p-5 sm:p-6">
-                <EmptyState
-                  icon={BriefcaseIcon}
-                  title="No recommendations yet"
-                  description="Add your course, branch and skills so we can match you against open roles."
-                  action={
-                    <Button as={Link} to="/profile" variant="secondary">
-                      Complete profile
-                    </Button>
-                  }
-                />
+                {/* Two different reasons produce an empty list, and telling a
+                    student with a finished profile to "complete your profile"
+                    sends them somewhere there is nothing left to do. */}
+                {profileHasMatchingFields ? (
+                  <EmptyState
+                    icon={BriefcaseIcon}
+                    title="Nothing matches right now"
+                    description="No open posting fits your profile yet. Browse the full board — new roles land regularly."
+                    action={
+                      <Button as={Link} to="/jobs" variant="secondary">
+                        Browse all jobs
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    icon={BriefcaseIcon}
+                    title="No recommendations yet"
+                    description="Add your course, branch and skills so we can match you against open roles."
+                    action={
+                      <Button as={Link} to="/profile" variant="secondary">
+                        Complete profile
+                      </Button>
+                    }
+                  />
+                )}
               </div>
             )}
           </Card>
