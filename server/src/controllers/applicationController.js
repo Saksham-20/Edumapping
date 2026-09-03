@@ -749,14 +749,7 @@ class ApplicationController {
         // and re-derive placement status, which only 'selected' can change.
         for (const m of matched) {
           notificationService
-            .createNotification({
-              userId: m.studentId,
-              title: 'Application status updated',
-              message: `Your application for ${job.title} is now ${status}.`,
-              type: 'application_status',
-              relatedEntityType: 'application',
-              relatedEntityId: m.applicationId
-            })
+            .notifyApplicationStatusUpdate(m.applicationId, status)
             .catch((err) => logger.error('Bulk status notification failed', err));
           syncPlacementStatus(m.studentId).catch((err) =>
             logger.error('Placement sync failed after bulk update', err)

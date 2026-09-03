@@ -3,6 +3,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const { app, connectDB } = require('./app');
+const reminderService = require('./services/reminderService');
 const logger = require('./utils/logger');
 
 const PORT = process.env.PORT || 5000;
@@ -30,6 +31,9 @@ async function startServer() {
   try {
     await connectDB();
     logger.info('Database connected - API ready');
+    // Only once the database is actually up — the sweeps query on every tick,
+    // and starting them against a dead connection just logs failures.
+    reminderService.start();
   } catch (error) {
     logger.error('Database connection failed - API will return 503 until DB is available', error);
     // Do NOT exit - server keeps running and returns 503 for /api until DB connects
