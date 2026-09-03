@@ -515,9 +515,16 @@ export const STATUS_TONES = {
   withdrawn: 'neutral',
   // jobs
   draft: 'neutral',
+  pending_review: 'warning',
   active: 'success',
   closed: 'neutral',
   cancelled: 'danger',
+  // offers — 'revoked' is the company withdrawing and 'declined' the student
+  // saying no, so they are toned differently on purpose.
+  offered: 'info',
+  accepted: 'success',
+  declined: 'neutral',
+  revoked: 'danger',
   // events
   scheduled: 'info',
   ongoing: 'warning',

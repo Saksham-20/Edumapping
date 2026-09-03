@@ -35,6 +35,7 @@ import JobEdit from './pages/jobs/JobEdit';
 import Profile from './pages/profile/Profile';
 import ResumePage from './pages/resume/ResumePage';
 import Applications from './pages/applications/Applications';
+import Offers from './pages/offers/Offers';
 import ApplicationDetail from './pages/applications/ApplicationDetail';
 import Events from './pages/events/Events';
 import EventForm from './pages/events/EventForm';
@@ -238,6 +239,13 @@ function App() {
                 </ProtectedRoute>
               } />
               
+              <Route path="/offers" element={
+                <ProtectedRoute requiredRoles={['student', 'recruiter', 'tpo', 'admin']}>
+                  <Header />
+                  <Offers />
+                </ProtectedRoute>
+              } />
+
               <Route path="/applications/:id" element={
                 <ProtectedRoute>
                   <Header />

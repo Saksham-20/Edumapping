@@ -18,6 +18,7 @@ import {
   Bars3Icon,
   XMarkIcon,
   HomeIcon,
+  BanknotesIcon,
   BriefcaseIcon,
   CalendarIcon,
   DocumentTextIcon,
@@ -137,18 +138,23 @@ const Header = () => {
     if (user?.role === 'student' && !isSchoolStudent) {
       items.push(
         { name: 'Applications', href: '/applications', icon: DocumentTextIcon, exact: true },
+        { name: 'Offers', href: '/offers', icon: BanknotesIcon, exact: true },
         { name: 'Resume', href: '/resume', icon: DocumentTextIcon, exact: true }
       );
     }
 
     if (user?.role === 'recruiter') {
-      items.push({ name: 'Applications', href: '/applications', icon: DocumentTextIcon, exact: true });
+      items.push(
+        { name: 'Applications', href: '/applications', icon: DocumentTextIcon, exact: true },
+        { name: 'Offers', href: '/offers', icon: BanknotesIcon, exact: true }
+      );
     }
 
     // The TPO's two flagship surfaces used to have no link anywhere in the app.
     if (user?.role === 'tpo') {
       items.push(
         { name: 'Applications', href: '/applications', icon: DocumentTextIcon, exact: true },
+        { name: 'Offers', href: '/offers', icon: BanknotesIcon, exact: true },
         { name: 'Analytics', href: '/tpo/analytics', icon: ChartBarIcon },
         { name: 'Approvals', href: '/approvals', icon: CheckBadgeIcon }
       );

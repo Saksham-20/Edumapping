@@ -30,6 +30,7 @@ import {
   FunnelIcon,
   MagnifyingGlassIcon,
   CalendarIcon,
+  BanknotesIcon,
   BuildingOfficeIcon,
   ClipboardDocumentListIcon,
   UserIcon
@@ -100,6 +101,14 @@ const Applications = () => {
   const [preview, setPreview] = useState(null);
   const [pasteBusy, setPasteBusy] = useState(false);
 
+  // Raising an offer against one application. The package is what makes a
+  // placement reportable, so it is asked for here rather than left to be filled
+  // in later and never filled in.
+  const [offerFor, setOfferFor] = useState(null);
+  const [offerCtc, setOfferCtc] = useState('');
+  const [offerPPO, setOfferPPO] = useState(false);
+  const [offerBusy, setOfferBusy] = useState(false);
+
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters((prev) => (prev.search === searchDraft ? prev : { ...prev, search: searchDraft }));
@@ -114,6 +123,25 @@ const Applications = () => {
       .split(/[\s,;]+/)
       .map((v) => v.trim())
       .filter(Boolean);
+
+  const raiseOffer = async () => {
+    setOfferBusy(true);
+    try {
+      await api.post('/offers', {
+        applicationId: offerFor.id,
+        ctc: offerCtc === '' ? null : Number(offerCtc),
+        isPPO: offerPPO
+      });
+      toast.success('Offer raised');
+      setOfferFor(null);
+      setOfferPPO(false);
+      fetchApplications();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not raise the offer');
+    } finally {
+      setOfferBusy(false);
+    }
+  };
 
   const runPaste = async (dryRun) => {
     const identifiers = parseIdentifiers(pasteText);
@@ -370,6 +398,17 @@ const Applications = () => {
                 />
               )}
 
+              {!isStudent && ['interviewed', 'shortlisted', 'selected'].includes(application.status) && (
+                <Button
+                  size="sm"
+                  variant="saffron"
+                  icon={BanknotesIcon}
+                  onClick={() => { setOfferFor(application); setOfferCtc(''); }}
+                >
+                  Raise offer
+                </Button>
+              )}
+
               {isStudent && ['applied', 'screening'].includes(application.status) && (
                 <Button
                   size="sm"
@@ -616,6 +655,48 @@ const Applications = () => {
               )}
             </div>
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(offerFor)}
+        onClose={() => setOfferFor(null)}
+        size="sm"
+        title="Raise an offer"
+        description={
+          offerFor
+            ? `For ${offerFor.student?.firstName} ${offerFor.student?.lastName}, against ${offerFor.job?.title}.`
+            : ''
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOfferFor(null)}>
+              Cancel
+            </Button>
+            <Button variant="saffron" loading={offerBusy} onClick={raiseOffer}>
+              Raise offer
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Annual CTC (₹)"
+            type="number"
+            min="0"
+            value={offerCtc}
+            onChange={(e) => setOfferCtc(e.target.value)}
+            placeholder="e.g. 1450000"
+            help="Optional — some offers arrive before the number does. Without it the offer is recorded but cannot appear in salary statistics."
+          />
+          <Checkbox
+            label="Pre-placement offer (PPO)"
+            checked={offerPPO}
+            onChange={(e) => setOfferPPO(e.target.checked)}
+          />
+          <p className="text-sm text-ink-600">
+            The student is notified immediately and the application is marked selected.
+          </p>
         </div>
       </Modal>
     </PageShell>
