@@ -42,10 +42,16 @@ class AnalyticsController {
 
       const dateFilter = getDateFilter();
 
-      // Build application filters
-      const applicationFilters = {
-        createdAt: dateFilter
-      };
+      // Build application filters.
+      //
+      // Only constrain the date when there is actually a range. `dateRange`
+      // falls through to `{}`, and assigning that to `createdAt` produced an
+      // empty condition that matched no rows — so an unscoped request reported
+      // zero applications while the real count was non-zero.
+      const applicationFilters = {};
+      if (Object.getOwnPropertySymbols(dateFilter).length > 0) {
+        applicationFilters.createdAt = dateFilter;
+      }
 
       if (applicationStatus) {
         applicationFilters.status = applicationStatus;
@@ -82,8 +88,11 @@ class AnalyticsController {
       const searchFilters = {};
       if (search) {
         searchFilters[Op.or] = [
-          { '$student.firstName$': { [Op.iLike]: `%${search}%` } },
-          { '$student.lastName$': { [Op.iLike]: `%${search}%` } },
+          // Raw column names: these models are `underscored: true`, and a
+          // `$assoc.col$` reference is emitted into the SQL verbatim with no
+          // attribute-to-field mapping, so `firstName` was a missing column.
+          { '$student.first_name$': { [Op.iLike]: `%${search}%` } },
+          { '$student.last_name$': { [Op.iLike]: `%${search}%` } },
           { '$student.email$': { [Op.iLike]: `%${search}%` } },
           { '$job.title$': { [Op.iLike]: `%${search}%` } },
           { '$job.organization.name$': { [Op.iLike]: `%${search}%` } }
@@ -159,7 +168,10 @@ class AnalyticsController {
                 {
                   model: StudentProfile,
                   as: 'studentProfile',
-                  where: studentFilters
+                  where: studentFilters,
+                  // Filter only — selecting its columns inside a grouped
+                  // aggregate makes Postgres demand them in the GROUP BY.
+                  attributes: []
                 }
               ] : [],
               attributes: []
@@ -203,7 +215,10 @@ class AnalyticsController {
                 {
                   model: StudentProfile,
                   as: 'studentProfile',
-                  where: studentFilters
+                  where: studentFilters,
+                  // Filter only — selecting its columns inside a grouped
+                  // aggregate makes Postgres demand them in the GROUP BY.
+                  attributes: []
                 }
               ] : [],
               attributes: []
@@ -247,7 +262,10 @@ class AnalyticsController {
                 {
                   model: StudentProfile,
                   as: 'studentProfile',
-                  where: studentFilters
+                  where: studentFilters,
+                  // Filter only — selecting its columns inside a grouped
+                  // aggregate makes Postgres demand them in the GROUP BY.
+                  attributes: []
                 }
               ] : [],
               attributes: []
@@ -284,11 +302,28 @@ class AnalyticsController {
         })
       ]);
 
+      // The same search, re-expressed relative to the Organization root.
+      //
+      // A `$assoc.col$` path is resolved from whatever model the query starts
+      // at. `searchFilters` is written for an Application-rooted query, so
+      // reusing it here produced "missing FROM-clause entry for table student".
+      const companySearchFilters = {};
+      if (search) {
+        const term = `%${search}%`;
+        companySearchFilters[Op.or] = [
+          { '$jobs.applications.student.first_name$': { [Op.iLike]: term } },
+          { '$jobs.applications.student.last_name$': { [Op.iLike]: term } },
+          { '$jobs.applications.student.email$': { [Op.iLike]: term } },
+          { '$jobs.title$': { [Op.iLike]: term } }
+        ];
+      }
+
       // Get company analytics
       const companyAnalytics = await Organization.findAll({
         where: {
           type: 'company',
-          ...(company ? { id: company } : {})
+          ...(company ? { id: company } : {}),
+          ...companySearchFilters
         },
         include: [
           {
@@ -300,10 +335,7 @@ class AnalyticsController {
               {
                 model: Application,
                 as: 'applications',
-                where: {
-                  ...applicationFilters,
-                  ...searchFilters
-                },
+                where: applicationFilters,
                 required: false,
                 include: [
                   {
@@ -316,7 +348,8 @@ class AnalyticsController {
                       {
                         model: StudentProfile,
                         as: 'studentProfile',
-                        where: studentFilters
+                        where: studentFilters,
+                        attributes: []
                       }
                     ] : [],
                     attributes: []
@@ -376,6 +409,24 @@ class AnalyticsController {
             where: {
               organizationId: user.organizationId
             },
+            attributes: []
+          },
+          // Joined purely so the `$job.…$` arms of `searchFilters` have a
+          // table to resolve against. Without it a search request failed with
+          // "missing FROM-clause entry for table job". `required: false` keeps
+          // it a LEFT JOIN so the count is unchanged when no search is active.
+          {
+            model: Job,
+            as: 'job',
+            required: false,
+            include: [
+              {
+                model: Organization,
+                as: 'organization',
+                required: false,
+                attributes: []
+              }
+            ],
             attributes: []
           }
         ]
@@ -465,6 +516,9 @@ class AnalyticsController {
 
       const { count, rows: students } = await User.findAndCountAll({
         where: whereClause,
+        // The default scope selects every column, which put each student's
+        // bcrypt hash in the response body.
+        attributes: { exclude: ['passwordHash'] },
         include: [
           {
             model: StudentProfile,

@@ -600,3 +600,12 @@ body {
     display: none !important;
   }
 }
+/* Horizontal scroll without a visible scrollbar — used by the header nav,
+   which must be able to overflow rather than collide with the search field. */
+.lp-scroll-x {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.lp-scroll-x::-webkit-scrollbar {
+  display: none;
+}

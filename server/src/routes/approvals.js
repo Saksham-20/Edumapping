@@ -82,7 +82,11 @@ router.get('/pending', authenticateToken, requireRole('tpo'), approvalController
  *       404:
  *         description: Organization not found
  */
-router.patch('/organizations/:organizationId', 
+// The param is constrained to digits so it cannot swallow the literal
+// `/organizations/bulk` route declared below it. Express matches in
+// declaration order, so without this a bulk request was routed into the
+// single-organization handler and died on `parseInt('bulk')`.
+router.patch('/organizations/:organizationId(\\d+)', 
   authenticateToken, 
   requireRole('tpo'),
   [

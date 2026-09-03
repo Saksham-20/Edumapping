@@ -9,7 +9,7 @@
 // but tuned for density: smaller radii, tighter padding, no decorative motion.
 //
 // Nothing here fetches data or makes routing decisions. Pages compose these.
-import React, { forwardRef, useEffect, useId, useRef } from 'react';
+import React, { forwardRef, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { XMarkIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
@@ -967,9 +967,22 @@ export const Pagination = ({ page, pages, onChange, className = '' }) => {
 
 /* ==================================================================== misc */
 
-/** Avatar with a generated fallback. `src` wins when present. */
+/**
+ * Avatar — the picture if it loads, initials otherwise.
+ *
+ * The fallback is driven by a load error, not just a missing `src`. Seeded
+ * accounts point at via.placeholder.com, a service that no longer exists, so
+ * every one of those avatars was rendering as an empty box; any dead or
+ * removed image URL now degrades to initials instead.
+ */
 export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
   const sizes = { xs: 'h-7 w-7 text-[10px]', sm: 'h-9 w-9 text-xs', md: 'h-11 w-11 text-sm', lg: 'h-16 w-16 text-lg' };
+  const [failed, setFailed] = useState(false);
+
+  // A new src deserves a fresh attempt, otherwise one broken image would
+  // permanently suppress every later one on the same mounted component.
+  useEffect(() => setFailed(false), [src]);
+
   const initials = String(name)
     .split(' ')
     .filter(Boolean)
@@ -978,18 +991,21 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
     .join('')
     .toUpperCase();
 
-  if (src) {
+  if (src && !failed) {
     return (
       <img
         src={src}
         alt={name ? `${name}'s profile picture` : ''}
+        onError={() => setFailed(true)}
         className={cx('shrink-0 rounded-xl border border-ink-950/15 object-cover', sizes[size], className)}
       />
     );
   }
   return (
     <span
-      aria-hidden="true"
+      // Not decorative when it is the only thing identifying the person.
+      role="img"
+      aria-label={name ? `${name}'s profile picture` : 'Profile picture'}
       className={cx(
         'inline-flex shrink-0 items-center justify-center rounded-xl border border-ink-950/15 bg-ink-950 font-semibold text-white',
         sizes[size],

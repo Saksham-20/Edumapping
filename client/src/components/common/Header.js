@@ -196,8 +196,18 @@ const Header = () => {
           </Link>
 
           {/* Desktop nav */}
-          <nav aria-label="Main" className="hidden min-w-0 flex-1 lg:block">
-            <ul className="flex items-center gap-0.5">
+          {/*
+            The inline nav starts at xl, not lg. A TPO carries seven entries and
+            an admin eight; below 1280px they do not fit, and the alternative is
+            silently clipping primary navigation into a horizontal scroll nobody
+            would find. Narrower viewports get the drawer, which lists them all.
+
+            `min-w-0` here plus `overflow-x-auto` on the list is the backstop:
+            if a role ever gains another entry, it scrolls rather than rendering
+            underneath the search field.
+          */}
+          <nav aria-label="Main" className="hidden min-w-0 flex-1 xl:block">
+            <ul className="lp-scroll-x flex items-center gap-0.5 overflow-x-auto">
               {navigation.map((item) => (
                 <li key={item.name}>
                   <Link
@@ -219,8 +229,14 @@ const Header = () => {
             </ul>
           </nav>
 
-          {/* Search */}
-          {searchField('desktop', 'hidden w-full max-w-xs xl:block')}
+          {/*
+            The search only appears at 2xl. Below that a TPO's or admin's seven
+            to eight nav entries and a 320px field cannot both fit, and the nav
+            is the more important of the two — it was clipping entries into a
+            horizontal scroll nobody would discover. Every narrower viewport
+            still gets the search in the mobile drawer.
+          */}
+          {searchField('desktop', 'hidden w-full max-w-xs shrink-0 2xl:block')}
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <div className="relative">
@@ -321,7 +337,7 @@ const Header = () => {
               label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen((v) => !v)}
-              className="lg:hidden"
+              className="xl:hidden"
             />
           </div>
         </div>
@@ -330,7 +346,7 @@ const Header = () => {
       {/* Mobile drawer, positioned below the bar. */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-x-0 z-40 border-b border-ink-950/10 bg-white lg:hidden"
+          className="fixed inset-x-0 z-40 border-b border-ink-950/10 bg-white xl:hidden"
           style={{ top: BAR_HEIGHT }}
         >
           <div className="max-h-[calc(100vh-72px)] space-y-1 overflow-y-auto px-4 py-4">
