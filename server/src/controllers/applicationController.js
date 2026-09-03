@@ -92,6 +92,24 @@ class ApplicationController {
       // additionally comparing a scalar against what is normally an array of
       // accepted batches, so it could only ever have rejected everyone.
       const studentProfile = await StudentProfile.findOne({ where: { userId: studentId } });
+
+      // A sanction is checked before the job's own criteria: being barred from
+      // placements is not a fact about this posting, and telling the student
+      // they fail a CGPA bar when the real reason is a debarment would be a
+      // lie. Applications already in flight are untouched — the bar is on
+      // taking something new.
+      if (studentProfile?.isBarredFromApplying()) {
+        return res.status(403).json({
+          error: 'Placement Participation Suspended',
+          message:
+            studentProfile.placementSanction === 'removed'
+              ? 'You have been removed from placements for this season. Contact your placement cell.'
+              : 'You are currently blocked from applying to new roles. Contact your placement cell.',
+          reason: studentProfile.sanctionReason || null,
+          until: studentProfile.sanctionUntil || null
+        });
+      }
+
       const { eligible, reasons } = checkEligibility(job.eligibilityCriteria, studentProfile);
       if (!eligible) {
         return res.status(400).json({

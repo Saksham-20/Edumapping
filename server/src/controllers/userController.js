@@ -1,6 +1,7 @@
 // server/src/controllers/userController.js
 const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job, File, AuditLog } = require('../models');
 const { validationResult } = require('express-validator');
+const notificationService = require('../services/notificationService');
 const { Op } = require('sequelize');
 const recruiterAccessService = require('../services/recruiterAccessService');
 
@@ -543,6 +544,89 @@ class UserController {
         users,
         query: q
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Block, remove or reinstate a student's placement participation.
+   *
+   * A reason is required in every direction, lifting included: "why was this
+   * student let back in" is a question a placement cell gets asked, and an
+   * unexplained reversal is as unhelpful as an unexplained sanction.
+   */
+  async setPlacementSanction(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { sanction, reason, until } = req.body;
+
+      const student = await User.findByPk(id, {
+        include: [{ model: StudentProfile, as: 'studentProfile' }]
+      });
+      if (!student || student.role !== 'student') {
+        return res.status(404).json({ error: 'Student Not Found', message: 'Student not found' });
+      }
+      // A TPO acts only for their own institution.
+      if (req.user.role !== 'admin' && student.organizationId !== req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only sanction students at your own institution'
+        });
+      }
+      if (!student.studentProfile) {
+        return res.status(409).json({
+          error: 'No Student Profile',
+          message: 'This student has no profile to sanction'
+        });
+      }
+
+      const previous = student.studentProfile.placementSanction;
+      await student.studentProfile.update({
+        placementSanction: sanction,
+        sanctionReason: reason,
+        // Only a temporary bar carries an expiry; lifting clears it.
+        sanctionUntil: sanction === 'none' ? null : until || null,
+        sanctionedBy: req.user.id,
+        sanctionedAt: new Date()
+      });
+
+      res.json({
+        message:
+          sanction === 'none'
+            ? 'Placement participation restored'
+            : `Student ${sanction === 'removed' ? 'removed from' : 'blocked from applying in'} placements`,
+        studentProfile: student.studentProfile
+      });
+
+      notificationService
+        .createNotification(
+          student.id,
+          sanction === 'none' ? 'Placement participation restored' : 'Placement participation suspended',
+          sanction === 'none'
+            ? `You can apply for roles again. ${reason}`
+            : `${sanction === 'removed' ? 'You have been removed from placements.' : 'You cannot apply to new roles for now.'} ${reason}`,
+          'system_alert',
+          { sanction },
+          'urgent'
+        )
+        .catch(() => {});
+
+      AuditLog.create({
+        userId: req.user.id,
+        action: 'placement_sanction_changed',
+        entityType: 'student_profile',
+        entityId: student.studentProfile.id,
+        oldValues: { placementSanction: previous },
+        newValues: { placementSanction: sanction, reason, until: until || null },
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.get('user-agent')
+      }).catch(() => {});
     } catch (error) {
       next(error);
     }

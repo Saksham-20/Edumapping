@@ -95,6 +95,18 @@ module.exports = (sequelize, DataTypes) => {
       field: 'education_gap_years',
       validate: { min: 0, max: 20 }
     },
+    // Placement participation, distinct from `users.isActive` which is an
+    // account switch. See migration 44 for why the three states differ.
+    placementSanction: {
+      type: DataTypes.ENUM('none', 'blocked', 'removed'),
+      allowNull: false,
+      defaultValue: 'none',
+      field: 'placement_sanction'
+    },
+    sanctionReason: { type: DataTypes.TEXT, field: 'sanction_reason' },
+    sanctionUntil: { type: DataTypes.DATEONLY, field: 'sanction_until' },
+    sanctionedBy: { type: DataTypes.INTEGER, field: 'sanctioned_by' },
+    sanctionedAt: { type: DataTypes.DATE, field: 'sanctioned_at' },
     percentage: {
       type: DataTypes.DECIMAL(5, 2),
       validate: {
@@ -158,6 +170,20 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'userId',
       as: 'user'
     });
+  };
+
+  /**
+   * Is this student barred from taking new drives right now?
+   *
+   * An expired sanction is not a sanction: a block with a date in the past has
+   * served its term, and treating it as live is how a temporary penalty
+   * silently becomes permanent.
+   */
+  StudentProfile.prototype.isBarredFromApplying = function isBarredFromApplying() {
+    if (this.placementSanction === 'none') return false;
+    if (!this.sanctionUntil) return true;
+    const today = new Date().toISOString().slice(0, 10);
+    return String(this.sanctionUntil).slice(0, 10) >= today;
   };
 
   return StudentProfile;

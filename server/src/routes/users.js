@@ -186,4 +186,29 @@ router.post('/import',
   }
 );
 
+/**
+ * @swagger
+ * /api/users/{id}/placement-sanction:
+ *   patch:
+ *     summary: Block, remove or reinstate a student's placement participation
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/:id(\\d+)/placement-sanction',
+  authenticateToken,
+  requireRole('tpo', 'admin'),
+  [
+    body('sanction').isIn(['none', 'blocked', 'removed'])
+      .withMessage('sanction must be none, blocked or removed'),
+    // Required in both directions — an unexplained reinstatement is as unhelpful
+    // as an unexplained sanction.
+    body('reason').isString().trim().isLength({ min: 3, max: 2000 })
+      .withMessage('A reason is required'),
+    body('until').optional({ nullable: true }).isISO8601()
+      .withMessage('until must be a date')
+  ],
+  userController.setPlacementSanction
+);
+
 module.exports = router;
