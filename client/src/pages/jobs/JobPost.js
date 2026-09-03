@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { withMinCGPA } from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -171,7 +172,7 @@ const JobPost = () => {
       };
 
       if (formData.minCGPA && formData.minCGPA.trim()) {
-        cleanedData.eligibilityCriteria = { minCGPA: parseFloat(formData.minCGPA) };
+        cleanedData.eligibilityCriteria = withMinCGPA(null, formData.minCGPA);
       }
 
       // The validators accept these as absent or valid, but not as an empty

@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { readMinCGPA } from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Badge,
@@ -320,7 +321,7 @@ const JobDetail = () => {
                 {job.experienceRequired != null ? `${job.experienceRequired} years` : null}
               </DetailRow>
               <DetailRow label="Openings">{job.totalPositions}</DetailRow>
-              <DetailRow label="Minimum CGPA">{job.eligibilityCriteria?.minCGPA}</DetailRow>
+              <DetailRow label="Minimum CGPA">{readMinCGPA(job.eligibilityCriteria)}</DetailRow>
               <DetailRow label="Applications">{job.applicationCount ?? 0}</DetailRow>
             </dl>
           </Card>

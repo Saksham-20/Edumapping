@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { readMinCGPA, withMinCGPA } from '../../utils/eligibility';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -36,6 +37,10 @@ const JobEdit = () => {
   const [loading, setLoading] = useState(false);
   const [isLoadingJob, setIsLoadingJob] = useState(true);
   const [errors, setErrors] = useState({});
+  // The job's original eligibility criteria. Held separately from `formData`
+  // because the form only edits the minimum CGPA, and the save has to merge
+  // into the rest rather than replace it.
+  const [eligibilityCriteria, setEligibilityCriteria] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -64,6 +69,8 @@ const JobEdit = () => {
         return;
       }
 
+      setEligibilityCriteria(job.eligibilityCriteria || null);
+
       // Stored as one newline-joined string; the form edits it as rows.
       const requirements = job.requirements
         ? job.requirements.split('\n').filter((req) => req.trim())
@@ -82,8 +89,8 @@ const JobEdit = () => {
         experienceRequired: job.experienceRequired || 0,
         totalPositions: job.totalPositions || 1,
         applicationDeadline: job.applicationDeadline ? job.applicationDeadline.split('T')[0] : '',
-        minCGPA: job.eligibilityCriteria?.minCGPA
-          ? job.eligibilityCriteria.minCGPA.toString()
+        minCGPA: readMinCGPA(job.eligibilityCriteria) !== undefined
+          ? String(readMinCGPA(job.eligibilityCriteria))
           : '',
         isActive: job.status === 'active'
       });
@@ -174,8 +181,11 @@ const JobEdit = () => {
         status: formData.isActive ? 'active' : 'draft'
       };
 
+      // Merge rather than replace: the criteria object also carries the
+      // graduation years and allowed branches the job was created with, and
+      // assigning a fresh `{ minCGPA }` discarded them on every save.
       if (formData.minCGPA && formData.minCGPA.trim()) {
-        cleanedData.eligibilityCriteria = { minCGPA: parseFloat(formData.minCGPA) };
+        cleanedData.eligibilityCriteria = withMinCGPA(eligibilityCriteria, formData.minCGPA);
       }
 
       if (formData.salaryMin && formData.salaryMin.trim()) {
