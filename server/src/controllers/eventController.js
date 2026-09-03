@@ -114,8 +114,15 @@ class EventController {
 
       // For students, show events from their university and all company events
       if (req.user && req.user.role === 'student') {
-        // Don't filter by organizationId for students - they should see all relevant events
-        // This will show events from their university and company events
+        // Students see events from every organization by default — their own
+        // institution's, company events and the global EduMapping ones — which
+        // is deliberate. But the branch ignored `organizationId` entirely, so a
+        // student asking for one school's events got the unfiltered list back
+        // and no school-scoped view was possible. An explicit filter narrows;
+        // omitting it still shows everything.
+        if (organizationId) {
+          whereClause.organizationId = organizationId;
+        }
       } else if (req.user && req.user.role === 'recruiter') {
         // Recruiters only see events from their organization
         // Use query param if provided, otherwise use user's organizationId

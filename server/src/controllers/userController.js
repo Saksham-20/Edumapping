@@ -39,7 +39,10 @@ const sanitizeProfileData = (profileData) => {
  * are built around it; without this the only endpoint they need answered 403.
  * Teachers are deliberately excluded — they have no roster-management surface.
  */
-const SCHOOL_LEADERSHIP_ROLES = ['principal', 'school_admin', 'career_counselor'];
+// School roles whose listing is pinned to their own institution. Teachers are
+// included: a teacher needs the roster of the school they teach at, and the
+// scoping below means including them widens nothing beyond that school.
+const SCHOOL_SCOPED_ROLES = ['principal', 'school_admin', 'career_counselor', 'teacher'];
 
 class UserController {
 
@@ -210,7 +213,7 @@ class UserController {
       // School leadership may list people, but only their own school's. Forced
       // here rather than trusted from the query string, so passing another
       // organizationId cannot widen the result set.
-      if (SCHOOL_LEADERSHIP_ROLES.includes(req.user.role)) {
+      if (SCHOOL_SCOPED_ROLES.includes(req.user.role)) {
         if (!req.user.organizationId) {
           return res.status(403).json({
             error: 'Access Forbidden',
