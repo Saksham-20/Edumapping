@@ -1,7 +1,11 @@
 // client/src/utils/constants.js
 
 // API Configuration
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Same-origin '/api' when unset, matching services/api.js. It used to fall back
+// to a localhost URL, which is only ever correct on a developer's machine: in a
+// production build that value is baked into the bundle and every browser then
+// calls its own machine instead of the server.
+export const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 export const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5000';
 
 // User Roles
