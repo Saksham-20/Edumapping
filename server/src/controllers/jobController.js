@@ -682,10 +682,17 @@ class JobController {
         include: [{ model: require('../models').StudentProfile, as: 'studentProfile' }]
       });
 
+      // A student who has not built a profile yet is the normal state on the
+      // first day of an account, not a malformed request. Answering 400 made
+      // every new signup's first dashboard load report a failed request in the
+      // console, and gave the page nothing to render but an error. Return the
+      // empty result the dashboard can actually show, and say why it is empty.
       if (!user || !user.studentProfile) {
-        return res.status(400).json({
-          error: 'Profile Incomplete',
-          message: 'Please complete your student profile to get recommendations'
+        return res.json({
+          message: 'No recommendations yet',
+          jobs: [],
+          needsProfile: true,
+          reason: 'Complete your student profile to get job recommendations'
         });
       }
 
