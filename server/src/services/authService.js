@@ -1,6 +1,7 @@
 // server/src/services/authService.js
 const { httpError } = require('../utils/appError');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const { User, Organization, OtpVerification } = require('../models');
@@ -27,6 +28,39 @@ class AuthService {
 
   async _verifyOtp(otp, otpHash) {
     return await bcrypt.compare(otp, otpHash);
+  }
+
+  /**
+   * A standing code that is accepted in place of an emailed OTP.
+   *
+   * This exists because email delivery is not configured in production: the OTP
+   * was generated, stored, and never sent, so `send-otp` reported success and
+   * registration could not be completed by anybody. A bypass code is the bridge
+   * until SMTP credentials are in place.
+   *
+   * Understand exactly what it gives up. With this set, anyone can register an
+   * address they do not own — including one at an institution's domain — so the
+   * only remaining barrier for a TPO or recruiter signup is the human approval
+   * queue. That is a deliberate, temporary trade, which is why:
+   *
+   *   * it is off unless OTP_BYPASS_CODE is explicitly set,
+   *   * it is refused for password reset, where it would be account takeover of
+   *     any existing account including an admin's,
+   *   * a real emailed OTP still works, so turning SMTP on needs no code change,
+   *   * every acceptance is logged at WARN with the address, so the accounts
+   *     created this way can be found and re-verified afterwards.
+   *
+   * Remove OTP_BYPASS_CODE the moment SMTP works.
+   */
+  _isBypassOtp(otp) {
+    const configured = process.env.OTP_BYPASS_CODE;
+    if (!configured) return false;
+
+    const a = Buffer.from(String(otp).trim());
+    const b = Buffer.from(String(configured).trim());
+    // timingSafeEqual throws on a length mismatch, which is itself the answer.
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   }
 
   async hashPassword(password) {
@@ -378,6 +412,28 @@ class AuthService {
     if (!normalizedEmail || !otp || String(otp).length !== OTP_LENGTH) {
       throw httpError(400, 'Invalid email or OTP');
     }
+
+    // Checked before the lookup on purpose: when email is not being delivered,
+    // insisting on a stored row would still require a send-otp round trip whose
+    // whole point was to mail something. Any row that does exist is consumed
+    // below so the same code cannot also replay a real pending OTP.
+    if (this._isBypassOtp(otp)) {
+      logger.warn('Registration OTP bypass code accepted', {
+        email: logger.sanitize.email(normalizedEmail)
+      });
+      const pending = await OtpVerification.findOne({
+        where: {
+          identifier: normalizedEmail,
+          purpose: 'registration',
+          usedAt: null,
+          expiresAt: { [Op.gt]: new Date() }
+        },
+        order: [['createdAt', 'DESC']]
+      });
+      if (pending) await pending.update({ usedAt: new Date() });
+      return { verified: true, email: normalizedEmail, viaBypass: true };
+    }
+
     const row = await OtpVerification.findOne({
       where: {
         identifier: normalizedEmail,
@@ -428,6 +484,18 @@ class AuthService {
     if (String(newPassword).length < 8) {
       throw httpError(400, 'Password must be at least 8 characters');
     }
+
+    // The registration bypass must never reach this path. Accepting a standing
+    // code here would let anyone reset the password of any account whose email
+    // they can guess, the admin's included. Refused loudly rather than silently
+    // falling through to the hash comparison, so an attempt is visible.
+    if (this._isBypassOtp(otp)) {
+      logger.warn('Bypass code rejected for password reset', {
+        email: logger.sanitize.email(normalizedEmail)
+      });
+      throw httpError(400, 'Invalid or expired OTP');
+    }
+
     const row = await OtpVerification.findOne({
       where: {
         identifier: normalizedEmail,
