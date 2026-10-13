@@ -26,6 +26,25 @@ const { DEFAULT_POLICY, normaliseTiers, tierFor } = require('../utils/placementP
 const { syncPlacementStatus } = require('../utils/placementStatus');
 const models = require('../models');
 
+const PROGRAMME_ALIASES = {
+  btech: 'B.Tech', bacheloroftechnology: 'B.Tech',
+  be: 'B.E.', bachelorofengineering: 'B.E.',
+  mtech: 'M.Tech', masteroftechnology: 'M.Tech',
+  me: 'M.E.', masterofengineering: 'M.E.',
+  bca: 'BCA', bachelorofcomputerapplications: 'BCA',
+  mca: 'MCA', masterofcomputerapplications: 'MCA',
+  bsc: 'B.Sc', bachelorofscience: 'B.Sc',
+  msc: 'M.Sc', masterofscience: 'M.Sc',
+  bcom: 'B.Com', bachelorofcommerce: 'B.Com',
+  bba: 'BBA', bachelorofbusinessadministration: 'BBA',
+  mba: 'MBA', masterofbusinessadministration: 'MBA'
+};
+const programmeLabel = (course) => {
+  const raw = (course || '').trim();
+  if (!raw) return 'Unspecified';
+  return PROGRAMME_ALIASES[raw.toLowerCase().replace(/[^a-z]/g, '')] || raw;
+};
+
 const fail = (res, status, error, message, extra = {}) => res.status(status).json({ error, message, ...extra });
 
 const audit = (req, action, entityType, entityId, newValues) =>
@@ -498,7 +517,9 @@ class PlacementController {
         if (!cur || Number(o.ctc) > Number(cur.ctc)) best.set(o.studentId, o);
       });
 
-      const groupKey = (p) => `${p.course || 'Unspecified'} — ${p.branch || 'Unspecified'}`;
+      // Imported batches spell the same programme several ways ("B.Tech", "BTech",
+      // "Bachelor of Technology"), which would split one programme across rows.
+      const groupKey = (p) => `${programmeLabel(p.course)} — ${(p.branch || '').trim() || 'Unspecified'}`;
       const groups = new Map();
       const blank = () => ({ students: 0, placed: 0, higherStudies: 0, optedOut: 0, deferred: 0, unplaced: 0, ctcs: [], offers: 0, ppos: 0, verifiedLetters: 0 });
       const total = blank();
@@ -581,7 +602,7 @@ class PlacementController {
           return {
             rollNumber: p.studentId,
             name: `${p.user.firstName} ${p.user.lastName}`,
-            programme: p.course,
+            programme: programmeLabel(p.course),
             branch: p.branch,
             batch: p.graduationYear,
             outcome: o ? 'placed' : p.placementStatus,
