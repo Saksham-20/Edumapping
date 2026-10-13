@@ -12,6 +12,7 @@ import api from '../../services/api';
 // unweighted version that ignored achievements and linkedinUrl, so the
 // dashboard called a profile "complete" that the Profile page scored at 90%.
 import { calculateProfileCompletion } from '../../utils/helpers';
+import MyRounds from '../../components/rounds/MyRounds';
 import {
   Button,
   Card,
@@ -326,6 +327,9 @@ const StudentDashboard = () => {
           loading={loading}
         />
       </div>
+
+      {/* What is next in any drive the student is in — the first thing to see. */}
+      <MyRounds title="Your upcoming rounds" limit={3} />
 
       <Tabs className="mb-6 w-fit max-w-full" tabs={TABS} value={tab} onChange={setTab} />
 

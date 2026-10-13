@@ -3,6 +3,8 @@ const express = require('express');
 const { body } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { uploadSingle } = require('../middleware/upload');
+const { uploadLimiter } = require('../middleware/rateLimiter');
 const offerController = require('../controllers/offerController');
 
 const router = express.Router();
@@ -97,6 +99,38 @@ router.patch('/:id(\\d+)/revoke',
       .withMessage('A reason is required when withdrawing an offer')
   ],
   offerController.revokeOffer
+);
+
+/**
+ * @swagger
+ * /api/offers/{id}/letter:
+ *   post:
+ *     summary: Upload the signed offer letter (PDF)
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/:id(\\d+)/letter',
+  authenticateToken,
+  requireRole('student', 'recruiter', 'tpo', 'admin'),
+  uploadLimiter,
+  uploadSingle('document', ['application/pdf']),
+  offerController.uploadLetter
+);
+
+/**
+ * @swagger
+ * /api/offers/{id}/letter-verification:
+ *   patch:
+ *     summary: Mark an offer letter as checked by the placement cell
+ *     tags: [Offers]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/:id(\\d+)/letter-verification',
+  authenticateToken,
+  requireRole('tpo', 'admin'),
+  offerController.verifyLetter
 );
 
 module.exports = router;

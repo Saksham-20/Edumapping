@@ -3,9 +3,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import authService from '../../services/auth';
+import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
 import { calculateProfileCompletion } from '../../utils/helpers';
+import VerificationCard from '../../components/profile/VerificationCard';
 import {
   Avatar,
   Badge,
@@ -63,32 +64,29 @@ const YEAR_OPTIONS = [
   { value: '6', label: '6th year' }
 ];
 
-// `REACT_APP_API_URL` already ends in `/api` (see services/api.js, which uses
-// it verbatim as the axios baseURL). Appending another `/api` here produced
-// `/api/api/files/…`, which 404s — so strip the suffix and keep the origin.
-// Unset in dev, this collapses to a relative URL that the CRA proxy forwards.
-const API_ORIGIN = (process.env.REACT_APP_API_URL || '').replace(/\/api\/?$/, '');
+/**
+ * Academic fields the placement cell locks once it has verified them. Mirrors
+ * the server's list (userController); the server is what enforces it, this
+ * only keeps the form honest about what can be changed.
+ */
+const LOCKED_ACADEMIC_FIELDS = [
+  'studentId',
+  'course',
+  'branch',
+  'yearOfStudy',
+  'graduationYear',
+  'cgpa',
+  'activeBacklogs',
+  'totalBacklogs',
+  'class10Percentage',
+  'class12Percentage',
+  'diplomaPercentage',
+  'educationGapYears',
+  'percentage'
+];
 
-/** Downloads a stored file through the API, honouring the bearer token. */
-const fetchResumeBlob = async (fileId) => {
-  // Built from REACT_APP_API_URL directly rather than through services/api
-  // because this is a raw fetch for a binary body, not a JSON call.
-  const token = authService.getAccessToken();
-  if (!token) {
-    toast.error('Authentication required. Please login again.');
-    return null;
-  }
-  const response = await fetch(`${API_ORIGIN}/api/files/${fileId}/download`, {
-    headers: { Authorization: `Bearer ${token}` },
-    credentials: 'include'
-  });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    toast.error(errorData.message || 'Failed to open resume');
-    return null;
-  }
-  return response.blob();
-};
+/** True for a resume stored on our own server rather than an external link. */
+const isStoredFile = (url) => typeof url === 'string' && (url.includes('/uploads/') || !/^https?:\/\//i.test(url));
 
 const Profile = () => {
   const { id } = useParams(); // Get user ID from URL params
@@ -102,6 +100,8 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('personal');
+  // Fields the server refused with 423 Locked on the last save.
+  const [lockedFieldsHit, setLockedFieldsHit] = useState([]);
   const isViewingOtherUser = id && id !== user?.id; // Check if viewing another user's profile
   const [formData, setFormData] = useState({
     // Personal Info
@@ -222,7 +222,15 @@ const Profile = () => {
 
       // Add profile data for students
       if (user.role === 'student') {
-        Object.assign(updateData, profileData);
+        // An untouched field is '' in the form, which is not a valid date,
+        // gender, URL or number. Send null ("not set") instead.
+        for (const [key, value] of Object.entries(profileData)) {
+          // A locked field cannot change, so it is not sent at all: the form
+          // holds "8.5" where the database holds "8.50", and resending it
+          // could be read as an edit.
+          if (academicLocked && LOCKED_ACADEMIC_FIELDS.includes(key)) continue;
+          updateData[key] = value === '' ? null : value;
+        }
       }
 
       const response = await api.put('/users/profile', updateData);
@@ -230,9 +238,17 @@ const Profile = () => {
       setProfile(response.user);
       updateUser(response.user);
       setIsEditing(false);
+      setLockedFieldsHit([]);
       toast.success('Profile updated successfully');
     } catch (error) {
-      toast.error('Failed to update profile');
+      // 423: the placement cell verified these fields and they are locked.
+      // The api interceptor has already toasted the server's message; keep
+      // the list of offending fields on screen so the student knows which.
+      if (error.status === 423) {
+        setLockedFieldsHit(error.data?.lockedFields || []);
+        setActiveTab('academic');
+      }
+      // Every other failure was already toasted by the api interceptor.
     } finally {
       setIsSaving(false);
     }
@@ -347,29 +363,29 @@ const Profile = () => {
     }
   };
 
-  const handleViewResume = async () => {
-    const blob = await fetchResumeBlob(profile.studentProfile.resumeFileId);
-    if (!blob) return;
-    const blobUrl = window.URL.createObjectURL(blob);
-    window.open(blobUrl, '_blank');
-    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-  };
+  // Resumes are fetched through the authenticated file route — the public
+  // /uploads folder no longer serves them, and a bare link cannot carry the
+  // Bearer token.
+  const resumeSource = () =>
+    profile?.studentProfile?.resumeFileId
+      ? `/files/${profile.studentProfile.resumeFileId}/download`
+      : profile?.studentProfile?.resumeUrl;
+
+  const handleViewResume = () => openProtectedFile(resumeSource());
 
   const handleDownloadResume = async () => {
-    const blob = await fetchResumeBlob(profile.studentProfile.resumeFileId);
-    if (!blob) return;
-    const blobUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = `${profile.firstName}_${profile.lastName}_Resume.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(blobUrl);
-    toast.success('Resume download started');
+    const ok = await openProtectedFile(resumeSource(), {
+      download: true,
+      filename: `${profile.firstName}_${profile.lastName}_Resume.pdf`
+    });
+    if (ok) toast.success('Resume download started');
   };
 
   const isStudentProfile = profile?.role === 'student';
+  // Once the placement cell has verified the academic record the server
+  // refuses changes to it (423); show those fields read-only instead.
+  const academicLocked =
+    isStudentProfile && profile?.studentProfile?.verificationStatus === 'verified';
 
   useEffect(() => {
     // Fetched only when the tab is opened: most visits never ask this, and it
@@ -497,6 +513,10 @@ const Profile = () => {
         )}
       </Card>
 
+      {isStudentProfile && !isViewingOtherUser && studentProfile && (
+        <VerificationCard profile={studentProfile} onChange={fetchProfile} />
+      )}
+
       <Tabs className="mb-6 w-fit max-w-full" tabs={tabs} value={activeTab} onChange={setActiveTab} />
 
       {isEditing && !isViewingOtherUser ? (
@@ -604,9 +624,24 @@ const Profile = () => {
 
           {activeTab === 'academic' && isStudentProfile && (
             <Card className="space-y-5">
+              {academicLocked && (
+                <p className="flex items-start gap-2 rounded-xl border border-india-600/30 bg-india-50 px-4 py-3 text-sm text-ink-800">
+                  <ShieldCheckIcon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-india-600" />
+                  <span>
+                    Verified by your placement cell. Your academic details are locked; ask your
+                    placement cell to unlock them if something needs correcting.
+                  </span>
+                </p>
+              )}
+              {lockedFieldsHit.length > 0 && (
+                <p role="alert" className="rounded-xl border border-saffron-600/40 bg-saffron-50 px-4 py-3 text-sm text-ink-800">
+                  These fields are locked and were not saved: {lockedFieldsHit.join(', ')}.
+                </p>
+              )}
               <Input
                 label="Student ID"
                 name="studentId"
+                disabled={academicLocked}
                 value={formData.studentId}
                 onChange={handleInputChange}
               />
@@ -614,6 +649,7 @@ const Profile = () => {
                 <Input
                   label="Course"
                   name="course"
+                  disabled={academicLocked}
                   value={formData.course}
                   onChange={handleInputChange}
                   placeholder="e.g. Bachelor of Technology"
@@ -621,6 +657,7 @@ const Profile = () => {
                 <Input
                   label="Branch / specialization"
                   name="branch"
+                  disabled={academicLocked}
                   value={formData.branch}
                   onChange={handleInputChange}
                   placeholder="e.g. Computer Science Engineering"
@@ -630,6 +667,7 @@ const Profile = () => {
                 <Select
                   label="Year of study"
                   name="yearOfStudy"
+                  disabled={academicLocked}
                   value={formData.yearOfStudy}
                   onChange={handleInputChange}
                   options={YEAR_OPTIONS}
@@ -640,6 +678,7 @@ const Profile = () => {
                   min="2020"
                   max="2030"
                   name="graduationYear"
+                  disabled={academicLocked}
                   value={formData.graduationYear}
                   onChange={handleInputChange}
                 />
@@ -650,6 +689,7 @@ const Profile = () => {
                   min="0"
                   max="10"
                   name="cgpa"
+                  disabled={academicLocked}
                   value={formData.cgpa}
                   onChange={handleInputChange}
                 />
@@ -660,6 +700,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="activeBacklogs"
+                  disabled={academicLocked}
                   value={formData.activeBacklogs}
                   onChange={handleInputChange}
                 />
@@ -670,6 +711,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="class10Percentage"
+                  disabled={academicLocked}
                   value={formData.class10Percentage}
                   onChange={handleInputChange}
                 />
@@ -680,6 +722,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="class12Percentage"
+                  disabled={academicLocked}
                   value={formData.class12Percentage}
                   onChange={handleInputChange}
                 />
@@ -690,6 +733,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="diplomaPercentage"
+                  disabled={academicLocked}
                   value={formData.diplomaPercentage}
                   onChange={handleInputChange}
                 />
@@ -700,6 +744,7 @@ const Profile = () => {
                   min="0"
                   max="20"
                   name="educationGapYears"
+                  disabled={academicLocked}
                   value={formData.educationGapYears}
                   onChange={handleInputChange}
                 />
@@ -1027,7 +1072,7 @@ const Profile = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      {studentProfile.resumeFileId ? (
+                      {studentProfile.resumeFileId || isStoredFile(studentProfile.resumeUrl) ? (
                         <>
                           <Button
                             variant="secondary"
@@ -1041,26 +1086,16 @@ const Profile = () => {
                           </Button>
                         </>
                       ) : (
-                        <>
-                          <Button
-                            as="a"
-                            href={studentProfile.resumeUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            variant="secondary"
-                            icon={DocumentTextIcon}
-                          >
-                            View resume
-                          </Button>
-                          <Button
-                            as="a"
-                            href={studentProfile.resumeUrl}
-                            download={`${profile.firstName}_${profile.lastName}_Resume.pdf`}
-                            icon={DocumentArrowDownIcon}
-                          >
-                            Download
-                          </Button>
-                        </>
+                        <Button
+                          as="a"
+                          href={studentProfile.resumeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          variant="secondary"
+                          icon={DocumentTextIcon}
+                        >
+                          View resume
+                        </Button>
                       )}
                     </div>
                   </div>

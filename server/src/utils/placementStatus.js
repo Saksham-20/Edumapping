@@ -21,11 +21,15 @@
 
 const { Op } = require('sequelize');
 
+const MANUAL_OUTCOMES = ['deferred', 'higher_studies', 'opted_out'];
+
 const syncPlacementStatus = async (studentId, models) => {
   const { StudentProfile, Application, Offer } = models;
 
   const profile = await StudentProfile.findOne({ where: { userId: studentId } });
-  if (!profile || profile.placementStatus === 'deferred') return;
+  // Outcomes the cell records by hand — sitting out the season, leaving for
+  // higher studies, opting out — are decisions, not derivations.
+  if (!profile || MANUAL_OUTCOMES.includes(profile.placementStatus)) return;
 
   const liveOffers = await Offer.count({
     where: { studentId, status: { [Op.in]: Offer.LIVE_STATUSES } }
@@ -56,4 +60,4 @@ const syncPlacementStatus = async (studentId, models) => {
   return next;
 };
 
-module.exports = { syncPlacementStatus };
+module.exports = { syncPlacementStatus, MANUAL_OUTCOMES };

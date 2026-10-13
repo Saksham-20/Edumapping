@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import RoundsManager from '../../components/rounds/RoundsManager';
 import api from '../../services/api';
 import {
   ACADEMIC_CRITERIA,
@@ -223,7 +224,7 @@ const JobDetail = () => {
   const graduationYears = readGraduationYears(job.eligibilityCriteria);
 
   return (
-    <PageShell width="narrow">
+    <PageShell>
       <PageHeader
         breadcrumbs={[{ label: 'Jobs', to: '/jobs' }, { label: job.title || 'Job' }]}
         eyebrow={job.organization?.name}
@@ -395,6 +396,12 @@ const JobDetail = () => {
           </Card>
         </div>
       </div>
+
+      {/* The drive's rounds, for the company that owns it and the placement
+          cells running it on campus. */}
+      {(user?.role === 'admin' ||
+        user?.role === 'tpo' ||
+        (user?.role === 'recruiter' && user?.organizationId === job.organizationId)) && <RoundsManager jobId={job.id} />}
     </PageShell>
   );
 };

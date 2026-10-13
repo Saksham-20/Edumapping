@@ -20,11 +20,27 @@ const { syncPlacementStatus } = require('../utils/placementStatus');
 // Placement status has one definition, shared with the application flow.
 const syncPlacementFromOffers = (studentId) => syncPlacementStatus(studentId, models);
 
-/** May this user act on offers for this job's organisation? */
-const canManage = (user, job) => {
+/**
+ * May this user act on offers for this job and student? A recruiter for their
+ * own company's jobs; a TPO for their own institution's students only — any
+ * TPO could previously raise or revoke offers for any college's students.
+ */
+const canManage = (user, job, studentOrgId) => {
   if (user.role === 'admin') return true;
-  if (user.role === 'tpo') return true;
+  if (user.role === 'tpo') return Boolean(user.organizationId) && studentOrgId === user.organizationId;
   return user.role === 'recruiter' && job.organizationId === user.organizationId;
+};
+
+const studentOrgOf = async (studentId) =>
+  (await User.findByPk(studentId, { attributes: ['organizationId'] }))?.organizationId;
+
+/** May this user see an offer's letter? */
+const canSeeOffer = async (user, offer) => {
+  if (user.role === 'admin') return true;
+  if (user.role === 'student') return offer.studentId === user.id;
+  if (user.role === 'recruiter') return offer.organizationId === user.organizationId;
+  if (user.role === 'tpo') return (await studentOrgOf(offer.studentId)) === user.organizationId;
+  return false;
 };
 
 class OfferController {
@@ -49,7 +65,7 @@ class OfferController {
       if (!application) {
         return res.status(404).json({ error: 'Application Not Found', message: 'Application not found' });
       }
-      if (!canManage(req.user, application.job)) {
+      if (!canManage(req.user, application.job, await studentOrgOf(application.studentId))) {
         return res.status(403).json({
           error: 'Access Forbidden',
           message: 'You can only raise offers for your own organization\'s jobs'
@@ -271,7 +287,7 @@ class OfferController {
       if (!offer) {
         return res.status(404).json({ error: 'Offer Not Found', message: 'Offer not found' });
       }
-      if (!canManage(req.user, offer.job)) {
+      if (!canManage(req.user, offer.job, await studentOrgOf(offer.studentId))) {
         return res.status(403).json({
           error: 'Access Forbidden',
           message: 'You cannot revoke this offer'
@@ -320,6 +336,81 @@ class OfferController {
    * badly and the median is what NIRF's Graduation Outcomes section asks for.
    * Revoked and declined offers are excluded — they are not placements.
    */
+  /**
+   * POST /api/offers/:id/letter — attach the signed offer letter (PDF).
+   *
+   * NAAC peer teams sample placement records and ask for the letter behind
+   * each one. The student or the company uploads it; the placement cell then
+   * checks it. Replacing a letter clears an earlier verification.
+   */
+  async uploadLetter(req, res, next) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No File', message: 'Attach the offer letter as a PDF' });
+      }
+      if (req.file.mimetype !== 'application/pdf' || req.file.buffer.slice(0, 4).toString() !== '%PDF') {
+        return res.status(400).json({ error: 'Invalid File Type', message: 'The offer letter must be a PDF' });
+      }
+      const offer = await Offer.findByPk(req.params.id);
+      if (!offer || !(await canSeeOffer(req.user, offer))) {
+        return res.status(404).json({ error: 'Offer Not Found', message: 'Offer not found' });
+      }
+      if (offer.status === 'revoked' || offer.status === 'declined') {
+        return res.status(409).json({ error: 'Offer Closed', message: 'This offer is no longer live' });
+      }
+      const fileService = require('../services/fileService');
+      const fileName = `offerletter_${offer.id}_${Date.now()}.pdf`;
+      const filePath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
+      const previous = offer.offerLetterUrl;
+      await offer.update({ offerLetterUrl: filePath, letterVerified: false, letterVerifiedBy: null, letterVerifiedAt: null });
+      if (previous) fileService.deleteFile(previous).catch(() => {});
+
+      AuditLog.create({
+        userId: req.user.id,
+        action: 'offer_letter_uploaded',
+        entityType: 'offer',
+        entityId: offer.id,
+        newValues: { offerLetterUrl: filePath },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      }).catch((err) => logger.error('Audit log failed', err));
+
+      res.json({ message: 'Offer letter uploaded', offer });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** PATCH /api/offers/:id/letter-verification { verified } — placement cell only. */
+  async verifyLetter(req, res, next) {
+    try {
+      const offer = await Offer.findByPk(req.params.id);
+      if (!offer || !(await canSeeOffer(req.user, offer))) {
+        return res.status(404).json({ error: 'Offer Not Found', message: 'Offer not found' });
+      }
+      if (!offer.offerLetterUrl) {
+        return res.status(400).json({ error: 'No Letter', message: 'No offer letter has been uploaded yet' });
+      }
+      const verified = req.body.verified !== false;
+      await offer.update({
+        letterVerified: verified,
+        letterVerifiedBy: verified ? req.user.id : null,
+        letterVerifiedAt: verified ? new Date() : null
+      });
+      AuditLog.create({
+        userId: req.user.id,
+        action: verified ? 'offer_letter_verified' : 'offer_letter_unverified',
+        entityType: 'offer',
+        entityId: offer.id,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      }).catch((err) => logger.error('Audit log failed', err));
+      res.json({ message: verified ? 'Offer letter verified' : 'Verification removed', offer });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getOfferStats(req, res, next) {
     try {
       const where = { status: { [Op.in]: Offer.LIVE_STATUSES } };

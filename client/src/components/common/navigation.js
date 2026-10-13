@@ -18,7 +18,9 @@ import {
   Cog6ToothIcon,
   AcademicCapIcon,
   ClipboardDocumentCheckIcon,
-  CalendarDaysIcon
+  CalendarDaysIcon,
+  ScaleIcon,
+  DocumentChartBarIcon
 } from '@heroicons/react/24/outline';
 
 const SCHOOL_STAFF = ['principal', 'teacher', 'school_admin', 'career_counselor'];
@@ -46,9 +48,6 @@ export const getNavigation = (user) => {
       { name: 'Offers', href: '/offers', icon: BanknotesIcon, exact: true }
     );
   }
-  if (role === 'tpo' || role === 'admin') {
-    placements.push({ name: 'Drive calendar', href: '/calendar', icon: CalendarDaysIcon, exact: true });
-  }
   if (isCollegeStudent) {
     placements.push({ name: 'Resume', href: '/resume', icon: DocumentDuplicateIcon, exact: true });
   }
@@ -57,7 +56,9 @@ export const getNavigation = (user) => {
   if (role === 'tpo') {
     institution.push(
       { name: 'Students', href: '/tpo/students', icon: AcademicCapIcon },
+      { name: 'Placement policy', href: '/tpo/policy', icon: ScaleIcon, exact: true },
       { name: 'Analytics', href: '/tpo/analytics', icon: ChartBarIcon },
+      { name: 'Reports', href: '/tpo/reports', icon: DocumentChartBarIcon, exact: true },
       { name: 'Approvals', href: '/approvals', icon: CheckBadgeIcon, exact: true }
     );
   }
@@ -65,7 +66,8 @@ export const getNavigation = (user) => {
     institution.push(
       { name: 'Users', href: '/admin/users', icon: UsersIcon },
       { name: 'Approvals', href: '/approvals', icon: CheckBadgeIcon, exact: true },
-      { name: 'Analytics', href: '/tpo/analytics', icon: ChartBarIcon }
+      { name: 'Analytics', href: '/tpo/analytics', icon: ChartBarIcon },
+      { name: 'Reports', href: '/tpo/reports', icon: DocumentChartBarIcon, exact: true }
     );
   }
   if (role === 'tpo' || role === 'admin') {
@@ -73,6 +75,7 @@ export const getNavigation = (user) => {
   }
 
   const campus = [
+    { name: 'Calendar', href: '/calendar', icon: CalendarDaysIcon, exact: true },
     { name: 'Events', href: '/events', icon: CalendarIcon },
     { name: 'Live classes', href: '/conferences', icon: VideoCameraIcon }
   ];

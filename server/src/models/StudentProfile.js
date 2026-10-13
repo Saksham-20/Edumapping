@@ -103,6 +103,19 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 'none',
       field: 'placement_sanction'
     },
+    // Placement-cell verification of the academic record (migration 46).
+    // Verified academic fields are locked against student edits.
+    verificationStatus: {
+      type: DataTypes.ENUM('unverified', 'pending', 'verified', 'rejected'),
+      allowNull: false,
+      defaultValue: 'unverified',
+      field: 'verification_status'
+    },
+    verificationNotes: { type: DataTypes.TEXT, field: 'verification_notes' },
+    verifiedBy: { type: DataTypes.INTEGER, field: 'verified_by' },
+    verifiedAt: { type: DataTypes.DATE, field: 'verified_at' },
+    verificationRequestedAt: { type: DataTypes.DATE, field: 'verification_requested_at' },
+    marksheetUrl: { type: DataTypes.STRING(500), field: 'marksheet_url' },
     sanctionReason: { type: DataTypes.TEXT, field: 'sanction_reason' },
     sanctionUntil: { type: DataTypes.DATEONLY, field: 'sanction_until' },
     sanctionedBy: { type: DataTypes.INTEGER, field: 'sanctioned_by' },
@@ -155,7 +168,7 @@ module.exports = (sequelize, DataTypes) => {
       field: 'is_eligible'
     },
     placementStatus: {
-      type: DataTypes.ENUM('placed', 'unplaced', 'deferred'),
+      type: DataTypes.ENUM('placed', 'unplaced', 'deferred', 'higher_studies', 'opted_out'),
       defaultValue: 'unplaced',
       field: 'placement_status'
     }

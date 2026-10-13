@@ -49,6 +49,9 @@ db.OtpVerification = require('./OtpVerification')(sequelize, Sequelize.DataTypes
 db.RecruiterAllowedOrganization = require('./RecruiterAllowedOrganization')(sequelize, Sequelize.DataTypes);
 db.Conference = require('./Conference')(sequelize, Sequelize.DataTypes);
 db.ConferenceParticipant = require('./ConferenceParticipant')(sequelize, Sequelize.DataTypes);
+db.PlacementPolicy = require('./PlacementPolicy')(sequelize, Sequelize.DataTypes);
+db.JobRound = require('./JobRound')(sequelize, Sequelize.DataTypes);
+db.RoundParticipant = require('./RoundParticipant')(sequelize, Sequelize.DataTypes);
 
 // Define associations
 Object.keys(db).forEach(modelName => {

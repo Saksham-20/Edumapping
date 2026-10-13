@@ -5,6 +5,156 @@ const { Op, cast, col, where } = require('sequelize');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const { checkEligibility, describeEligibility } = require('../utils/eligibility');
+const { checkPolicyForStudent } = require('../utils/placementPolicy');
+const models = require('../models');
+
+// Who may act on a posting's contents and see who applied: the organization
+// that owns it (its recruiters, or a TPO who posted for their own college) and
+// a platform admin.
+const POSTING_MANAGER_ROLES = ['recruiter', 'tpo'];
+const INSTITUTION_STAFF_ROLES = ['tpo', 'principal', 'teacher', 'school_admin', 'career_counselor'];
+
+// A job students may see. Anything else — draft, pending_review, cancelled —
+// exists only for the people managing it.
+const PUBLISHED_STATUSES = ['active', 'closed'];
+
+// Fields a posting's owner may write through PUT /jobs/:id. Everything that
+// records who decided what — status, reviewer, organization, author, the view
+// counter — is deliberately absent: `job.update(req.body)` used to accept all
+// of it, so a recruiter could move their posting to another company, stamp it
+// as reviewed, or inflate its view count.
+const EDITABLE_JOB_FIELDS = [
+  'title',
+  'description',
+  'requirements',
+  'jobType',
+  'location',
+  'salaryMin',
+  'salaryMax',
+  'experienceRequired',
+  'skillsRequired',
+  'totalPositions',
+  'applicationDeadline',
+  'eligibilityCriteria'
+];
+
+// Edits that change what the placement cell actually approved. Changing any of
+// these on a live posting sends it back for review; a reviewer signed off on
+// the role, the pay and who may apply, not on whatever it later became.
+const MATERIAL_JOB_FIELDS = [
+  'title',
+  'description',
+  'requirements',
+  'jobType',
+  'salaryMin',
+  'salaryMax',
+  'eligibilityCriteria'
+];
+
+// Key-order-insensitive serialisation, so re-saving the edit form with the
+// same criteria in a different key order is not mistaken for a change.
+const stableStringify = (v) => {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v)
+      .filter((k) => v[k] !== null && v[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+};
+
+const sameValue = (a, b) => {
+  const norm = (v) =>
+    v === undefined ||
+    v === '' ||
+    (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)
+      ? null
+      : v;
+  const x = norm(a);
+  const y = norm(b);
+  if (x === null || y === null) return x === y;
+  if (typeof x === 'object' || typeof y === 'object') return stableStringify(x) === stableStringify(y);
+  return String(x) === String(y);
+};
+
+/**
+ * Company organizations whose postings a TPO may review.
+ *
+ * The queue used to be global: any TPO — including one whose college signed up
+ * five minutes ago — could approve any posting, and an approved posting is
+ * visible to every student on the platform. A TPO now reviews only postings
+ * from companies that recruit at their institution, i.e. a company with at
+ * least one recruiter whose allow-list (recruiter_allowed_organizations)
+ * contains the TPO's organization. That is the existing, admin-managed record
+ * of "this company recruits here", so no new relationship is invented.
+ * Admins review everything.
+ */
+async function reviewableCompanyIds(tpoOrganizationId) {
+  if (!tpoOrganizationId) return [];
+  const rows = await models.RecruiterAllowedOrganization.findAll({
+    where: { organizationId: tpoOrganizationId },
+    attributes: ['id'],
+    include: [{
+      model: models.RecruiterProfile,
+      as: 'recruiterProfile',
+      attributes: ['id'],
+      required: true,
+      include: [{ model: User, as: 'user', attributes: ['organizationId'], required: true }]
+    }]
+  });
+  return [...new Set(rows.map((r) => r.recruiterProfile.user.organizationId).filter(Boolean))];
+}
+
+async function canReviewJob(user, job) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.role !== 'tpo') return false;
+  const companyIds = await reviewableCompanyIds(user.organizationId);
+  return companyIds.includes(job.organizationId);
+}
+
+const managesPosting = (user, job) =>
+  !!user &&
+  (user.role === 'admin' ||
+    (POSTING_MANAGER_ROLES.includes(user.role) &&
+      !!user.organizationId &&
+      user.organizationId === job.organizationId));
+
+/**
+ * Decide which status a requested change actually produces.
+ *
+ * Recruiters do not publish; the placement cell does (f9318b4). Creation
+ * already turned a recruiter's "active" into pending_review, but PATCH
+ * /jobs/:id/status and PUT /jobs/:id accepted `active` straight from draft or
+ * pending_review — a one-request way round the review queue. For a recruiter:
+ *
+ *   * active from active/closed stays/reopens — closed is only reachable from
+ *     a published posting (below), so it was reviewed;
+ *   * active from anything else becomes pending_review, i.e. "submit for
+ *     review", which is what the button means;
+ *   * closed only from a published posting, so draft -> closed -> active
+ *     cannot launder an unreviewed (or rejected) draft;
+ *   * draft and cancelled are always allowed — taking a posting down never
+ *     needs approval.
+ *
+ * TPOs and admins are the reviewers, so their requests are taken as given.
+ * Returns { status } or { error, code }.
+ */
+function resolveStatusChange(user, job, requested) {
+  if (user.role !== 'recruiter') return { status: requested };
+  if (requested === 'active') {
+    return { status: PUBLISHED_STATUSES.includes(job.status) ? 'active' : 'pending_review' };
+  }
+  if (requested === 'closed' && !PUBLISHED_STATUSES.includes(job.status)) {
+    return {
+      code: 409,
+      error: 'Only a published posting can be closed. Withdraw it to draft instead.'
+    };
+  }
+  return { status: requested };
+}
 
 class JobController {
   /**
@@ -20,8 +170,21 @@ class JobController {
       const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
       const offset = (parseInt(page, 10) - 1) * limitNum;
 
+      const where = { status: 'pending_review' };
+      if (req.user.role !== 'admin') {
+        const companyIds = await reviewableCompanyIds(req.user.organizationId);
+        if (companyIds.length === 0) {
+          return res.json({
+            message: 'Pending job postings retrieved successfully',
+            jobs: [],
+            pagination: { currentPage: parseInt(page, 10), totalPages: 0, totalItems: 0, itemsPerPage: limitNum }
+          });
+        }
+        where.organizationId = { [Op.in]: companyIds };
+      }
+
       const { count, rows } = await Job.findAndCountAll({
-        where: { status: 'pending_review' },
+        where,
         include: [
           { model: Organization, as: 'organization', attributes: ['id', 'name', 'logoUrl', 'type'] },
           { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName', 'email'] }
@@ -69,7 +232,9 @@ class JobController {
       const job = await Job.findByPk(id, {
         include: [{ model: Organization, as: 'organization', attributes: ['id', 'name'] }]
       });
-      if (!job) {
+      // Out of a TPO's scope reads as not found, not forbidden, so the queue
+      // cannot be used to probe which postings exist elsewhere.
+      if (!job || !(await canReviewJob(req.user, job))) {
         return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
       }
       if (job.status !== 'pending_review') {
@@ -269,9 +434,31 @@ class JobController {
       // unauthenticated GET /api/jobs returned every row in the table,
       // including `draft` (the default for a new job) and `cancelled` ones. A
       // recruiter part-way through writing a req had it published to the world.
-      const canSeeUnpublished = ['recruiter', 'tpo', 'admin'].includes(req.user?.role);
-      if (canSeeUnpublished) {
+      //
+      // And only their own. A recruiter or TPO used to be able to list every
+      // organization's drafts and pending postings (`?status=draft`, or no
+      // status at all) — a competitor's unpublished reqs included. Unpublished
+      // rows are now limited to the caller's own organization, plus, for a
+      // TPO, the pending postings they are entitled to review.
+      const role = req.user?.role;
+      if (role === 'admin') {
         if (status) whereClause.status = status;
+      } else if (POSTING_MANAGER_ROLES.includes(role)) {
+        const ownOrg = req.user.organizationId || -1;
+        const unpublishedScope = [{ organizationId: ownOrg }];
+        if (role === 'tpo') {
+          const companyIds = await reviewableCompanyIds(req.user.organizationId);
+          if (companyIds.length) {
+            unpublishedScope.push({ organizationId: { [Op.in]: companyIds }, status: 'pending_review' });
+          }
+        }
+        if (status === 'active') {
+          whereClause.status = 'active';
+        } else if (status) {
+          whereClause[Op.and] = [{ status }, { [Op.or]: unpublishedScope }];
+        } else {
+          whereClause[Op.and] = [{ [Op.or]: [{ status: 'active' }, ...unpublishedScope] }];
+        }
       } else {
         // Never honour a caller-supplied status here: `?status=draft` would
         // otherwise be the same leak with an extra step.
@@ -366,17 +553,6 @@ class JobController {
             attributes: ['id', 'firstName', 'lastName', 'email'] 
           },
           {
-            model: Application,
-            as: 'applications',
-            include: [
-              {
-                model: User,
-                as: 'student',
-                attributes: ['id', 'firstName', 'lastName', 'email']
-              }
-            ]
-          },
-          {
             model: Assessment,
             as: 'assessment'
           }
@@ -390,15 +566,71 @@ class JobController {
         });
       }
 
-      // Check if current user has applied
+      // An unpublished posting is visible to the organization managing it, an
+      // admin, and a TPO entitled to review it — nobody else. This endpoint is
+      // optionalAuth and used to return drafts and pending postings to any
+      // student or anonymous caller who guessed the id, which made the review
+      // queue advisory: the job was "not yet published" and readable anyway.
+      // 404 rather than 403, so ids of unpublished postings are not confirmed.
+      const manages = managesPosting(req.user, job);
+      if (!PUBLISHED_STATUSES.includes(job.status) && !manages) {
+        const reviewer = job.status === 'pending_review' && (await canReviewJob(req.user, job));
+        if (!reviewer) {
+          return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
+        }
+      }
+
+      // Who applied is the owning organization's business. The full applicant
+      // list — names, emails, cover letters — used to ship with every GET of a
+      // job, including to anonymous visitors. Now:
+      //   * the owning organization and admins get the full list;
+      //   * institution staff get their own students' applications only;
+      //   * everyone else gets a count.
+      let applications = null;
+      if (manages) {
+        applications = await Application.findAll({
+          where: { jobId: job.id },
+          include: [{ model: User, as: 'student', attributes: ['id', 'firstName', 'lastName', 'email'] }]
+        });
+      } else if (INSTITUTION_STAFF_ROLES.includes(req.user?.role) && req.user.organizationId) {
+        applications = await Application.findAll({
+          where: { jobId: job.id },
+          include: [{
+            model: User,
+            as: 'student',
+            attributes: ['id', 'firstName', 'lastName', 'email'],
+            where: { organizationId: req.user.organizationId },
+            required: true
+          }]
+        });
+      }
+      const applicationCount = await Application.count({ where: { jobId: job.id } });
+
+      // The signed-in student's own application, looked up directly. The
+      // client used to infer "already applied" from a paginated /applications
+      // page, which said "not applied" for anyone with more applications than
+      // fit on it.
       let userApplication = null;
-      if (userId && job.applications) {
-        userApplication = job.applications.find(app => app.studentId === userId);
+      if (userId && req.user.role === 'student') {
+        userApplication = await Application.findOne({
+          where: { jobId: job.id, studentId: userId },
+          attributes: ['id', 'status', 'appliedAt']
+        });
       }
 
       const jobData = job.toJSON();
-      jobData.userApplication = userApplication;
-      jobData.applicationCount = job.applications ? job.applications.length : 0;
+      if (applications) jobData.applications = applications.map((a) => a.toJSON());
+      jobData.userApplication = userApplication ? userApplication.toJSON() : null;
+      jobData.hasApplied = !!userApplication;
+      jobData.applicationCount = applicationCount;
+      // The attached assessment rode along with its answer key to every
+      // viewer, students included. Only the owning organization keeps it.
+      if (jobData.assessment && !manages && Array.isArray(jobData.assessment.questions)) {
+        jobData.assessment.questions = jobData.assessment.questions.map(
+          // eslint-disable-next-line no-unused-vars
+          ({ correctAnswer, correct_answer, ...rest }) => rest
+        );
+      }
 
       // Normalised criteria, plus — for a student — whether they actually meet
       // them. Telling someone why they do not qualify before they apply is the
@@ -408,9 +640,19 @@ class JobController {
       if (req.user?.role === 'student') {
         const studentProfile = await StudentProfile.findOne({ where: { userId: req.user.id } });
         const { eligible, reasons } = checkEligibility(job.eligibilityCriteria, studentProfile);
-        jobData.eligibility.meetsCriteria = eligible;
-        jobData.eligibility.reasons = reasons;
+        // The institution's placement policy (offer caps, dream tiers) is a
+        // separate bar from the job's own criteria, and is reported alongside
+        // it so a placed student sees why the apply button is closed.
+        const policy = await checkPolicyForStudent(models, {
+          studentId: req.user.id,
+          organizationId: req.user.organizationId,
+          job,
+          profile: studentProfile
+        });
+        jobData.eligibility.meetsCriteria = eligible && policy.allowed;
+        jobData.eligibility.reasons = [...reasons, ...policy.reasons];
         jobData.eligibility.profileComplete = Boolean(studentProfile);
+        jobData.eligibility.tier = policy.tier;
       }
 
       // Count this as a view unless the viewer owns the posting — a recruiter
@@ -469,7 +711,38 @@ class JobController {
         });
       }
 
-      await job.update(req.body);
+      const updates = {};
+      for (const field of EDITABLE_JOB_FIELDS) {
+        if (req.body[field] !== undefined) updates[field] = req.body[field];
+      }
+
+      // Status goes through the same gate as PATCH /:id/status, so the edit
+      // form cannot be used to publish past the placement cell.
+      let sentForReview = false;
+      if (req.body.status !== undefined && req.body.status !== job.status) {
+        const decision = resolveStatusChange(req.user, job, req.body.status);
+        if (decision.error) {
+          return res.status(decision.code).json({ error: 'Invalid Status Change', message: decision.error });
+        }
+        updates.status = decision.status;
+        sentForReview = decision.status === 'pending_review' && req.body.status === 'active';
+      }
+
+      // A recruiter changing what was approved — the role, the pay, who may
+      // apply — on a published posting sends it back to the queue. Otherwise
+      // approval is a one-time hurdle: get a bland posting approved, then edit
+      // it into something the cell would never have passed.
+      if (req.user.role === 'recruiter' && PUBLISHED_STATUSES.includes(updates.status || job.status)) {
+        const materialChange = MATERIAL_JOB_FIELDS.some(
+          (field) => field in updates && !sameValue(updates[field], job[field])
+        );
+        if (materialChange) {
+          updates.status = 'pending_review';
+          sentForReview = true;
+        }
+      }
+
+      await job.update(updates);
 
       const updatedJob = await Job.findByPk(id, {
         include: [
@@ -479,7 +752,10 @@ class JobController {
       });
 
       res.json({
-        message: 'Job updated successfully',
+        message: sentForReview
+          ? 'Job updated and sent to the placement cell for review'
+          : 'Job updated successfully',
+        sentForReview,
         job: updatedJob
       });
     } catch (error) {
@@ -657,10 +933,17 @@ class JobController {
         });
       }
 
-      await job.update({ status });
+      const decision = resolveStatusChange(req.user, job, status);
+      if (decision.error) {
+        return res.status(decision.code).json({ error: 'Invalid Status Change', message: decision.error });
+      }
+      await job.update({ status: decision.status });
 
       res.json({
-        message: `Job status updated to ${status}`,
+        message:
+          decision.status === 'pending_review' && status === 'active'
+            ? 'Job submitted to the placement cell for review'
+            : `Job status updated to ${decision.status}`,
         job: {
           id: job.id,
           title: job.title,

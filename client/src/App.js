@@ -49,6 +49,11 @@ import UserManagement from './pages/admin/UserManagement';
 import TPOAnalytics from './pages/tpo/TPOAnalytics';
 import ApprovalManagement from './pages/approvals/ApprovalManagement';
 import ConferencesList from './pages/conference/ConferencesList';
+import Students from './pages/tpo/Students';
+import PlacementPolicy from './pages/tpo/PlacementPolicy';
+import PlacementReport from './pages/tpo/PlacementReport';
+import DriveCalendar from './pages/calendar/DriveCalendar';
+import AuditLog from './pages/admin/AuditLog';
 
 import './styles/index.css';
 import './styles/carousel.css';
@@ -291,6 +296,36 @@ function App() {
               <Route path="/tpo/analytics" element={
                 <ProtectedRoute requiredRoles={['tpo', 'admin']}>
                   <AppLayout><TPOAnalytics /></AppLayout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/tpo/students" element={
+                <ProtectedRoute requiredRoles={['tpo']}>
+                  <AppLayout><Students /></AppLayout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/tpo/policy" element={
+                <ProtectedRoute requiredRoles={['tpo']}>
+                  <AppLayout><PlacementPolicy /></AppLayout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/tpo/reports" element={
+                <ProtectedRoute requiredRoles={['tpo', 'admin']}>
+                  <AppLayout><PlacementReport /></AppLayout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/audit" element={
+                <ProtectedRoute requiredRoles={['tpo', 'admin']}>
+                  <AppLayout><AuditLog /></AppLayout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/calendar" element={
+                <ProtectedRoute>
+                  <AppLayout><DriveCalendar /></AppLayout>
                 </ProtectedRoute>
               } />
 

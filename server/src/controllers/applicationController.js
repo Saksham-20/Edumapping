@@ -5,6 +5,7 @@ const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { checkEligibility } = require('../utils/eligibility');
+const { checkPolicyForStudent } = require('../utils/placementPolicy');
 const models = require('../models');
 const { syncPlacementStatus: sharedSyncPlacementStatus } = require('../utils/placementStatus');
 
@@ -29,6 +30,52 @@ const { syncPlacementStatus: sharedSyncPlacementStatus } = require('../utils/pla
 // offer lifecycle: a revoked offer leaves its application marked `selected`, so
 // this would have put the student back to placed on the next status change.
 const syncPlacementStatus = (studentId) => sharedSyncPlacementStatus(studentId, models);
+
+/**
+ * Is moving an application from `from` to `to` allowed for this actor?
+ * Returns an error message, or null when the change is fine.
+ *
+ * A withdrawal is the student's decision and is final: a recruiter used to be
+ * able to set a withdrawn application straight to `selected`, which marked a
+ * student placed in a job they had walked away from. Staff may otherwise
+ * correct a stage in either direction — a mis-click on "rejected" has to be
+ * undoable — but they cannot withdraw on the student's behalf.
+ */
+const statusChangeError = (from, to, role) => {
+  if (from === to) return null;
+  if (from === 'withdrawn') {
+    return 'The student withdrew this application, so it cannot be moved to another stage.';
+  }
+  if (to === 'withdrawn' && role !== 'student') {
+    return 'Only the student can withdraw an application.';
+  }
+  if (role === 'student' && ['selected', 'rejected'].includes(from)) {
+    return 'This application already has a result. Decline the offer instead if you no longer want it.';
+  }
+  return null;
+};
+
+// Profile fields that are the placement cell's business, not a recruiter's.
+// Applying shares a student's profile with the company; it does not share the
+// cell's disciplinary notes about them.
+const CELL_ONLY_PROFILE_FIELDS = [
+  'placementSanction',
+  'sanctionReason',
+  'sanctionUntil',
+  'sanctionedBy',
+  'sanctionedAt',
+  'verificationNotes',
+  'verifiedBy',
+  'isEligible'
+];
+
+const forViewer = (req, application) => {
+  const data = typeof application?.toJSON === 'function' ? application.toJSON() : application;
+  if (req.user.role === 'recruiter' && data?.student?.studentProfile) {
+    for (const field of CELL_ONLY_PROFILE_FIELDS) delete data.student.studentProfile[field];
+  }
+  return data;
+};
 
 class ApplicationController {
   async submitApplication(req, res, next) {
@@ -76,7 +123,9 @@ class ApplicationController {
         where: { jobId, studentId }
       });
 
-      if (existingApplication) {
+      // A student who withdrew may change their mind while the drive is still
+      // open; the old row is reused so there is still one application per job.
+      if (existingApplication && existingApplication.status !== 'withdrawn') {
         return res.status(409).json({
           error: 'Already Applied',
           message: 'You have already applied for this job'
@@ -107,6 +156,23 @@ class ApplicationController {
               : 'You are currently blocked from applying to new roles. Contact your placement cell.',
           reason: studentProfile.sanctionReason || null,
           until: studentProfile.sanctionUntil || null
+        });
+      }
+
+      // The institution's placement policy — offer caps, dream tiers, verified
+      // profile — before the job's own criteria, for the same reason as the
+      // sanction: it is about the student's season, not this posting.
+      const policy = await checkPolicyForStudent(models, {
+        studentId,
+        organizationId: req.user.organizationId,
+        job,
+        profile: studentProfile
+      });
+      if (!policy.allowed) {
+        return res.status(403).json({
+          error: 'Placement Policy',
+          message: policy.reasons[0],
+          reasons: policy.reasons
         });
       }
 
@@ -182,13 +248,24 @@ class ApplicationController {
       }
 
       // Create application (always use resume from student profile)
-      const application = await Application.create({
-        jobId,
-        studentId,
-        coverLetter,
-        resumeUrl: studentProfile.resumeUrl,
-        status: 'applied'
-      });
+      const application = existingApplication
+        ? await existingApplication.update({
+            coverLetter,
+            resumeUrl: studentProfile.resumeUrl,
+            status: 'applied',
+            appliedAt: new Date(),
+            shortlistedAt: null,
+            interviewedAt: null,
+            resultAt: null,
+            feedback: null
+          })
+        : await Application.create({
+            jobId,
+            studentId,
+            coverLetter,
+            resumeUrl: studentProfile.resumeUrl,
+            status: 'applied'
+          });
 
       // Get application with details
       const applicationWithDetails = await Application.findByPk(application.id, {
@@ -354,7 +431,7 @@ class ApplicationController {
 
       res.json({
         message: 'Applications retrieved successfully',
-        applications,
+        applications: applications.map((a) => forViewer(req, a)),
         pagination
       });
     } catch (error) {
@@ -426,7 +503,7 @@ class ApplicationController {
 
       res.json({
         message: 'Application retrieved successfully',
-        application
+        application: forViewer(req, application)
       });
     } catch (error) {
       next(error);
@@ -475,6 +552,11 @@ class ApplicationController {
           error: 'Access Forbidden',
           message: 'You do not have permission to update this application'
         });
+      }
+
+      const transitionError = statusChangeError(application.status, status, req.user.role);
+      if (transitionError) {
+        return res.status(409).json({ error: 'Invalid Status Change', message: transitionError });
       }
 
       // Update application with timestamp
@@ -717,9 +799,17 @@ class ApplicationController {
       });
       const appByStudent = new Map(applications.map((a) => [a.studentId, a]));
 
+      if (status === 'withdrawn') {
+        return res.status(409).json({
+          error: 'Invalid Status Change',
+          message: 'Only the student can withdraw an application.'
+        });
+      }
+
       const matched = [];
       const notApplied = [];
       const unknown = [];
+      const withdrawn = [];
       for (const identifier of cleaned) {
         const user = byIdentifier.get(identifier.toLowerCase());
         if (!user) { unknown.push(identifier); continue; }
@@ -731,6 +821,7 @@ class ApplicationController {
           email: user.email
         };
         if (!application) { notApplied.push(who); continue; }
+        if (application.status === 'withdrawn') { withdrawn.push(who); continue; }
         matched.push({ ...who, applicationId: application.id, currentStatus: application.status });
       }
 
@@ -739,7 +830,8 @@ class ApplicationController {
         matched: matched.length,
         notApplied: notApplied.length,
         unknown: unknown.length,
-        details: { matched, notApplied, unknown }
+        withdrawn: withdrawn.length,
+        details: { matched, notApplied, unknown, withdrawn }
       };
 
       if (dryRun) {
@@ -813,7 +905,15 @@ class ApplicationController {
         });
       }
 
-      const whereClause = { id: { [Op.in]: applicationIds } };
+      if (status === 'withdrawn') {
+        return res.status(409).json({
+          error: 'Invalid Status Change',
+          message: 'Only the student can withdraw an application.'
+        });
+      }
+
+      // Withdrawn applications are the student's final word and are skipped.
+      const whereClause = { id: { [Op.in]: applicationIds }, status: { [Op.ne]: 'withdrawn' } };
 
       // For recruiters, ensure they only update applications from their organization's jobs
       if (req.user.role === 'recruiter') {
@@ -848,6 +948,7 @@ class ApplicationController {
         case 'interviewed':
           updateData.interviewedAt = now;
           break;
+        case 'selected':
         case 'rejected':
           updateData.resultAt = now;
           break;
@@ -919,10 +1020,12 @@ class ApplicationController {
         });
       }
 
+      // A TPO sees this job's applicants from their own institution only — a
+      // posting is open to every college, and its applicant list is not.
       const canView = req.user.role === 'admin' ||
-                     (req.user.role === 'recruiter' && 
+                     (req.user.role === 'recruiter' &&
                       job.organizationId === req.user.organizationId) ||
-                     req.user.role === 'tpo';
+                     (req.user.role === 'tpo' && Boolean(req.user.organizationId));
 
       if (!canView) {
         return res.status(403).json({
@@ -940,10 +1043,12 @@ class ApplicationController {
           {
             model: User,
             as: 'student',
-            attributes: ['id', 'firstName', 'lastName', 'email'],
+            attributes: ['id', 'firstName', 'lastName', 'email', 'organizationId'],
+            ...(req.user.role === 'tpo' ? { where: { organizationId: req.user.organizationId } } : {}),
             include: [{ model: StudentProfile, as: 'studentProfile' }]
           }
         ],
+        distinct: true,
         limit: parseInt(limit),
         offset: parseInt(offset),
         order: [['createdAt', 'DESC']]
@@ -951,7 +1056,7 @@ class ApplicationController {
 
       res.json({
         message: 'Job applications retrieved successfully',
-        applications,
+        applications: applications.map((a) => forViewer(req, a)),
         job: {
           id: job.id,
           title: job.title

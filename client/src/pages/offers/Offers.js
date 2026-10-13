@@ -23,9 +23,18 @@ import {
   SkeletonCard,
   StatTile,
   StatusBadge,
+  Badge,
   Textarea
 } from '../../components/ui';
-import { BanknotesIcon, BriefcaseIcon } from '@heroicons/react/24/outline';
+import {
+  BanknotesIcon,
+  BriefcaseIcon,
+  DocumentArrowUpIcon,
+  DocumentTextIcon,
+  ShieldCheckIcon
+} from '@heroicons/react/24/outline';
+import placementService from '../../services/placement';
+import openProtectedFile from '../../utils/openProtectedFile';
 
 // Indian salary conventions: a package is spoken about in lakhs, and the digit
 // grouping is 2-2-3 rather than 3-3-3. `en-IN` gets the grouping right; the
@@ -51,6 +60,43 @@ const Offers = () => {
   const [busyId, setBusyId] = useState(null);
   const [revoking, setRevoking] = useState(null);
   const [reason, setReason] = useState('');
+  const isCell = user?.role === 'tpo' || user?.role === 'admin';
+
+  // The signed offer letter: uploaded by the student or the company, checked
+  // by the placement cell. NAAC asks for it behind every reported placement.
+  const uploadLetter = (offer) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setBusyId(offer.id);
+      try {
+        await placementService.uploadOfferLetter(offer.id, file);
+        toast.success('Offer letter uploaded');
+        load();
+      } catch {
+        // api toasts
+      } finally {
+        setBusyId(null);
+      }
+    };
+    input.click();
+  };
+
+  const verifyLetter = async (offer, verified) => {
+    setBusyId(offer.id);
+    try {
+      await placementService.verifyOfferLetter(offer.id, verified);
+      toast.success(verified ? 'Offer letter verified' : 'Verification removed');
+      load();
+    } catch {
+      // api toasts
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -207,6 +253,26 @@ const Offers = () => {
                     <p className="mt-1.5 font-semibold text-ink-950">
                       {formatCtc(offer.ctc, offer.currency)}
                     </p>
+                    {['offered', 'accepted'].includes(offer.status) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        {offer.offerLetterUrl ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openProtectedFile(offer.offerLetterUrl)}
+                              className="inline-flex items-center gap-1 font-medium text-azure-700 hover:underline"
+                            >
+                              <DocumentTextIcon aria-hidden="true" className="h-3.5 w-3.5" /> Offer letter
+                            </button>
+                            <Badge tone={offer.letterVerified ? 'success' : 'warning'}>
+                              {offer.letterVerified ? 'Verified by placement cell' : 'Awaiting verification'}
+                            </Badge>
+                          </>
+                        ) : (
+                          <span className="text-ink-500">No offer letter uploaded yet</span>
+                        )}
+                      </div>
+                    )}
                     {offer.status === 'revoked' && offer.revokedReason && (
                       <p className="mt-1 text-sm text-ink-700">
                         Withdrawn: {offer.revokedReason}
@@ -236,6 +302,28 @@ const Offers = () => {
                         Decline
                       </Button>
                     </>
+                  )}
+                  {['offered', 'accepted'].includes(offer.status) && !(isCell && offer.offerLetterUrl) && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={DocumentArrowUpIcon}
+                      loading={busyId === offer.id}
+                      onClick={() => uploadLetter(offer)}
+                    >
+                      {offer.offerLetterUrl ? 'Replace letter' : 'Upload letter'}
+                    </Button>
+                  )}
+                  {isCell && offer.offerLetterUrl && (
+                    <Button
+                      size="sm"
+                      variant={offer.letterVerified ? 'secondary' : 'success'}
+                      icon={ShieldCheckIcon}
+                      loading={busyId === offer.id}
+                      onClick={() => verifyLetter(offer, !offer.letterVerified)}
+                    >
+                      {offer.letterVerified ? 'Unverify' : 'Verify letter'}
+                    </Button>
                   )}
                   {!isStudent && offer.status !== 'revoked' && (
                     <Button

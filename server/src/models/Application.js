@@ -72,6 +72,7 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Application.associate = (models) => {
+    Application.hasMany(models.RoundParticipant, { foreignKey: 'applicationId', as: 'roundParticipations' });
     Application.belongsTo(models.Job, {
       foreignKey: 'jobId',
       as: 'job'

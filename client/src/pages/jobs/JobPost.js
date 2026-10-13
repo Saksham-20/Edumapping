@@ -334,24 +334,24 @@ const JobPost = () => {
               placeholder="e.g. Mumbai, India / Remote"
             />
             <Input
-              label="Minimum salary"
+              label={formData.jobType === 'internship' ? 'Minimum stipend (₹ per month)' : 'Minimum CTC (₹ per year)'}
               name="salaryMin"
               type="number"
               min="0"
               value={formData.salaryMin}
               onChange={handleInputChange}
-              placeholder="e.g. 500000"
+              placeholder={formData.jobType === 'internship' ? 'e.g. 20000' : 'e.g. 600000 for 6 LPA'}
               error={errors.salaryMin}
             />
             <Input
-              label="Maximum salary"
+              label={formData.jobType === 'internship' ? 'Maximum stipend (₹ per month)' : 'Maximum CTC (₹ per year)'}
               name="salaryMax"
               type="number"
               min="0"
               value={formData.salaryMax}
               onChange={handleInputChange}
               error={errors.salaryMax}
-              placeholder="e.g. 800000"
+              placeholder={formData.jobType === 'internship' ? 'e.g. 30000' : 'e.g. 1200000 for 12 LPA'}
             />
             <Input
               label="Experience required (years)"

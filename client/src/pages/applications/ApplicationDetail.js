@@ -10,6 +10,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import openProtectedFile from '../../utils/openProtectedFile';
+import MyRounds from '../../components/rounds/MyRounds';
 import toast from 'react-hot-toast';
 import {
   Badge,
@@ -288,6 +290,8 @@ const ApplicationDetail = () => {
         </div>
       </Card>
 
+      {user?.role === 'student' && <MyRounds applicationId={application.id} title="Selection rounds" />}
+
       {showStudent && (
         <Card className="mb-6">
           <CardHeader title="Candidate" />
@@ -339,10 +343,8 @@ const ApplicationDetail = () => {
           {studentProfile?.resumeUrl && (
             <div className="mt-5">
               <Button
-                as="a"
-                href={studentProfile.resumeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+                // Resumes are private: fetched with the Bearer token, not a public link.
+                onClick={() => openProtectedFile(studentProfile.resumeUrl)}
                 size="sm"
                 variant="secondary"
                 icon={DocumentArrowDownIcon}

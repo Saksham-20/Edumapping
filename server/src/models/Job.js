@@ -120,6 +120,7 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'createdBy',
       as: 'creator'
     });
+    Job.hasMany(models.JobRound, { foreignKey: 'jobId', as: 'rounds' });
     Job.hasMany(models.Application, {
       foreignKey: 'jobId',
       as: 'applications'
