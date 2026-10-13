@@ -234,7 +234,7 @@ const JobsList = () => {
           <Meta icon={CalendarIcon}>{getTimeAgo(job.createdAt)}</Meta>
           {/* Views and applicant counts are only meaningful to whoever owns the
               posting; a student has no use for them. */}
-          {manageable && <Meta icon={EyeIcon}>{job.viewCount || 0} views</Meta>}
+          {manageable && <Meta icon={EyeIcon}>{job.viewCount || 0} view{Number(job.viewCount) === 1 ? '' : 's'}</Meta>}
           {manageable && <Meta icon={UsersIcon}>{job.applicationCount || 0} applied</Meta>}
         </div>
 

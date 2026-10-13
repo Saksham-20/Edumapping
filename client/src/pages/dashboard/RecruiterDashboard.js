@@ -94,8 +94,8 @@ const JobRow = ({ job, showOrganization = false }) => (
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <StatusBadge status={job.status} />
-        <span className="text-xs tabular-nums text-ink-500">{toInt(job.applicationCount)} applications</span>
-        <span className="text-xs tabular-nums text-ink-500">{toInt(job.viewCount)} views</span>
+        <span className="text-xs tabular-nums text-ink-500">{toInt(job.applicationCount)} application{toInt(job.applicationCount) === 1 ? '' : 's'}</span>
+        <span className="text-xs tabular-nums text-ink-500">{toInt(job.viewCount)} view{toInt(job.viewCount) === 1 ? '' : 's'}</span>
         {formatDate(job.createdAt) && (
           <span className="text-xs text-ink-500">Posted {formatDate(job.createdAt)}</span>
         )}

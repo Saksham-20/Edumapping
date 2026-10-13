@@ -292,7 +292,7 @@ const JobDetail = () => {
           {job.jobType && <Meta icon={BriefcaseIcon}>{formatJobType(job.jobType)}</Meta>}
           <Meta icon={CurrencyRupeeIcon}>{formatSalary(job.salaryMin, job.salaryMax)}</Meta>
           {deadline && <Meta icon={CalendarIcon}>Apply by {deadline}</Meta>}
-          <Meta icon={EyeIcon}>{job.viewCount || 0} views</Meta>
+          <Meta icon={EyeIcon}>{job.viewCount || 0} view{Number(job.viewCount) === 1 ? '' : 's'}</Meta>
         </div>
         {job.status && (
           <div className="mt-4">
