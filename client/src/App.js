@@ -5,7 +5,7 @@ import { Toaster, toast as toastLib } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext'; // Add useAuth import here
 import { NotificationProvider } from './contexts/NotificationContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
-import Header from './components/common/Header';
+import AppLayout from "./components/common/AppLayout";
 import WhatsAppChat from './components/common/WhatsAppChat';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
@@ -178,85 +178,73 @@ function App() {
               {/* Protected routes */}
               <Route path="/dashboard" element={
                 <ProtectedRoute>
-                  <Header />
-                  <DashboardRouter />
+                  <AppLayout><DashboardRouter /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/jobs" element={
                 <ProtectedRoute>
-                  <Header />
-                  <JobsList />
+                  <AppLayout><JobsList /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/jobs/:id" element={
                 <ProtectedRoute>
-                  <Header />
-                  <JobDetail />
+                  <AppLayout><JobDetail /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/jobs/new" element={
                 <ProtectedRoute requiredRoles={['recruiter', 'tpo']}>
-                  <Header />
-                  <JobPost />
+                  <AppLayout><JobPost /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/jobs/:id/edit" element={
                 <ProtectedRoute requiredRoles={['recruiter', 'tpo']}>
-                  <Header />
-                  <JobEdit />
+                  <AppLayout><JobEdit /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/profile" element={
                 <ProtectedRoute>
-                  <Header />
-                  <Profile />
+                  <AppLayout><Profile /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/users/:id" element={
                 <ProtectedRoute>
-                  <Header />
-                  <Profile />
+                  <AppLayout><Profile /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/resume" element={
                 <ProtectedRoute requiredRoles={['student']}>
-                  <Header />
-                  <ResumePage />
+                  <AppLayout><ResumePage /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/applications" element={
                 <ProtectedRoute>
-                  <Header />
-                  <Applications />
+                  <AppLayout><Applications /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/offers" element={
                 <ProtectedRoute requiredRoles={['student', 'recruiter', 'tpo', 'admin']}>
-                  <Header />
-                  <Offers />
+                  <AppLayout><Offers /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/applications/:id" element={
                 <ProtectedRoute>
-                  <Header />
-                  <ApplicationDetail />
+                  <AppLayout><ApplicationDetail /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/events" element={
                 <ProtectedRoute>
-                  <Header />
-                  <Events />
+                  <AppLayout><Events /></AppLayout>
                 </ProtectedRoute>
               } />
               
@@ -266,57 +254,49 @@ function App() {
                   403 on submit. */}
               <Route path="/events/new" element={
                 <ProtectedRoute requiredRoles={['recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor']}>
-                  <Header />
-                  <EventForm />
+                  <AppLayout><EventForm /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/events/:id" element={
                 <ProtectedRoute>
-                  <Header />
-                  <EventDetails />
+                  <AppLayout><EventDetails /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/events/:id/edit" element={
                 <ProtectedRoute requiredRoles={['recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor']}>
-                  <Header />
-                  <EventForm />
+                  <AppLayout><EventForm /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/settings" element={
                 <ProtectedRoute>
-                  <Header />
-                  <Settings />
+                  <AppLayout><Settings /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/conferences" element={
                 <ProtectedRoute>
-                  <Header />
-                  <ConferencesList />
+                  <AppLayout><ConferencesList /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/approvals" element={
                 <ProtectedRoute requiredRoles={['tpo', 'admin']}>
-                  <Header />
-                  <ApprovalManagement />
+                  <AppLayout><ApprovalManagement /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/tpo/analytics" element={
                 <ProtectedRoute requiredRoles={['tpo', 'admin']}>
-                  <Header />
-                  <TPOAnalytics />
+                  <AppLayout><TPOAnalytics /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/admin/users" element={
                 <ProtectedRoute requiredRoles={['admin']}>
-                  <Header />
-                  <UserManagement />
+                  <AppLayout><UserManagement /></AppLayout>
                 </ProtectedRoute>
               } />
 

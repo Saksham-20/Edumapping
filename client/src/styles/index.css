@@ -609,3 +609,12 @@ body {
 .lp-scroll-x::-webkit-scrollbar {
   display: none;
 }
+
+/* Mobile navigation drawer entrance (AppLayout). */
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in, .animate-slide-up, [class*="animate-[slideInLeft"] { animation: none !important; }
+}

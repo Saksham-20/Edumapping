@@ -38,6 +38,7 @@ import {
   ExclamationTriangleIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
+import { formatSalary } from '../../utils/helpers';
 
 const REQUIRED_PROFILE_FIELDS = [
   'course',
@@ -48,13 +49,6 @@ const REQUIRED_PROFILE_FIELDS = [
   'skills',
   'bio'
 ];
-
-const formatSalary = (min, max) => {
-  if (!min && !max) return 'Not disclosed';
-  if (min && max) return `₹${min.toLocaleString()} – ₹${max.toLocaleString()}`;
-  if (min) return `₹${min.toLocaleString()}+`;
-  return `Up to ₹${max.toLocaleString()}`;
-};
 
 const formatDate = (value) => {
   if (!value) return null;

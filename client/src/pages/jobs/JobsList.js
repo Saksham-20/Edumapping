@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -29,7 +30,6 @@ import {
   BanknotesIcon,
   CalendarIcon,
   BriefcaseIcon,
-  BuildingOfficeIcon,
   XMarkIcon,
   PencilIcon,
   TrashIcon,
@@ -37,6 +37,7 @@ import {
   EyeIcon,
   UsersIcon
 } from '@heroicons/react/24/outline';
+import { formatSalary } from '../../utils/helpers';
 
 const EMPTY_FILTERS = {
   search: '',
@@ -76,13 +77,6 @@ const EXPERIENCE_OPTIONS = [
   { value: '3', label: 'Up to 3 years needed' },
   { value: '5', label: 'Up to 5 years needed' }
 ];
-
-const formatSalary = (min, max) => {
-  if (!min && !max) return 'Not disclosed';
-  if (min && max) return `${min.toLocaleString()} - ${max.toLocaleString()}`;
-  if (min) return `${min.toLocaleString()}+`;
-  return `Up to ${max.toLocaleString()}`;
-};
 
 const getTimeAgo = (date) => {
   const diffInDays = Math.floor((new Date() - new Date(date)) / (1000 * 60 * 60 * 24));
@@ -212,20 +206,7 @@ const JobsList = () => {
     return (
       <Card className="flex flex-col">
         <div className="flex items-center gap-2.5">
-          {job.organization?.logoUrl ? (
-            <img
-              src={job.organization.logoUrl}
-              alt=""
-              className="h-9 w-9 shrink-0 rounded-xl border border-ink-950/15 object-cover"
-            />
-          ) : (
-            <span
-              aria-hidden="true"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-ink-950/15 bg-bone-100 text-ink-600"
-            >
-              <BuildingOfficeIcon className="h-4 w-4" strokeWidth={1.8} />
-            </span>
-          )}
+          <Avatar src={job.organization?.logoUrl} name={job.organization?.name || ''} size="sm" />
           <span className="min-w-0 truncate text-sm font-medium text-ink-700">
             {job.organization?.name || 'Unknown organization'}
           </span>

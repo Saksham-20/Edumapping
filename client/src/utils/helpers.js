@@ -62,13 +62,32 @@ export const formatFileSize = (bytes) => {
 };
 
 /**
- * Format salary range
+ * Format a salary range the way Indian placement cells quote it.
+ *
+ * Annual CTC (≥ ₹1,00,000) reads as LPA — "₹12–18 LPA" — because that is how
+ * every JD, offer letter and placement report states it. Smaller amounts are
+ * monthly stipends ("₹25,000/mo"). Bare values under 1,000 are assumed to
+ * already be in lakhs, which is what recruiters type when they mean "12 LPA".
  */
+const lakhs = (v) => {
+  const n = v / 100000;
+  return Number.isInteger(n) ? String(n) : n.toFixed(n < 10 ? 1 : 0).replace(/\.0$/, '');
+};
+const salaryUnit = (v) => (v >= 100000 ? 'lpa' : v >= 1000 ? 'month' : 'lakh');
+const salaryValue = (v, unit) =>
+  unit === 'lpa' ? lakhs(v) : unit === 'month' ? Number(v).toLocaleString('en-IN') : String(v);
+const SALARY_SUFFIX = { lpa: ' LPA', lakh: ' LPA', month: '/mo' };
+
 export const formatSalary = (min, max) => {
-  if (!min && !max) return 'Not disclosed';
-  if (min && max) return `$${min.toLocaleString()} - $${max.toLocaleString()}`;
-  if (min) return `$${min.toLocaleString()}+`;
-  return `Up to $${max.toLocaleString()}`;
+  const lo = Number(min) || 0;
+  const hi = Number(max) || 0;
+  if (!lo && !hi) return 'Not disclosed';
+  const unit = salaryUnit(Math.max(lo, hi));
+  const suffix = SALARY_SUFFIX[unit];
+  if (lo && hi && lo !== hi) return `₹${salaryValue(lo, unit)}–${salaryValue(hi, unit)}${suffix}`;
+  if (lo && hi) return `₹${salaryValue(lo, unit)}${suffix}`;
+  if (lo) return `₹${salaryValue(lo, unit)}+${suffix}`;
+  return `Up to ₹${salaryValue(hi, unit)}${suffix}`;
 };
 
 /**

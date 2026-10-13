@@ -1004,6 +1004,11 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
   // permanently suppress every later one on the same mounted component.
   useEffect(() => setFailed(false), [src]);
 
+  // Seed data and old accounts point at placeholder services that now answer
+  // with an error image instead of failing, so onError never fires and the
+  // avatar shows a "400" graphic. Treat them as no picture at all.
+  const usable = src && !/placeholder\.com|placehold\.|ui-avatars/i.test(src);
+
   const initials = String(name)
     .split(' ')
     .filter(Boolean)
@@ -1024,7 +1029,7 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
       )}
     >
       {initials || '—'}
-      {src && !failed && (
+      {usable && !failed && (
         <img
           src={src}
           alt=""

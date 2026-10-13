@@ -1,12 +1,22 @@
 // client/src/components/common/WhatsAppChat.js
 import React from 'react';
 import { useReducedMotion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
+
+// Marketing and auth pages only. Inside the signed-in app the bubble sat on top
+// of table actions and pagination in the bottom-right corner.
+const PUBLIC_PATHS = ['/', '/login', '/register', '/pending-approval', '/forgot-password', '/privacy'];
+const isPublicPath = (pathname) =>
+  PUBLIC_PATHS.some((p) => pathname === p || (p !== '/' && pathname.startsWith(`${p}/`)));
 
 const WhatsAppChat = () => {
   const reduce = useReducedMotion();
+  const { pathname } = useLocation();
   const phoneNumber = '919104991059';
   const message = 'Hello! I would like to know more about EduMapping.';
   const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+
+  if (!isPublicPath(pathname)) return null;
 
   return (
     <a
