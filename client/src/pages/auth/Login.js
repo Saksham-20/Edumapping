@@ -250,7 +250,7 @@ const Login = ({ isSchoolMode = false, altLink }) => {
 
   return (
     <AuthShell>
-      <AuthBrand tagline="Nurturing young minds" />
+      <AuthBrand tagline="From classroom to career" />
 
       <Card>
         <h1 className="font-display text-2xl font-bold tracking-tight text-ink-950">

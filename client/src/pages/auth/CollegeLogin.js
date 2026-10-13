@@ -3,7 +3,7 @@ import React from 'react';
 import Login from './Login';
 
 const CollegeLogin = () => (
-  <Login altLink={{ prefix: 'For schools,', to: '/login/school', label: 'click here' }} />
+  <Login altLink={{ prefix: 'Signing in for a school?', to: '/login/school', label: 'Use the school sign-in' }} />
 );
 
 export default CollegeLogin;

@@ -22,6 +22,7 @@ import {
   PageHeader,
   PageShell,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Tabs,
@@ -290,7 +291,7 @@ const StudentDashboard = () => {
         </Card>
       )}
 
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StatStrip className="mb-8">
         <StatTile
           label="Total applications"
           value={stats.totalApplications}
@@ -326,7 +327,7 @@ const StudentDashboard = () => {
           to="/applications"
           loading={loading}
         />
-      </div>
+      </StatStrip>
 
       {/* What is next in any drive the student is in — the first thing to see. */}
       <MyRounds title="Your upcoming rounds" limit={3} />
@@ -373,7 +374,7 @@ const StudentDashboard = () => {
               <CardHeader title="Profile summary" />
               <dl className="mt-4 grid grid-cols-2 gap-4">
                 <div>
-                  <dt className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
                     Skills
                   </dt>
                   <dd className="mt-1 font-display text-2xl font-bold tabular-nums text-ink-950">
@@ -381,7 +382,7 @@ const StudentDashboard = () => {
                   </dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
                     Achievements
                   </dt>
                   <dd className="mt-1 font-display text-2xl font-bold tabular-nums text-ink-950">

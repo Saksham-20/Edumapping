@@ -24,22 +24,23 @@ import NotificationPanel from './NotificationPanel';
 import AssistantWidget from './AssistantWidget';
 import { Avatar, IconButton, cx } from '../ui';
 import { getNavigation, isNavItemActive, formatRole } from './navigation';
+import { Guilloche, MicroRule } from '../brand';
 
 const SIDEBAR_W = 'lg:pl-64';
 
 /* ----------------------------------------------------------------- sidebar */
 
+// The sidebar is the document folder the record lives in: degree-folder navy,
+// a faint rosette watermark, the brand stamped at the top.
 const Brand = () => (
   <Link
     to="/dashboard"
-    className="flex items-center gap-2.5 rounded-xl px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+    className="flex items-center gap-2.5 rounded-[10px] px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500"
   >
     <img src="/logo.svg" alt="" aria-hidden="true" className="h-8 w-auto" />
     <span className="flex flex-col leading-none">
-      <span className="font-display text-[17px] font-bold tracking-tight text-ink-950">EduMapping</span>
-      <span className="mt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-ink-500">
-        Placement cloud
-      </span>
+      <span className="font-display text-[17px] font-bold tracking-[-0.01em] text-bone-50">EduMapping</span>
+      <span className="mt-1 text-[10.5px] font-medium text-bone-300/75">From classroom to career</span>
     </span>
   </Link>
 );
@@ -49,7 +50,7 @@ const NavList = ({ groups, pathname, onNavigate }) => (
     {groups.map((group, gi) => (
       <div key={group.label || gi}>
         {group.label && (
-          <p className="mb-1.5 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-500">
+          <p className="mb-1.5 px-3 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-bone-300/60">
             {group.label}
           </p>
         )}
@@ -63,17 +64,18 @@ const NavList = ({ groups, pathname, onNavigate }) => (
                   onClick={onNavigate}
                   aria-current={active ? 'page' : undefined}
                   className={cx(
-                    'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-150',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950',
+                    'group relative flex items-center gap-3 rounded-[9px] px-3 py-2 text-sm font-medium transition-colors duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500',
+                    // The open page is a paper slip pulled out of the folder.
                     active
-                      ? 'bg-ink-950 text-white shadow-[0_1px_0_rgba(255,255,255,.06)_inset]'
-                      : 'text-ink-700 hover:bg-ink-950/[0.05] hover:text-ink-950'
+                      ? 'bg-[#FFFDF8] text-ink-950 shadow-[0_8px_18px_-12px_rgba(0,0,0,.7)]'
+                      : 'text-bone-200/80 hover:bg-white/[0.06] hover:text-bone-50'
                   )}
                 >
                   <item.icon
                     aria-hidden="true"
                     strokeWidth={1.8}
-                    className={cx('h-[18px] w-[18px] shrink-0', active ? 'text-saffron-400' : 'text-ink-500 group-hover:text-ink-800')}
+                    className={cx('h-[18px] w-[18px] shrink-0', active ? 'text-saffron-700' : 'text-bone-300/60 group-hover:text-saffron-300')}
                   />
                   {item.name}
                 </Link>
@@ -89,17 +91,23 @@ const NavList = ({ groups, pathname, onNavigate }) => (
 const AccountCard = ({ user, onLogout }) => {
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
   return (
-    <div className="border-t border-ink-950/10 p-3">
-      <div className="flex items-center gap-3 rounded-xl p-2">
-        <Avatar src={user?.profilePicture} name={fullName} size="sm" />
+    <div className="border-t border-white/10 p-3">
+      <div className="flex items-center gap-3 rounded-[10px] p-2">
+        <Avatar src={user?.profilePicture} name={fullName} size="sm" className="!border-white/15 !bg-saffron-500 !text-ink-950" />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-sm font-semibold text-ink-950">{fullName}</p>
-          <p className="truncate text-xs text-ink-500">
+          <p className="truncate text-sm font-semibold text-bone-50">{fullName}</p>
+          <p className="truncate text-xs text-bone-300/70">
             {formatRole(user?.role)}
             {user?.organization?.name ? ` · ${user.organization.name}` : ''}
           </p>
         </div>
-        <IconButton icon={ArrowRightOnRectangleIcon} label="Sign out" size="sm" onClick={onLogout} />
+        <IconButton
+          icon={ArrowRightOnRectangleIcon}
+          label="Sign out"
+          size="sm"
+          onClick={onLogout}
+          className="!text-bone-300/80 hover:!bg-white/10 hover:!text-bone-50"
+        />
       </div>
     </div>
   );
@@ -167,8 +175,8 @@ const CommandPalette = ({ open, onClose, groups, searchTarget }) => {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
-      <div className="absolute inset-0 bg-ink-950/40 backdrop-blur-sm animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-ink-950/15 bg-white shadow-lift-lg animate-slide-up">
+      <div className="absolute inset-0 bg-ink-950/55 animate-fade-in" onClick={onClose} aria-hidden="true" />
+      <div className="relative w-full max-w-xl overflow-hidden rounded-[16px] border border-ink-950/15 bg-[#FFFDF8] shadow-lift-lg animate-slide-up">
         <div className="flex items-center gap-3 border-b border-ink-950/10 px-4">
           <MagnifyingGlassIcon aria-hidden="true" className="h-5 w-5 text-ink-500" />
           <input
@@ -191,7 +199,7 @@ const CommandPalette = ({ open, onClose, groups, searchTarget }) => {
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => go(r)}
                 className={cx(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm',
+                  'flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-left text-sm',
                   i === cursor ? 'bg-bone-100 text-ink-950' : 'text-ink-700'
                 )}
               >
@@ -285,22 +293,38 @@ const AppLayout = ({ children }) => {
       </a>
 
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-ink-950/10 bg-white/70 backdrop-blur-xl lg:flex">
-        <div className="flex h-16 items-center px-4">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col overflow-hidden bg-ink-950 lg:flex">
+        <Guilloche
+          size={380}
+          tone="dark"
+          lace
+          opacity={0.07}
+          className="pointer-events-none absolute -bottom-28 -left-24"
+        />
+        <div className="relative flex h-16 items-center px-4">
           <Brand />
         </div>
-        <NavList groups={groups} pathname={pathname} />
-        <AccountCard user={user} onLogout={handleLogout} />
+        <MicroRule tone="dark" className="relative px-4" />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <NavList groups={groups} pathname={pathname} />
+          <AccountCard user={user} onLogout={handleLogout} />
+        </div>
       </aside>
 
       {/* Mobile drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-[60] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <div className="absolute inset-0 bg-ink-950/40 backdrop-blur-sm animate-fade-in" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
-          <aside className="absolute inset-y-0 left-0 flex w-[min(20rem,85vw)] flex-col bg-white shadow-lift-lg animate-[slideInLeft_.22s_cubic-bezier(.2,.8,.2,1)]">
-            <div className="flex h-16 items-center justify-between px-4">
+          <div className="absolute inset-0 bg-ink-950/55 animate-fade-in" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
+          <aside className="absolute inset-y-0 left-0 flex w-[min(20rem,85vw)] flex-col overflow-hidden bg-ink-950 shadow-lift-lg animate-[slideInLeft_.22s_cubic-bezier(.2,.8,.2,1)]">
+            <Guilloche size={340} tone="dark" lace opacity={0.07} className="pointer-events-none absolute -bottom-24 -left-20" />
+            <div className="relative flex h-16 items-center justify-between px-4">
               <Brand />
-              <IconButton icon={XMarkIcon} label="Close menu" onClick={() => setDrawerOpen(false)} />
+              <IconButton
+                icon={XMarkIcon}
+                label="Close menu"
+                onClick={() => setDrawerOpen(false)}
+                className="!text-bone-200 hover:!bg-white/10"
+              />
             </div>
             <NavList groups={groups} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
             <AccountCard user={user} onLogout={handleLogout} />
@@ -310,7 +334,7 @@ const AppLayout = ({ children }) => {
 
       <div className={SIDEBAR_W}>
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-ink-950/10 bg-bone-50/85 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-ink-950/10 bg-bone-50/95">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <IconButton icon={Bars3Icon} label="Open menu" onClick={() => setDrawerOpen(true)} className="lg:hidden" />
             <p className="truncate font-display text-base font-bold text-ink-950 lg:hidden">
@@ -320,7 +344,7 @@ const AppLayout = ({ children }) => {
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="ml-auto flex h-10 items-center gap-2.5 rounded-full border border-ink-950/15 bg-white px-3.5 text-sm text-ink-500 transition-colors hover:border-ink-950/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 sm:w-72 lg:ml-0 lg:w-96"
+              className="ml-auto flex h-10 items-center gap-2.5 rounded-[10px] border border-ink-950/15 bg-[#FFFDF8] px-3.5 text-sm text-ink-500 transition-colors hover:border-ink-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600 sm:w-72 lg:ml-0 lg:w-96"
               aria-label="Search or jump to a page"
             >
               <MagnifyingGlassIcon aria-hidden="true" className="h-4 w-4" />
@@ -340,7 +364,7 @@ const AppLayout = ({ children }) => {
                 {unreadCount > 0 && (
                   <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-bone-50 bg-saffron-500 px-1 text-[10px] font-bold tabular-nums text-ink-950"
+                    className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-[6px] border-2 border-bone-50 bg-saffron-500 px-1 text-[10px] font-bold tabular-nums text-ink-950"
                   >
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
@@ -348,7 +372,7 @@ const AppLayout = ({ children }) => {
               </div>
               <Link
                 to="/profile"
-                className="hidden items-center gap-2 rounded-full p-1 pr-2 transition-colors hover:bg-ink-950/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 sm:flex lg:hidden"
+                className="hidden items-center gap-2 rounded-[10px] p-1 pr-2 transition-colors hover:bg-ink-950/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600 sm:flex lg:hidden"
               >
                 <Avatar src={user?.profilePicture} name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} size="sm" />
                 <ChevronUpDownIcon aria-hidden="true" className="h-4 w-4 text-ink-500" />

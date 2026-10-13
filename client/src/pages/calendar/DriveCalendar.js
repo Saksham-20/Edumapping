@@ -170,7 +170,7 @@ const DriveCalendar = () => {
           <Card padded={false} className={cx('overflow-hidden', loading && 'opacity-60')}>
             <div className="grid grid-cols-7 border-b border-ink-950/10 bg-bone-100">
               {WEEKDAYS.map((d) => (
-                <div key={d} className="px-2 py-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-500">
+                <div key={d} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-500">
                   {d}
                 </div>
               ))}
@@ -225,7 +225,7 @@ const DriveCalendar = () => {
             </div>
           </Card>
           <Card>
-            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-500">Selected day</p>
+            <p className="text-[11px] uppercase tracking-[0.07em] text-ink-500">Selected day</p>
             <h3 className="mt-1 font-display text-lg font-bold text-ink-950">
               {new Date(selectedDay).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
             </h3>

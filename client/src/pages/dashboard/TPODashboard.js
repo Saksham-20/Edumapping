@@ -17,6 +17,7 @@ import {
   PageHeader,
   PageShell,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge
 } from '../../components/ui';
@@ -149,7 +150,7 @@ const TPODashboard = () => {
       {header}
       {announceModal}
 
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StatStrip className="mb-8">
         <StatTile
           label="Students"
           value={toInt(students.total)}
@@ -183,7 +184,7 @@ const TPODashboard = () => {
           to="/applications"
           loading={loading}
         />
-      </div>
+      </StatStrip>
 
       {loading ? (
         <div className="grid gap-4 lg:grid-cols-2">

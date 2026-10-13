@@ -237,7 +237,7 @@ const EventDetails = () => {
         {event.description && (
           <>
             <Divider className="my-5" />
-            <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-500">
+            <h2 className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
               About this event
             </h2>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-800">

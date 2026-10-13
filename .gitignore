@@ -20,3 +20,7 @@ client/.env.*
 # somewhere to write on a fresh checkout.
 server/uploads/*
 !server/uploads/.gitkeep
+
+# Impeccable working files: review captures and decision-page logs
+.impeccable/review/
+.impeccable/questions/

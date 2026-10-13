@@ -60,15 +60,15 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  {!applicationId && r.job && (
-                    <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
-                      {r.job.organization?.name} · {r.job.title}
-                    </p>
-                  )}
-                  <p className="mt-0.5 font-semibold text-ink-950">
+                  <p className="font-semibold text-ink-950">
                     Round {r.sequence}: {r.name}
                     <span className="ml-2 text-xs font-normal text-ink-500">{ROUND_TYPES[r.roundType]}</span>
                   </p>
+                  {!applicationId && r.job && (
+                    <p className="mt-0.5 text-sm text-ink-600">
+                      {r.job.title}, {r.job.organization?.name}
+                    </p>
+                  )}
                 </div>
                 <Badge tone={r.status === 'cancelled' ? 'danger' : tone}>{r.status === 'cancelled' ? 'Cancelled' : label}</Badge>
               </div>

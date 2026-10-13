@@ -199,7 +199,7 @@ const AnnounceModal = ({ open, onClose, role }) => {
         />
 
         <fieldset className="rounded-2xl border border-ink-950/15 p-4">
-          <legend className="px-1 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
+          <legend className="px-1 text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
             Audience
           </legend>
           <div className="grid gap-4 sm:grid-cols-2">

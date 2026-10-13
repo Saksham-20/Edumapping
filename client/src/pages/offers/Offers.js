@@ -21,6 +21,7 @@ import {
   PageHeader,
   PageShell,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Badge,
@@ -180,7 +181,7 @@ const Offers = () => {
       />
 
       {!isStudent && stats && (
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatStrip className="mb-8">
           <StatTile label="Live offers" value={stats.total} hint="Outstanding and accepted" />
           <StatTile
             label="Median package"
@@ -196,7 +197,7 @@ const Offers = () => {
             value={stats.highestCtc === null ? '—' : formatCtc(stats.highestCtc)}
           />
           <StatTile label="Accepted" value={stats.accepted} hint={`${stats.ppo} PPO`} />
-        </div>
+        </StatStrip>
       )}
 
       {error ? (

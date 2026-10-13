@@ -46,7 +46,7 @@ export const Impact = () => (
                 <span className="block font-display text-display-sm font-bold leading-none text-ink-950">
                   <Counter value={value} />
                 </span>
-                <span className="mt-3 block font-mono text-[11px] uppercase tracking-wider text-ink-500">
+                <span className="mt-3 block text-[11px] uppercase tracking-[0.07em] text-ink-500">
                   {label}
                 </span>
               </dd>

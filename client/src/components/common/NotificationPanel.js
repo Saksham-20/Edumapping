@@ -222,7 +222,7 @@ const NotificationPanel = ({ isOpen, onClose }) => {
                         {n.message && <p className="mt-1 text-sm text-ink-600">{n.message}</p>}
                         <div className="mt-2.5 flex items-center justify-between gap-2">
                           <time
-                            className="font-mono text-[11px] uppercase tracking-wider text-ink-500"
+                            className="text-[11px] uppercase tracking-[0.07em] text-ink-500"
                             dateTime={n.createdAt}
                           >
                             {formatNotificationTime(n.createdAt)}

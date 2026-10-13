@@ -24,17 +24,17 @@ export const Brand = ({ className = '', tone = 'light' }) => (
     <span className="flex min-w-0 flex-col items-start leading-none">
       <span
         className={`font-display text-lg font-bold tracking-tight sm:text-xl ${
-          tone === 'dark' ? 'text-white' : 'text-ink-950'
+          tone === 'dark' ? 'text-bone-50' : 'text-ink-950'
         }`}
       >
         EduMapping
       </span>
       <span
-        className={`mt-1 font-mono text-[10px] uppercase tracking-[0.14em] ${
-          tone === 'dark' ? 'text-white/55' : 'text-ink-500'
+        className={`mt-1 text-[11px] font-medium ${
+          tone === 'dark' ? 'text-bone-300/75' : 'text-ink-500'
         }`}
       >
-        Nurturing Young Minds
+        From classroom to career
       </span>
     </span>
   </span>
@@ -72,17 +72,28 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
   }, [menuOpen]);
 
   const raised = scrolled || menuOpen || currentPage !== 'home';
+  // On the home page's navy folder the bar is part of the folder: light type
+  // on navy. Once the page scrolls onto paper it becomes a paper strip.
+  const dark = !raised;
+  const link = (active) =>
+    `cursor-pointer rounded-[9px] px-4 py-2 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 ${
+      active
+        ? dark
+          ? 'bg-bone-50 text-ink-950'
+          : 'bg-ink-950 text-bone-50'
+        : dark
+          ? 'text-bone-200 hover:bg-white/[0.08] hover:text-bone-50'
+          : 'text-ink-700 hover:bg-ink-950/[0.06] hover:text-ink-950'
+    }`;
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 pt-3 sm:pt-4">
-      <Container>
-        <div
-          className={`rounded-[26px] transition-all duration-300 ${
-            raised
-              ? 'border border-ink-950/15 bg-bone-50/85 shadow-lift backdrop-blur-xl'
-              : 'border border-transparent bg-transparent'
-          }`}
-        >
+    <header
+      className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${
+        raised ? 'border-b border-ink-950/10 bg-bone-50/95 shadow-lift' : 'border-b border-transparent bg-transparent'
+      }`}
+    >
+      <Container className="!max-w-[1320px] lg:!px-12">
+        <div>
           <nav
             className="flex min-h-[64px] items-center justify-between gap-3 px-3 sm:px-4"
             aria-label="Main"
@@ -90,10 +101,10 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
             <button
               type="button"
               onClick={() => onNavigate('home')}
-              className="inline-flex min-h-[44px] cursor-pointer items-center rounded-xl px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+              className="inline-flex min-h-[44px] cursor-pointer items-center rounded-[10px] px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500"
               aria-label="EduMapping — go to home"
             >
-              <Brand />
+              <Brand tone={dark ? 'dark' : 'light'} />
             </button>
 
             {/* --------------------------------------------------- desktop links */}
@@ -106,11 +117,7 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                     type="button"
                     onClick={() => onNavigate(page)}
                     aria-current={active ? 'page' : undefined}
-                    className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 ${
-                      active
-                        ? 'bg-ink-950 text-white'
-                        : 'text-ink-700 hover:bg-ink-950/[0.06] hover:text-ink-950'
-                    }`}
+                    className={link(active)}
                   >
                     {label}
                   </button>
@@ -121,7 +128,9 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
             <div className="flex items-center gap-2">
               {/* Audience toggle — switches the content of the whole page. */}
               <div
-                className="hidden items-center rounded-full border border-ink-950/15 bg-white p-0.5 md:flex"
+                className={`hidden items-center rounded-[10px] border p-0.5 md:flex ${
+                  dark ? 'border-white/20 bg-white/[0.04]' : 'border-ink-950/15 bg-[#FFFDF8]'
+                }`}
                 role="group"
                 aria-label="Choose audience"
               >
@@ -131,10 +140,12 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                     type="button"
                     onClick={() => onSelectAudience(key)}
                     aria-pressed={audience === key}
-                    className={`cursor-pointer rounded-full px-3.5 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 ${
+                    className={`cursor-pointer rounded-[8px] px-3.5 py-1.5 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 ${
                       audience === key
                         ? 'bg-saffron-500 text-ink-950'
-                        : 'text-ink-600 hover:text-ink-950'
+                        : dark
+                          ? 'text-bone-200 hover:text-bone-50'
+                          : 'text-ink-600 hover:text-ink-950'
                     }`}
                   >
                     {label}
@@ -145,7 +156,9 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
               <Link
                 to={loginPath}
                 state={{ from: { pathname: '/dashboard' } }}
-                className="hidden min-h-[44px] cursor-pointer items-center rounded-full px-3 text-sm font-semibold text-ink-700 transition-colors duration-200 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 sm:inline-flex"
+                className={`hidden min-h-[44px] cursor-pointer items-center rounded-[9px] px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 sm:inline-flex ${
+                  dark ? 'text-bone-200 hover:text-bone-50' : 'text-ink-700 hover:text-ink-950'
+                }`}
               >
                 Sign in
               </Link>
@@ -153,7 +166,7 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
               <Button
                 as={Link}
                 to="/register"
-                variant="primary"
+                variant={dark ? 'saffron' : 'primary'}
                 size="sm"
                 className="hidden sm:inline-flex"
               >
@@ -168,7 +181,11 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                 aria-expanded={menuOpen}
                 aria-controls="lp-mobile-menu"
                 aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-                className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-ink-950/15 bg-white text-ink-950 transition-colors duration-200 hover:bg-ink-950 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 lg:hidden"
+                className={`inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-[10px] border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 lg:hidden ${
+                  dark
+                    ? 'border-white/25 text-bone-50 hover:bg-white/10'
+                    : 'border-ink-950/15 bg-[#FFFDF8] text-ink-950 hover:bg-ink-950 hover:text-bone-50'
+                }`}
               >
                 {menuOpen ? (
                   <XMarkIcon className="h-5 w-5" strokeWidth={2} />
@@ -196,9 +213,9 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                       key={page}
                       type="button"
                       onClick={() => onNavigate(page)}
-                      className={`block w-full cursor-pointer rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 ${
+                      className={`block w-full cursor-pointer rounded-[10px] px-4 py-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 ${
                         currentPage === page
-                          ? 'bg-ink-950 text-white'
+                          ? 'bg-ink-950 text-bone-50'
                           : 'text-ink-700 hover:bg-ink-950/[0.06] hover:text-ink-950'
                       }`}
                     >
@@ -213,7 +230,7 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                         type="button"
                         onClick={() => onSelectAudience(key)}
                         aria-pressed={audience === key}
-                        className={`flex-1 cursor-pointer rounded-2xl px-4 py-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 ${
+                        className={`flex-1 cursor-pointer rounded-[10px] px-4 py-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 ${
                           audience === key
                             ? 'bg-saffron-500 text-ink-950'
                             : 'border border-ink-950/15 text-ink-700 hover:bg-ink-950/[0.04]'

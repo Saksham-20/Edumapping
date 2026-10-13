@@ -184,7 +184,7 @@ const Audience = ({ audience = 'college', onSelectAudience }) => {
                         <span className={`block font-display text-2xl font-bold ${accentText}`}>
                           <Counter value={value} />
                         </span>
-                        <span className="mt-1 block font-mono text-[10px] uppercase leading-tight tracking-wider text-ink-500">
+                        <span className="mt-1 block text-[10px] uppercase leading-tight tracking-[0.07em] text-ink-500">
                           {label}
                         </span>
                       </dd>

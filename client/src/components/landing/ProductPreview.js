@@ -52,7 +52,7 @@ const ProductPreview = () => (
         {/* Job header */}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-india-600/30 bg-india-50 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-india-700">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-india-600/30 bg-india-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.07em] text-india-700">
               <CheckCircleIcon className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
               Verified drive
             </span>
@@ -68,7 +68,7 @@ const ProductPreview = () => (
 
         {/* Pipeline */}
         <div className="rounded-2xl border border-ink-950/10 bg-bone-50 p-4">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-ink-500">
+          <p className="text-[10px] font-medium uppercase tracking-[0.07em] text-ink-500">
             Application pipeline
           </p>
           <div className="mt-3 space-y-2.5">
@@ -107,7 +107,7 @@ const ProductPreview = () => (
                 <span className="block truncate font-mono text-[10px] text-ink-500">{meta}</span>
               </span>
               <span
-                className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wider ${STATUS_TONES[status]}`}
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.07em] ${STATUS_TONES[status]}`}
               >
                 {status}
               </span>

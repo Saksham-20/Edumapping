@@ -16,7 +16,7 @@ const NotFound = () => {
   return (
     <main className="flex min-h-screen items-center justify-center bg-bone-50 px-5 py-16">
       <div className="w-full max-w-lg text-center">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-ink-500">
+        <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
           Error 404
         </p>
         <h1 className="mt-4 font-display text-display-sm font-bold tracking-tight text-ink-950">

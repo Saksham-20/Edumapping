@@ -3,7 +3,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { EnvelopeIcon, GlobeAltIcon, PhoneIcon } from '@heroicons/react/24/outline';
 import { Brand } from './Nav';
-import { Container, GridTexture } from './primitives';
+import { Container } from './primitives';
+import { GuillocheBand, MicroRule } from '../brand';
 
 const NAV_ITEMS = [
   { label: 'Home', page: 'home' },
@@ -48,10 +49,9 @@ const CONTACT = [
 ];
 
 const Footer = ({ onNavigate }) => (
-  <footer className="relative overflow-hidden bg-ink-950 text-white/60">
-    <GridTexture tone="dark" fade={false} />
-    {/* Saffron hairline — the last brand beat on the page. */}
-    <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-tricolor-warm" />
+  <footer className="relative overflow-hidden bg-ink-950 text-bone-300/80">
+    {/* The tricolour guilloche band: the last brand beat on the page. */}
+    <GuillocheBand tone="dark" height={12} className="opacity-80" />
 
     <Container className="relative py-16">
       <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
@@ -59,14 +59,12 @@ const Footer = ({ onNavigate }) => (
         <div className="sm:col-span-2">
           <Brand tone="dark" />
           <p className="mt-6 max-w-sm text-sm leading-relaxed">
-            Making youth job-ready with essential employability skills — connecting education with
-            employment across schools, colleges and industry.
+            One verified record for every student, from career guidance at school to the
+            placement season at college and the signed offer letter.
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
-            <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white/55">
-              Follow us
-            </span>
+            <span className="mr-1 text-xs font-semibold text-bone-300/70">Follow us</span>
             {SOCIALS.map(({ label, href, hover, path }) => (
               <a
                 key={label}
@@ -74,7 +72,7 @@ const Footer = ({ onNavigate }) => (
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={label}
-                className={`inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-white/15 text-white/70 transition-colors duration-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400 ${hover}`}
+                className={`inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-[10px] border border-white/15 text-bone-200 transition-colors duration-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400 ${hover}`}
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -91,7 +89,7 @@ const Footer = ({ onNavigate }) => (
 
         {/* Quick links */}
         <nav className="lp-footer-links" aria-label="Footer">
-          <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-white">
+          <h3 className="text-sm font-semibold text-bone-50">
             Quick links
           </h3>
           {/* min-h-[44px] on every row: these are the smallest tap targets on
@@ -122,7 +120,7 @@ const Footer = ({ onNavigate }) => (
 
         {/* Contact */}
         <div>
-          <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-white">
+          <h3 className="text-sm font-semibold text-bone-50">
             Contact
           </h3>
           <ul className="mt-4">
@@ -133,7 +131,7 @@ const Footer = ({ onNavigate }) => (
                   {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                   className="inline-flex min-h-[44px] cursor-pointer items-center gap-2.5 break-words rounded text-sm transition-colors duration-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400"
                 >
-                  <Icon className="h-4 w-4 shrink-0 text-white/55" strokeWidth={1.8} aria-hidden="true" />
+                  <Icon className="h-4 w-4 shrink-0 text-bone-300/70" strokeWidth={1.8} aria-hidden="true" />
                   {label}
                 </a>
               </li>
@@ -142,7 +140,8 @@ const Footer = ({ onNavigate }) => (
         </div>
       </div>
 
-      <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
+      <MicroRule tone="dark" className="mt-14" />
+      <div className="mt-6 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
         <p className="text-center text-sm sm:text-left">
           © {new Date().getFullYear()} EduMapping. All rights reserved. ·{' '}
           <Link
@@ -153,7 +152,7 @@ const Footer = ({ onNavigate }) => (
           </Link>
         </p>
         <p className="text-sm">
-          Developed by <span className="font-semibold text-white">Globoniks</span>
+          Developed by <span className="font-semibold text-bone-50">Globoniks</span>
         </p>
       </div>
     </Container>

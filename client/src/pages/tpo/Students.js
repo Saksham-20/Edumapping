@@ -44,9 +44,10 @@ import placementService from '../../services/placement';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatSalary } from '../../utils/helpers';
 import openProtectedFile from '../../utils/openProtectedFile';
+import { Stamp } from '../../components/brand';
 import ImportStudentsModal from '../../components/placement/ImportStudentsModal';
 
-const VERIFICATION_TONES = { verified: 'success', pending: 'warning', rejected: 'danger', unverified: 'neutral' };
+const VERIFICATION_TONES = { verified: 'attest', pending: 'warning', rejected: 'danger', unverified: 'neutral' };
 const VERIFICATION_LABELS = { verified: 'Verified', pending: 'Awaiting review', rejected: 'Sent back', unverified: 'Not submitted' };
 const OUTCOME_TONES = { placed: 'success', unplaced: 'neutral', deferred: 'warning', higher_studies: 'info', opted_out: 'neutral' };
 const OUTCOME_LABELS = {
@@ -316,9 +317,15 @@ const Students = () => {
                   </Td>
                   <Td>
                     <div className="flex flex-col items-start gap-1">
-                      <Badge tone={VERIFICATION_TONES[s.verificationStatus]} dot>
-                        {VERIFICATION_LABELS[s.verificationStatus]}
-                      </Badge>
+                      {s.verificationStatus === 'verified' ? (
+                        <Stamp size="sm" rotate={-3}>
+                          Verified
+                        </Stamp>
+                      ) : (
+                        <Badge tone={VERIFICATION_TONES[s.verificationStatus]} dot>
+                          {VERIFICATION_LABELS[s.verificationStatus]}
+                        </Badge>
+                      )}
                       {s.hasMarksheet && (
                         <button
                           type="button"
@@ -344,7 +351,7 @@ const Students = () => {
                     <div className="flex items-center justify-end gap-1.5">
                       {s.verificationStatus !== 'verified' ? (
                         <>
-                          <Button size="sm" variant="success" icon={CheckIcon} disabled={!s.hasProfile} onClick={() => setReview({ student: s, action: 'verify' })}>
+                          <Button size="sm" variant="attest" icon={CheckIcon} disabled={!s.hasProfile} onClick={() => setReview({ student: s, action: 'verify' })}>
                             Verify
                           </Button>
                           {s.verificationStatus === 'pending' && (
@@ -415,7 +422,7 @@ const Students = () => {
               Cancel
             </Button>
             <Button
-              variant={review?.action === 'verify' ? 'success' : 'primary'}
+              variant={review?.action === 'verify' ? 'attest' : 'primary'}
               loading={busy}
               disabled={review?.action === 'reject' && !notes.trim()}
               onClick={runReview}
@@ -437,7 +444,7 @@ const Students = () => {
               ['Active backlogs', review.student.activeBacklogs]
             ].map(([k, v]) => (
               <div key={k}>
-                <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-500">{k}</dt>
+                <dt className="text-[10px] uppercase tracking-[0.07em] text-ink-500">{k}</dt>
                 <dd className="font-medium text-ink-950">{v ?? '—'}</dd>
               </div>
             ))}

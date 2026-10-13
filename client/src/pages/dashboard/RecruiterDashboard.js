@@ -20,6 +20,7 @@ import {
   PageHeader,
   PageShell,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Tabs,
@@ -41,6 +42,7 @@ import {
   ArrowPathIcon,
   DocumentArrowDownIcon
 } from '@heroicons/react/24/outline';
+import { formatJobType } from '../../utils/helpers';
 
 const TABS = [
   { value: 'overview', label: 'Overview', icon: ChartBarIcon },
@@ -88,7 +90,7 @@ const JobRow = ({ job, showOrganization = false }) => (
       <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
         <MapPinIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
         {job.location}
-        {job.jobType ? ` · ${job.jobType.replace(/_/g, ' ')}` : ''}
+        {job.jobType ? ` · ${formatJobType(job.jobType)}` : ''}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <StatusBadge status={job.status} />
@@ -352,7 +354,7 @@ const RecruiterDashboard = () => {
         }
       />
 
-      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StatStrip className="mb-4">
         <StatTile
           label="Jobs posted"
           value={stats.totalJobs}
@@ -388,9 +390,9 @@ const RecruiterDashboard = () => {
           to="/applications"
           loading={loading}
         />
-      </div>
+      </StatStrip>
 
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <StatStrip cols={2} className="mb-8">
         <StatTile
           label="Job views"
           value={stats.views.toLocaleString()}
@@ -410,7 +412,7 @@ const RecruiterDashboard = () => {
           accent="saffron"
           loading={loading}
         />
-      </div>
+      </StatStrip>
 
       <Tabs className="mb-6 w-fit max-w-full" tabs={TABS} value={tab} onChange={setTab} />
 
@@ -657,7 +659,7 @@ const RecruiterDashboard = () => {
                 )}
               >
                 <p className="font-display text-2xl font-bold tabular-nums text-ink-950">{stage.count}</p>
-                <p className="mt-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-500">
+                <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
                   {stage.status}
                 </p>
               </div>

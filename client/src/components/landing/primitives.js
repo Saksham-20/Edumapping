@@ -3,11 +3,10 @@
 // The landing page's design system. Every section composes these; nothing
 // below fetches data or makes routing decisions.
 //
-// Visual language: a warm bone canvas, near-black ink type, saffron as the one
-// hot accent and india green as the "verified/positive" signal. Surfaces are
-// hard-edged — 1px ink borders and offset block shadows rather than soft
-// drop shadows — so the page reads as printed editorial rather than generic
-// glassy SaaS.
+// Visual language: the attested record. Security-paper ground, degree-folder
+// navy ink, saffron and India green guilloche linework, violet attestation
+// stamps. Surfaces are documents: hairline borders, 14px corners, a soft paper
+// lift rather than glass or offset block shadows.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
@@ -96,21 +95,10 @@ export const Rule = ({ tone = 'light', className = '' }) => (
  * Rendered as a bordered tag rather than plain text so it reads as a printed
  * category marker and holds its own against the oversized headlines.
  */
-export const Eyebrow = ({ children, tone = 'light', className = '' }) => (
-  <span
-    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.18em] ${
-      tone === 'dark'
-        ? 'border-white/20 text-saffron-300'
-        : 'border-ink-950/15 text-ink-700'
-    } ${className}`}
-  >
-    <span
-      aria-hidden="true"
-      className="h-1.5 w-1.5 rounded-full bg-saffron-500 animate-pulse-dot"
-    />
-    {children}
-  </span>
-);
+// Retired: a heading carries its own weight. Kept as a no-op so older section
+// files compile; it renders nothing.
+// eslint-disable-next-line no-unused-vars
+export const Eyebrow = ({ children, tone, className }) => null;
 
 /**
  * Mark — a saffron highlighter swipe behind a word.
@@ -153,7 +141,7 @@ export const SectionHead = ({
     <div className={align === 'center' ? 'max-w-3xl' : 'max-w-2xl'}>
       {eyebrow && <Eyebrow tone={tone}>{eyebrow}</Eyebrow>}
       <h2
-        className={`lp-balance mt-5 font-display text-display-sm font-bold ${
+        className={`lp-balance font-display text-display-sm font-bold ${
           tone === 'dark' ? 'text-white' : 'text-ink-950'
         }`}
       >
@@ -188,33 +176,32 @@ const BUTTON_BASE =
   'focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
 
 const BUTTON_SIZES = {
-  sm: 'min-h-[40px] rounded-full px-4 py-2 text-sm',
-  md: 'min-h-[46px] rounded-full px-5 py-2.5 text-sm',
-  lg: 'min-h-[54px] rounded-full px-7 py-3.5 text-base'
+  sm: 'min-h-[40px] rounded-[10px] px-4 py-2 text-sm',
+  md: 'min-h-[46px] rounded-[10px] px-5 py-2.5 text-sm',
+  lg: 'min-h-[54px] rounded-[12px] px-7 py-3.5 text-base'
 };
 
 const BUTTON_VARIANTS = {
   // The one high-emphasis action. Offset block shadow that collapses on press.
   primary:
-    'bg-ink-950 text-white border border-ink-950 shadow-block hover:-translate-x-[2px] ' +
-    'hover:-translate-y-[2px] hover:shadow-[6px_6px_0_0_#FF9933] active:translate-x-0 ' +
-    'active:translate-y-0 active:shadow-block-sm focus-visible:ring-ink-950 focus-visible:ring-offset-bone-50',
+    'bg-ink-950 text-bone-50 border border-ink-950 shadow-block-sm hover:bg-ink-800 ' +
+    'hover:shadow-[inset_0_-2px_0_0_#FF9933,0_12px_28px_-16px_rgba(12,20,38,.45)] ' +
+    'focus-visible:ring-saffron-600 focus-visible:ring-offset-bone-50',
   saffron:
-    'bg-saffron-500 text-ink-950 border border-ink-950 shadow-block hover:-translate-x-[2px] ' +
-    'hover:-translate-y-[2px] hover:shadow-[6px_6px_0_0_#0B0C0E] active:translate-x-0 ' +
-    'active:translate-y-0 active:shadow-block-sm focus-visible:ring-ink-950 focus-visible:ring-offset-bone-50',
+    'bg-saffron-500 text-ink-950 border border-saffron-600 shadow-block-saffron hover:bg-saffron-400 ' +
+    'active:bg-saffron-600 focus-visible:ring-bone-50 focus-visible:ring-offset-ink-950',
   // Secondary on light grounds.
   outline:
-    'border border-ink-950/20 bg-transparent text-ink-950 hover:border-ink-950 hover:bg-ink-950/[0.04] ' +
-    'focus-visible:ring-ink-950 focus-visible:ring-offset-bone-50',
-  // Primary on the inverted dark bands.
+    'border border-ink-950/25 bg-transparent text-ink-950 hover:border-ink-950 hover:bg-ink-950/[0.04] ' +
+    'focus-visible:ring-saffron-600 focus-visible:ring-offset-bone-50',
+  // Primary on the navy folder bands.
   light:
-    'bg-white text-ink-950 border border-white hover:bg-saffron-500 hover:border-saffron-500 ' +
-    'focus-visible:ring-white focus-visible:ring-offset-ink-950',
-  // Secondary on the inverted dark bands.
+    'bg-bone-50 text-ink-950 border border-bone-50 hover:bg-saffron-500 hover:border-saffron-500 ' +
+    'focus-visible:ring-saffron-400 focus-visible:ring-offset-ink-950',
+  // Secondary on the navy folder bands.
   ghostDark:
-    'border border-white/25 bg-white/[0.06] text-white hover:border-white/60 hover:bg-white/[0.12] ' +
-    'focus-visible:ring-white focus-visible:ring-offset-ink-950'
+    'border border-bone-50/30 bg-transparent text-bone-50 hover:border-bone-50/70 hover:bg-white/[0.06] ' +
+    'focus-visible:ring-saffron-400 focus-visible:ring-offset-ink-950'
 };
 
 export const Button = ({
@@ -254,10 +241,10 @@ export const ArrowGlyph = ({ className = '' }) => (
 /** Small tag for metadata and trust signals. */
 export const Tag = ({ children, tone = 'light', className = '' }) => (
   <span
-    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-wider ${
+    className={`inline-flex items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-xs font-medium ${
       tone === 'dark'
-        ? 'border-white/20 bg-white/[0.06] text-white/75'
-        : 'border-ink-950/15 bg-white text-ink-600'
+        ? 'border-white/20 bg-white/[0.06] text-bone-200'
+        : 'border-ink-950/15 bg-[#FFFDF8] text-ink-700'
     } ${className}`}
   >
     {children}
@@ -278,18 +265,18 @@ export const Card = ({
   ...rest
 }) => {
   const tones = {
-    light: 'border-ink-950/15 bg-white text-ink-700',
-    sand: 'border-ink-950/15 bg-bone-100 text-ink-700',
-    dark: 'border-white/15 bg-white/[0.04] text-white/70'
+    light: 'border-ink-950/[0.13] bg-[#FFFDF8] text-ink-700',
+    sand: 'border-ink-950/[0.13] bg-bone-100 text-ink-700',
+    dark: 'border-white/15 bg-white/[0.04] text-bone-200'
   };
   const hover =
     tone === 'dark'
       ? 'hover:border-saffron-500/50 hover:bg-white/[0.08]'
-      : 'hover:border-ink-950/40 hover:shadow-block-sm';
+      : 'hover:border-ink-950/35 hover:shadow-lift';
 
   return (
     <Tag
-      className={`rounded-3xl border p-6 transition-all duration-200 ${tones[tone]} ${
+      className={`rounded-[14px] border p-6 transition-[border-color,box-shadow,background-color] duration-200 ${tones[tone]} ${
         interactive ? `cursor-pointer ${hover}` : ''
       } ${className}`}
       {...rest}
@@ -314,14 +301,14 @@ export const IconTile = ({ icon: Icon, accent = 'saffron', tone = 'light', class
       dark: 'border-india-500/30 bg-india-500/15 text-india-300'
     },
     ink: {
-      light: 'border-ink-950/15 bg-ink-950 text-white',
+      light: 'border-ink-950/15 bg-ink-950 text-bone-50',
       dark: 'border-white/20 bg-white/10 text-white'
     }
   };
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${accents[accent][tone]} ${className}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border ${accents[accent][tone]} ${className}`}
     >
       <Icon className="h-5 w-5" strokeWidth={1.8} />
     </span>
@@ -441,16 +428,11 @@ export const Counter = ({ value, className = '', duration = 1400 }) => {
 
 /* ------------------------------------------------------------------ decor */
 
-/** Printed grid texture behind a section. Purely decorative. */
-export const GridTexture = ({ tone = 'light', fade = true }) => (
-  <div
-    aria-hidden="true"
-    className={`lp-grid ${tone === 'dark' ? 'lp-grid--dark' : ''} ${fade ? 'lp-grid--fade' : ''}`}
-  />
-);
-
-/** Film grain over a flat colour field. Purely decorative. */
-export const Grain = () => <div aria-hidden="true" className="lp-noise" />;
+// Retired with the old look: a grid overlay and film grain belong to no
+// document. Section files that still mount them now render nothing.
+// eslint-disable-next-line no-unused-vars
+export const GridTexture = (props) => null;
+export const Grain = () => null;
 
 /**
  * Marquee — an infinite horizontal ticker.

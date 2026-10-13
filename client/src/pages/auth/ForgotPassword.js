@@ -96,7 +96,7 @@ const ForgotPassword = () => {
         </Link>
 
         <Card>
-          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+          <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
             {step === 'request' ? 'Step 1 of 2' : 'Step 2 of 2'}
           </p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-ink-950">

@@ -46,6 +46,7 @@ import {
   PageShell,
   SectionBlock,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Tabs
@@ -62,6 +63,7 @@ import {
   UserGroupIcon,
   VideoCameraIcon
 } from '@heroicons/react/24/outline';
+import { formatJobType } from '../../utils/helpers';
 
 const TABS = [
   { value: 'jobs', label: 'Opportunities', icon: BriefcaseIcon },
@@ -189,7 +191,7 @@ const CareerCounselorDashboard = () => {
               {job.jobType && (
                 <div className="flex items-center gap-1.5">
                   <dt>Type</dt>
-                  <dd>{String(job.jobType).replace(/_/g, ' ')}</dd>
+                  <dd>{formatJobType(job.jobType)}</dd>
                 </div>
               )}
               {job.applicationDeadline && (
@@ -428,7 +430,7 @@ const CareerCounselorDashboard = () => {
       />
 
       <SectionBlock>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatStrip>
           <StatTile
             label="Students you advise"
             value={errors.students ? '—' : students.length}
@@ -459,7 +461,7 @@ const CareerCounselorDashboard = () => {
             loading={loading}
             to="/conferences"
           />
-        </div>
+        </StatStrip>
       </SectionBlock>
 
       <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />

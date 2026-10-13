@@ -123,7 +123,7 @@ const AssistantWidget = () => {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-ink-950 bg-ink-950 py-3 pl-4 pr-5 text-sm font-semibold text-white shadow-[4px_4px_0_0_#FF9933] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 focus-visible:ring-offset-2"
+          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-[12px] border border-ink-950 bg-ink-950 py-3 pl-4 pr-5 text-sm font-semibold text-bone-50 shadow-lift-lg transition-[background-color,box-shadow] hover:bg-ink-800 hover:shadow-[inset_0_-2px_0_0_#FF9933,0_30px_60px_-30px_rgba(12,20,38,.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500 focus-visible:ring-offset-2"
         >
           <SparklesIcon className="h-5 w-5 text-saffron-400" aria-hidden="true" />
           Ask EduMapping

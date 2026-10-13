@@ -1,0 +1,111 @@
+{
+  "title": "Choose EduMapping's visual world",
+  "question": "The roll assigned the Metro Line. Keep it, take an alternate, or re-roll.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "The Metro Line",
+      "kicker": "THE ROLL",
+      "lineage": "Indian metro network maps and station signage (Delhi, Namma, Mumbai)",
+      "thesis": "Every learner rides one line from school to career; rounds are stations, the offer letter is the terminus.",
+      "palette": ["#14161A", "#F7F5EF", "#FF8A1F", "#0F8A3C", "#1F5FBF", "#D7263D"],
+      "materials": ["enamel station signage", "printed transit diagram", "platform tactile tiles"],
+      "viewport": "A full-width route diagram: SCHOOL → COLLEGE → PLACEMENT lines in saffron, blue and green, live station dots for each round, the tagline on a station-name board and one 'Board now' action.",
+      "risk": "Becomes a gimmick if the line motif leaks into every control instead of carrying real progress.",
+      "raised": [
+        {"from": "challenger-step-row", "raise": "A single 'you are here' marker runs on every surface: the student's live station, the cell's current round, the season's position."},
+        {"from": "challenger-specimen", "raise": "Scale courage: station names set huge against tiny bilingual-style platform labels; hierarchy by size alone."},
+        {"from": "challenger-ikebana", "raise": "Active emptiness: the diagram gets real negative space; one line per viewport, never a tangle."},
+        {"from": "challenger-gridsmith", "raise": "Every control is a station tile on one strict module; active fills solid, idle stays outlined."}
+      ]
+    },
+    {
+      "id": "model-pick",
+      "label": "The Attested Record",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "attested marksheets, university degree certificates, rubber stamps",
+      "thesis": "Every record is a document the cell has checked, sealed and signed.",
+      "palette": ["#1B2440", "#F4EFE3", "#B23A2E", "#2E6B4F"],
+      "materials": ["guilloche security paper", "rubber-stamp ink", "embossed seal"],
+      "viewport": "A giant certificate with guilloche border; 'Verified · Locked' stamped across the hero as the page loads.",
+      "risk": "Close to the cream-paper-and-seal look many runs land on; reads bureaucratic if not lit with energy."
+    },
+    {
+      "id": "challenger-dubois",
+      "label": "Placement Data Portraits",
+      "verdict": "competitive",
+      "lineage": "1900 Du Bois hand-inked data portraits",
+      "thesis": "The season argued in bold hand-inked charts: spirals of offers, bars of branches.",
+      "palette": ["#EDE3CF", "#C8102E", "#E1A72B", "#1F6F43", "#121212"],
+      "materials": ["flat gouache", "hand lettering"],
+      "viewport": "A crimson spiral of the batch coiling to its placed students, captions lettered by hand.",
+      "case": "Fuses on reports and NIRF numbers; loses on audience identification for students and TPOs.",
+      "risk": "Unreadable as an everyday app if every screen becomes a chart.",
+      "hero": "https://impeccable.style/worlds/cards/dubois-data-portraits-hero.webp"
+    },
+    {
+      "id": "challenger-step-row",
+      "label": "Rhythm Machine Step Row",
+      "verdict": "declined",
+      "lineage": "early-80s drum machine",
+      "palette": ["#1C1C1E", "#E8452C", "#F39A1E", "#F2D33C", "#F4F4F0"],
+      "materials": ["silkscreen panel", "LED chase light"],
+      "thesis": "The season as sixteen steps under a chase light.",
+      "viewport": "Sixteen step keys with a chase light running across the season.",
+      "case": "Fuses poorly: placement officers do not read their year as a beat pattern.",
+      "kept": "The always-visible 'where now is' indicator.",
+      "risk": "Toy-like for an institutional buyer.",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-drum-machine-step-row-hero.webp"
+    },
+    {
+      "id": "challenger-specimen",
+      "label": "Variable Type Specimen",
+      "verdict": "declined",
+      "lineage": "foundry specimen pages",
+      "palette": ["#FAFAF7", "#111111", "#FF5A1F"],
+      "materials": ["paper", "ink"],
+      "thesis": "Letterforms carry everything.",
+      "viewport": "One giant glyph morphing under a slider.",
+      "case": "Fuses poorly: nothing in the product is about type.",
+      "kept": "Hierarchy by scale contrast alone.",
+      "risk": "Pure style with no product truth."
+    },
+    {
+      "id": "challenger-ikebana",
+      "label": "Ikebana Alcove",
+      "verdict": "declined",
+      "lineage": "tokonoma arrangement",
+      "palette": ["#E9E4D8", "#6E6253", "#3E5BA9", "#3B3026"],
+      "materials": ["plaster", "bronze"],
+      "thesis": "Emptiness made active.",
+      "viewport": "One branch in a quiet alcove.",
+      "case": "Fuses poorly: foreign to the Indian campus.",
+      "kept": "Charged negative space.",
+      "risk": "Too quiet for a busy placement office."
+    },
+    {
+      "id": "challenger-gridsmith",
+      "label": "Hoffmann Gridsmith",
+      "verdict": "declined",
+      "lineage": "Wiener Werkstätte lattice metalwork",
+      "palette": ["#FFFFFF", "#0A0A0A", "#C9CCD1"],
+      "materials": ["lacquer black", "hammered silver"],
+      "thesis": "Everything on one square lattice.",
+      "viewport": "Square-punched lattice frames.",
+      "case": "Fuses poorly: luxury showroom, wrong audience.",
+      "kept": "A strict square module for every control.",
+      "risk": "Cold and luxury-coded."
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "A clean SaaS placement-portal site: gradient hero, product screenshot, feature grid.",
+    "palette": ["#FFFFFF", "#111827", "#2563EB"],
+    "materials": ["clean grid", "product screenshots"],
+    "viewport": "Headline left, tilted dashboard screenshot right, logo strip below.",
+    "risk": "Indistinguishable from Superset and every ERP vendor."
+  },
+  "steer": true
+}

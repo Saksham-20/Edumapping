@@ -147,7 +147,7 @@ const Recruiters = () => (
                 >
                   {n}
                 </span>
-                <span className="relative font-mono text-[11px] uppercase tracking-[0.18em] text-saffron-400">
+                <span className="relative text-[11px] uppercase tracking-[0.07em] text-saffron-400">
                   Step {n}
                 </span>
                 <h4 className="relative mt-3 font-display text-lg font-bold text-white">{title}</h4>
@@ -168,7 +168,7 @@ const Recruiters = () => (
                 <span className="block font-display text-3xl font-bold text-white sm:text-4xl">
                   <Counter value={value} />
                 </span>
-                <span className="mt-2 block font-mono text-[10px] uppercase tracking-wider text-white/55">
+                <span className="mt-2 block text-[10px] uppercase tracking-[0.07em] text-white/55">
                   {label}
                 </span>
               </dd>

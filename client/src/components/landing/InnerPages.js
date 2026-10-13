@@ -334,7 +334,7 @@ export const AboutPage = () => (
                   <span className="block font-display text-display-sm font-bold leading-none text-ink-950">
                     <Counter value={value} />
                   </span>
-                  <span className="mt-3 block font-mono text-[11px] uppercase tracking-wider text-ink-500">
+                  <span className="mt-3 block text-[11px] uppercase tracking-[0.07em] text-ink-500">
                     {label}
                   </span>
                 </dd>
@@ -461,7 +461,7 @@ export const ContactPage = () => {
                   <Card className="flex gap-5">
                     <IconTile icon={icon} accent={i === 0 ? 'saffron' : i === 1 ? 'india' : 'ink'} />
                     <div className="min-w-0">
-                      <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+                      <h3 className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
                         {label}
                       </h3>
                       <ul className="mt-2 space-y-1">

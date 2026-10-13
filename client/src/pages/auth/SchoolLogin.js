@@ -5,7 +5,7 @@ import Login from './Login';
 const SchoolLogin = () => (
   <Login
     isSchoolMode
-    altLink={{ prefix: 'For colleges,', to: '/login/college', label: 'click here' }}
+    altLink={{ prefix: 'Signing in for a college?', to: '/login/college', label: 'Use the college sign-in' }}
   />
 );
 

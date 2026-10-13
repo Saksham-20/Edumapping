@@ -44,6 +44,7 @@ import {
   BriefcaseIcon,
   PencilIcon
 } from '@heroicons/react/24/outline';
+import { formatJobType } from '../../utils/helpers';
 
 const STATUS_OPTIONS = [
   { value: 'applied', label: 'Applied' },
@@ -281,7 +282,7 @@ const ApplicationDetail = () => {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <DocumentTextIcon aria-hidden="true" className="h-4 w-4" strokeWidth={1.8} />
-            {application.job?.jobType?.replace('_', ' ') || 'Not specified'}
+            {formatJobType(application.job?.jobType) || 'Not specified'}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <CalendarIcon aria-hidden="true" className="h-4 w-4" strokeWidth={1.8} />
@@ -327,7 +328,7 @@ const ApplicationDetail = () => {
           {studentProfile?.skills?.length > 0 && (
             <>
               <Divider className="my-5" />
-              <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-500">
+              <h3 className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
                 Skills
               </h3>
               <div className="mt-3 flex flex-wrap gap-2">

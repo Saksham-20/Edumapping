@@ -40,13 +40,24 @@ export const getTimeAgo = (date) => {
   const targetDate = new Date(date);
   const diffInSeconds = Math.floor((now - targetDate) / 1000);
 
+  const ago = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
   if (diffInSeconds < 60) return 'just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-  if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-  if (diffInSeconds < 31536000) return `${Math.floor(diffInSeconds / 2592000)} months ago`;
-  return `${Math.floor(diffInSeconds / 31536000)} years ago`;
+  if (diffInSeconds < 3600) return ago(Math.floor(diffInSeconds / 60), 'minute');
+  if (diffInSeconds < 86400) return ago(Math.floor(diffInSeconds / 3600), 'hour');
+  if (diffInSeconds < 2592000) return ago(Math.floor(diffInSeconds / 86400), 'day');
+  if (diffInSeconds < 31536000) return ago(Math.floor(diffInSeconds / 2592000), 'month');
+  return ago(Math.floor(diffInSeconds / 31536000), 'year');
 };
+
+/** A job's employment type as people write it: "Full-time", not "full time". */
+const JOB_TYPE_LABELS = {
+  full_time: 'Full-time',
+  part_time: 'Part-time',
+  internship: 'Internship',
+  contract: 'Contract',
+  freelance: 'Freelance'
+};
+export const formatJobType = (type) => (type ? JOB_TYPE_LABELS[type] || formatEnumValue(type) : '');
 
 /**
  * Format file size in human-readable format
@@ -576,17 +587,6 @@ export const isInViewport = (element) => {
   );
 };
 
-/**
- * Format job type for display
- */
-export const formatJobType = (type) => {
-  const types = {
-    'full_time': 'Full Time',
-    'part_time': 'Part Time',
-    'internship': 'Internship'
-  };
-  return types[type] || type;
-};
 
 /**
  * Get days until deadline

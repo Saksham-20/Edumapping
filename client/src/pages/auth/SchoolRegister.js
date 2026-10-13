@@ -278,12 +278,12 @@ const SchoolRegister = () => {
           </Link>
         </p>
         <p className="mt-1 text-sm text-ink-500">
-          For colleges,{' '}
+          Registering a college?{' '}
           <Link
             to="/register/college"
             className="font-medium text-ink-700 underline underline-offset-2 hover:text-ink-950"
           >
-            click here
+            Use the college registration
           </Link>
         </p>
 

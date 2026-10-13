@@ -1956,19 +1956,19 @@ const AdminDashboard = () => {
           <h3 className="font-display text-base font-bold text-ink-950">Import result</h3>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-india-600/30 bg-india-50 px-4 py-3">
-              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-india-800">Created</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-india-800">Created</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.created) || 0}
               </p>
             </div>
             <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
-              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-saffron-800">Skipped</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-saffron-800">Skipped</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.skipped) || 0}
               </p>
             </div>
             <div className="rounded-xl border border-red-600/25 bg-red-50 px-4 py-3">
-              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-800">Errors</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-red-800">Errors</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.errors) || 0}
               </p>
@@ -2153,7 +2153,7 @@ const AdminDashboard = () => {
                         if (list.length === 0) return null;
                         return (
                           <div key={type}>
-                            <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+                            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-500">
                               {type}s
                             </h4>
                             <div className="space-y-1.5">

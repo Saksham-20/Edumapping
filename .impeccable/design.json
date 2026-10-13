@@ -1,0 +1,608 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-13T12:00:00Z",
+  "title": "Design System: EduMapping",
+  "extensions": {
+    "colorMeta": {
+      "ink-950": {
+        "role": "primary",
+        "displayName": "Degree-Folder Navy",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "ink-900": {
+        "role": "primary",
+        "displayName": "Folder Navy, deep",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "ink-800": {
+        "role": "primary",
+        "displayName": "Folder Navy, lifted",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "ink-700": {
+        "role": "neutral",
+        "displayName": "Ink Grey 700",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "ink-600": {
+        "role": "neutral",
+        "displayName": "Ink Grey 600",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "ink-500": {
+        "role": "neutral",
+        "displayName": "Ink Grey 500 (lightest text ink)",
+        "tonalRamp": [
+          "#0C1426",
+          "#111B31",
+          "#17223B",
+          "#1E2A45",
+          "#2D3954",
+          "#46516B",
+          "#56617A"
+        ]
+      },
+      "bone-50": {
+        "role": "neutral",
+        "displayName": "Security Paper",
+        "tonalRamp": [
+          "#B6AA8D",
+          "#DAD0B8",
+          "#EAE3D2",
+          "#F5F1E6",
+          "#FBF9F4"
+        ]
+      },
+      "bone-100": {
+        "role": "neutral",
+        "displayName": "Ledger Sand",
+        "tonalRamp": [
+          "#B6AA8D",
+          "#DAD0B8",
+          "#EAE3D2",
+          "#F5F1E6",
+          "#FBF9F4"
+        ]
+      },
+      "bone-200": {
+        "role": "neutral",
+        "displayName": "Paper Fold",
+        "tonalRamp": [
+          "#B6AA8D",
+          "#DAD0B8",
+          "#EAE3D2",
+          "#F5F1E6",
+          "#FBF9F4"
+        ]
+      },
+      "bone-300": {
+        "role": "neutral",
+        "displayName": "Paper Fold, deep",
+        "tonalRamp": [
+          "#B6AA8D",
+          "#DAD0B8",
+          "#EAE3D2",
+          "#F5F1E6",
+          "#FBF9F4"
+        ]
+      },
+      "record-paper": {
+        "role": "neutral",
+        "displayName": "Record Paper",
+        "tonalRamp": [
+          "#B6AA8D",
+          "#DAD0B8",
+          "#EAE3D2",
+          "#F5F1E6",
+          "#FBF9F4",
+          "#FFFDF8"
+        ]
+      },
+      "saffron-500": {
+        "role": "secondary",
+        "displayName": "Tricolour Saffron",
+        "tonalRamp": [
+          "#5C2E08",
+          "#87470B",
+          "#B35F0C",
+          "#E57E14",
+          "#FF9933",
+          "#FFA451",
+          "#FFB871",
+          "#FFD1A0",
+          "#FFE8CE",
+          "#FFF6EC"
+        ]
+      },
+      "saffron-600": {
+        "role": "secondary",
+        "displayName": "Focus Saffron",
+        "tonalRamp": [
+          "#5C2E08",
+          "#87470B",
+          "#B35F0C",
+          "#E57E14",
+          "#FF9933",
+          "#FFA451",
+          "#FFB871",
+          "#FFD1A0",
+          "#FFE8CE",
+          "#FFF6EC"
+        ]
+      },
+      "saffron-700": {
+        "role": "secondary",
+        "displayName": "Saffron Text",
+        "tonalRamp": [
+          "#5C2E08",
+          "#87470B",
+          "#B35F0C",
+          "#E57E14",
+          "#FF9933",
+          "#FFA451",
+          "#FFB871",
+          "#FFD1A0",
+          "#FFE8CE",
+          "#FFF6EC"
+        ]
+      },
+      "saffron-800": {
+        "role": "secondary",
+        "displayName": "Saffron Text, deep",
+        "tonalRamp": [
+          "#5C2E08",
+          "#87470B",
+          "#B35F0C",
+          "#E57E14",
+          "#FF9933",
+          "#FFA451",
+          "#FFB871",
+          "#FFD1A0",
+          "#FFE8CE",
+          "#FFF6EC"
+        ]
+      },
+      "india-600": {
+        "role": "tertiary",
+        "displayName": "India Green",
+        "tonalRamp": [
+          "#073503",
+          "#0B5005",
+          "#0F6C06",
+          "#138808",
+          "#22981A",
+          "#3FB22D",
+          "#6FCB60",
+          "#A2DF97",
+          "#D0EFCA",
+          "#ECF8EA"
+        ]
+      },
+      "india-700": {
+        "role": "tertiary",
+        "displayName": "India Green, ink",
+        "tonalRamp": [
+          "#073503",
+          "#0B5005",
+          "#0F6C06",
+          "#138808",
+          "#22981A",
+          "#3FB22D",
+          "#6FCB60",
+          "#A2DF97",
+          "#D0EFCA",
+          "#ECF8EA"
+        ]
+      },
+      "stamp-600": {
+        "role": "tertiary",
+        "displayName": "Attestation Violet",
+        "tonalRamp": [
+          "#1F163E",
+          "#2E215B",
+          "#3D2C78",
+          "#4D3895",
+          "#5E48AC",
+          "#7F6CC2",
+          "#A495D6",
+          "#C6BDE8",
+          "#E3DEF4",
+          "#F2F0FA"
+        ]
+      },
+      "stamp-700": {
+        "role": "tertiary",
+        "displayName": "Attestation Violet, ink",
+        "tonalRamp": [
+          "#1F163E",
+          "#2E215B",
+          "#3D2C78",
+          "#4D3895",
+          "#5E48AC",
+          "#7F6CC2",
+          "#A495D6",
+          "#C6BDE8",
+          "#E3DEF4",
+          "#F2F0FA"
+        ]
+      },
+      "vermilion-600": {
+        "role": "tertiary",
+        "displayName": "Correction Vermilion",
+        "tonalRamp": [
+          "#4A190E",
+          "#6C2415",
+          "#8E2F1B",
+          "#AE3A21",
+          "#C9462A",
+          "#DD6447",
+          "#E98A71",
+          "#F3B6A5",
+          "#FADDD4",
+          "#FDF0EC"
+        ]
+      },
+      "vermilion-700": {
+        "role": "tertiary",
+        "displayName": "Correction Vermilion, ink",
+        "tonalRamp": [
+          "#4A190E",
+          "#6C2415",
+          "#8E2F1B",
+          "#AE3A21",
+          "#C9462A",
+          "#DD6447",
+          "#E98A71",
+          "#F3B6A5",
+          "#FADDD4",
+          "#FDF0EC"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Landing hero headline only; Archivo expanded (font-stretch 116%)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Landing section headings, text-balance."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The single h1 of every signed-in page (1.75rem mobile, 2.15rem from sm)."
+      },
+      "title-sm": {
+        "displayName": "Title small",
+        "purpose": "Section blocks, card and modal titles."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Stat-tile and record numbers; tabular."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Reading text; landing leads at 1.125rem, 38-58ch."
+      },
+      "body-sm": {
+        "displayName": "Body small",
+        "purpose": "App copy, table cells, field text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase document furniture: table heads, field names, definition terms."
+      },
+      "stamp": {
+        "displayName": "Stamp",
+        "purpose": "In-app status stamps; uppercase expanded caps."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Roll numbers, serials, report figures, kbd."
+      }
+    },
+    "shadows": [
+      {
+        "name": "lift",
+        "value": "0 1px 2px rgba(12,20,38,.05), 0 10px 26px -16px rgba(12,20,38,.28)",
+        "purpose": "Hover on interactive cards and stat tiles."
+      },
+      {
+        "name": "lift-lg",
+        "value": "0 2px 4px rgba(12,20,38,.06), 0 30px 60px -30px rgba(12,20,38,.42)",
+        "purpose": "Modals, command palette, mobile drawer."
+      },
+      {
+        "name": "block-sm",
+        "value": "0 1px 1px rgba(12,20,38,.05), 0 8px 18px -12px rgba(12,20,38,.32)",
+        "purpose": "Paper rest: landing record documents and the landing primary button. Historical name; a soft lift, not an offset block."
+      },
+      {
+        "name": "block",
+        "value": "0 1px 1px rgba(12,20,38,.06), 0 12px 28px -16px rgba(12,20,38,.38)",
+        "purpose": "Paper rest, larger. Historical name."
+      },
+      {
+        "name": "block-saffron",
+        "value": "0 1px 1px rgba(12,20,38,.06), 0 12px 28px -16px rgba(179,95,12,.45)",
+        "purpose": "The landing saffron CTA at rest."
+      },
+      {
+        "name": "folder",
+        "value": "0 1px 0 rgba(255,255,255,.04) inset, 0 30px 70px -30px rgba(0,0,0,.6)",
+        "purpose": "A certificate resting on the navy field."
+      },
+      {
+        "name": "paper-slip",
+        "value": "0 8px 18px -12px rgba(0,0,0,.7)",
+        "purpose": "Active sidebar item pulled out of the folder."
+      },
+      {
+        "name": "saffron-underline",
+        "value": "inset 0 -2px 0 0 #FF9933",
+        "purpose": "Primary button hover."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-record",
+        "value": "cubic-bezier(.16,1,.3,1)",
+        "purpose": "Ink drawing, stamp press, record fields filling in."
+      },
+      {
+        "name": "ink-draw",
+        "value": "stroke-dashoffset 1 to 0, 2.6s ease-record, layers staggered 0.22s",
+        "purpose": "Guilloche and signature trace themselves once on mount (landing hero, auth aside only)."
+      },
+      {
+        "name": "stamp-press",
+        "value": "scale 1.9 + blur 6px to scale 1, 0.6s ease-record, overshoot to 0.96 at 60%",
+        "purpose": "Signature stamp landing; hero at ~1.8s, rule-check verdict."
+      },
+      {
+        "name": "reveal",
+        "value": "opacity 0 + translateY 22px to rest, 0.5s cubic-bezier(0.22,1,0.36,1), once in view",
+        "purpose": "Landing sections entering."
+      },
+      {
+        "name": "field-fill",
+        "value": "opacity 0 + y 6px, 0.45s ease-record, 0.12s stagger from 0.35s",
+        "purpose": "Hero record fields filling in roll-number order."
+      },
+      {
+        "name": "state",
+        "value": "150-200ms colour/border/shadow transitions",
+        "purpose": "All hover and focus state changes; never transform."
+      },
+      {
+        "name": "drawer",
+        "value": "translateX(-100%) to 0, .22s cubic-bezier(.2,.8,.2,1)",
+        "purpose": "Mobile navigation drawer."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "All of the above render their final state."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ink on paper: the default action everywhere.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Verify and lock</button>",
+      "css": ".ds-btn{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:8px 16px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background-color .2s,border-color .2s,color .2s,box-shadow .2s;}.ds-btn:focus-visible{outline:none;box-shadow:0 0 0 2px #FBF9F4,0 0 0 4px #E57E14;}.ds-btn-primary{background:#0C1426;color:#FBF9F4;border:1px solid #0C1426;}.ds-btn-primary:hover{background:#1E2A45;box-shadow:inset 0 -2px 0 0 #FF9933;}.ds-btn-primary:active{background:#0C1426;}"
+    },
+    {
+      "name": "Saffron Button",
+      "kind": "button",
+      "refersTo": "button-saffron",
+      "description": "The one hot action, on a navy band.",
+      "html": "<div class=\"ds-band\"><button class=\"ds-btn-saffron\">Bring your college on board <svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"ds-arrow\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg></button></div>",
+      "css": ".ds-band{background:#0C1426;padding:24px;}.ds-btn-saffron{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;align-items:center;gap:8px;min-height:54px;padding:14px 28px;border-radius:12px;background:#FF9933;color:#0C1426;border:1px solid #E57E14;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 1px 1px rgba(12,20,38,.06),0 12px 28px -16px rgba(179,95,12,.45);transition:background-color .2s;}.ds-btn-saffron:hover{background:#FFA451;}.ds-btn-saffron:active{background:#E57E14;}.ds-btn-saffron:focus-visible{outline:none;box-shadow:0 0 0 2px #0C1426,0 0 0 4px #FBF9F4;}.ds-arrow{transition:transform .2s;}.ds-btn-saffron:hover .ds-arrow{transform:translateX(4px);}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Hairline on record paper; secondary actions and pagination.",
+      "html": "<button class=\"ds-btn-secondary\">Send announcement</button>",
+      "css": ".ds-btn-secondary{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;align-items:center;gap:8px;min-height:42px;padding:8px 16px;border-radius:10px;background:#FFFDF8;color:#0C1426;border:1px solid rgba(12,20,38,.2);font-size:14px;font-weight:600;cursor:pointer;transition:background-color .2s,border-color .2s;}.ds-btn-secondary:hover{border-color:rgba(12,20,38,.6);background:#F5F1E6;}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 2px #FBF9F4,0 0 0 4px #E57E14;}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Label above, record-paper field, saffron focus ring.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-label\">Roll number</span><input class=\"ds-input\" placeholder=\"22CSE031\"></label>",
+      "css": ".ds-field{display:block;font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;}.ds-label{display:block;margin-bottom:6px;font-size:14px;font-weight:500;color:#1E2A45;}.ds-input{display:block;width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;border:1px solid rgba(12,20,38,.2);background:#FFFDF8;color:#0C1426;font:inherit;font-size:14px;transition:border-color .15s,box-shadow .15s;}.ds-input::placeholder{color:#56617A;}.ds-input:hover{border-color:rgba(12,20,38,.4);}.ds-input:focus{outline:none;border-color:#0C1426;box-shadow:0 0 0 2px rgba(255,153,51,.3);}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A document on the page: hairline, 14px corners, lift on hover only.",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-label\">Placed</p><p class=\"ds-card-figure\">81</p><p class=\"ds-card-hint\">67.5% placement rate</p></div>",
+      "css": ".ds-card{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;max-width:260px;padding:24px;border-radius:14px;border:1px solid rgba(12,20,38,.13);background:#FFFDF8;cursor:pointer;transition:border-color .2s,box-shadow .2s;}.ds-card:hover{border-color:rgba(12,20,38,.35);box-shadow:0 1px 2px rgba(12,20,38,.05),0 10px 26px -16px rgba(12,20,38,.28);}.ds-card-label{margin:0;font-size:13px;font-weight:600;color:#46516B;}.ds-card-figure{margin:8px 0 0;font-family:Archivo,'Public Sans',system-ui,sans-serif;font-stretch:116%;font-size:2.1rem;font-weight:700;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:#0C1426;}.ds-card-hint{margin:4px 0 0;font-size:12px;color:#56617A;}"
+    },
+    {
+      "name": "Status Stamp",
+      "kind": "chip",
+      "refersTo": "status-stamp-verified",
+      "description": "In-app status as a static stamp in its meaning ink.",
+      "html": "<div class=\"ds-stamps\"><span class=\"ds-sb ds-sb-info\">Applied</span><span class=\"ds-sb ds-sb-warn\">Shortlisted</span><span class=\"ds-sb ds-sb-ok\">Selected</span><span class=\"ds-sb ds-sb-bad\">Rejected</span><span class=\"ds-sb ds-sb-neutral\">Withdrawn</span></div>",
+      "css": ".ds-stamps{display:flex;flex-wrap:wrap;gap:8px;background:#FBF9F4;padding:12px;}.ds-sb{display:inline-flex;align-items:center;white-space:nowrap;padding:1px 6px;border-radius:4px;border:1.5px solid;background:transparent;font-family:Archivo,'Public Sans',system-ui,sans-serif;font-stretch:116%;font-size:10.5px;font-weight:700;line-height:16px;letter-spacing:.08em;text-transform:uppercase;}.ds-sb-info{color:#3D2C78;border-color:rgba(77,56,149,.7);}.ds-sb-warn{color:#87470B;border-color:rgba(179,95,12,.7);}.ds-sb-ok{color:#0F6C06;border-color:rgba(15,108,6,.7);}.ds-sb-bad{color:#8E2F1B;border-color:rgba(174,58,33,.7);}.ds-sb-neutral{color:#46516B;border-color:rgba(70,81,107,.55);}"
+    },
+    {
+      "name": "Rubber Stamp",
+      "kind": "custom",
+      "refersTo": "status-stamp-verified",
+      "description": "Signature: double-ruled attestation stamp, pressed once on signature moments.",
+      "html": "<div class=\"ds-stamp-wrap\"><span class=\"ds-stamp\"><span>Verified · Locked</span><span class=\"ds-stamp-sub\">Placement Cell · 13 Oct 2026</span></span></div>",
+      "css": ".ds-stamp-wrap{background:#FFFDF8;padding:32px;}.ds-stamp{--rot:-7deg;display:inline-flex;flex-direction:column;align-items:center;padding:12px 24px;border:2.5px solid #4D3895;outline:1.5px solid #4D3895;outline-offset:3px;border-radius:6px;color:#4D3895;font-family:Archivo,'Public Sans',system-ui,sans-serif;font-stretch:116%;font-size:20px;font-weight:800;line-height:1;letter-spacing:.12em;text-transform:uppercase;mix-blend-mode:multiply;transform:rotate(var(--rot));animation:ds-press .6s cubic-bezier(.16,1,.3,1) both;}.ds-stamp-sub{margin-top:4px;font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,monospace;font-size:.55em;font-weight:500;letter-spacing:.06em;text-transform:none;}@keyframes ds-press{0%{opacity:0;transform:scale(1.9) rotate(var(--rot));filter:blur(6px);}60%{opacity:1;transform:scale(.96) rotate(var(--rot));filter:blur(0);}100%{opacity:1;transform:scale(1) rotate(var(--rot));}}@media (prefers-reduced-motion:reduce){.ds-stamp{animation:none;}}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "The navy folder; the open page is a paper slip pulled out of it.",
+      "html": "<nav class=\"ds-side\"><p class=\"ds-side-group\">Placements</p><a class=\"ds-side-item ds-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"><path d=\"m2.25 12 8.954-8.955a1.126 1.126 0 0 1 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75\"/></svg>Dashboard</a><a class=\"ds-side-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"><path d=\"M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0\"/></svg>Jobs</a></nav>",
+      "css": ".ds-side{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;width:256px;background:#0C1426;padding:16px 12px;border-radius:0;}.ds-side-group{margin:0 0 6px;padding:0 12px;font-size:10.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:rgba(218,208,184,.6);}.ds-side-item{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:9px;font-size:14px;font-weight:500;color:rgba(234,227,210,.8);text-decoration:none;transition:background-color .15s,color .15s;}.ds-side-item svg{color:rgba(218,208,184,.6);flex-shrink:0;}.ds-side-item:hover{background:rgba(255,255,255,.06);color:#FBF9F4;}.ds-side-item:hover svg{color:#FFB871;}.ds-side-item:focus-visible{outline:none;box-shadow:0 0 0 2px #FF9933;}.ds-active,.ds-active:hover{background:#FFFDF8;color:#0C1426;box-shadow:0 8px 18px -12px rgba(0,0,0,.7);}.ds-active svg,.ds-active:hover svg{color:#B35F0C;}"
+    },
+    {
+      "name": "Tabs",
+      "kind": "nav",
+      "refersTo": "tab-active",
+      "description": "Paper strip; the active tab is a navy fill with a saffron count.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><button class=\"ds-tab ds-tab-on\" role=\"tab\" aria-selected=\"true\">Eligible <span class=\"ds-count\">112</span></button><button class=\"ds-tab\" role=\"tab\">Applied <span class=\"ds-count\">64</span></button><button class=\"ds-tab\" role=\"tab\">Placed <span class=\"ds-count\">81</span></button></div>",
+      "css": ".ds-tabs{font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;gap:4px;padding:4px;border-radius:12px;border:1px solid rgba(12,20,38,.13);background:#FFFDF8;}.ds-tab{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border:0;border-radius:8px;background:transparent;color:#46516B;font:inherit;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s;}.ds-tab:hover{background:#F5F1E6;color:#0C1426;}.ds-tab:focus-visible{outline:none;box-shadow:0 0 0 2px #E57E14;}.ds-tab-on,.ds-tab-on:hover{background:#0C1426;color:#FBF9F4;}.ds-count{padding:2px 6px;border-radius:5px;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;background:#EAE3D2;color:#2D3954;}.ds-tab-on .ds-count{background:#FF9933;color:#0C1426;}"
+    },
+    {
+      "name": "Certificate Frame",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Signature: a record inside an interlaced-ring guilloche border with a mono serial.",
+      "html": "<div class=\"ds-cert\"><svg class=\"ds-cert-border\" aria-hidden=\"true\"><defs><pattern id=\"ds-cf\" width=\"10\" height=\"10\" patternUnits=\"userSpaceOnUse\"><circle cx=\"5\" cy=\"5\" r=\"4.2\" fill=\"none\" stroke=\"#E57E14\" stroke-width=\"0.6\"/><circle cx=\"0\" cy=\"0\" r=\"4.2\" fill=\"none\" stroke=\"#138808\" stroke-width=\"0.6\"/><circle cx=\"10\" cy=\"0\" r=\"4.2\" fill=\"none\" stroke=\"#138808\" stroke-width=\"0.6\"/><circle cx=\"0\" cy=\"10\" r=\"4.2\" fill=\"none\" stroke=\"#138808\" stroke-width=\"0.6\"/><circle cx=\"10\" cy=\"10\" r=\"4.2\" fill=\"none\" stroke=\"#138808\" stroke-width=\"0.6\"/></pattern></defs><rect width=\"100%\" height=\"100%\" rx=\"10\" fill=\"none\" stroke=\"url(#ds-cf)\" stroke-width=\"9\"/></svg><div class=\"ds-cert-inner\"><span class=\"ds-serial\">No. EM/26/CSE/0031</span><p class=\"ds-cert-name\">Ananya Iyer</p><p class=\"ds-cert-meta\">Roll <b>22CSE031</b></p><dl class=\"ds-cert-fields\"><div><dt>CGPA</dt><dd>8.47</dd></div><div><dt>Class XII</dt><dd>88.0</dd></div><div><dt>Backlogs</dt><dd>0</dd></div></dl></div></div>",
+      "css": ".ds-cert{position:relative;max-width:420px;padding:14px;border-radius:14px;background:#FFFDF8;font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;}.ds-cert-border{position:absolute;left:5px;top:5px;width:calc(100% - 10px);height:calc(100% - 10px);overflow:visible;pointer-events:none;}.ds-cert-inner{position:relative;padding:36px 24px 20px;border:1px solid rgba(12,20,38,.15);border-radius:6px;background:#FFFDF8;}.ds-serial{position:absolute;right:16px;top:12px;font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,monospace;font-size:10px;letter-spacing:.08em;color:#56617A;}.ds-cert-name{margin:0;font-family:Archivo,'Public Sans',system-ui,sans-serif;font-stretch:116%;font-size:1.9rem;font-weight:800;line-height:1;letter-spacing:-.02em;color:#0C1426;}.ds-cert-meta{margin:8px 0 0;font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,monospace;font-size:13px;color:#2D3954;}.ds-cert-fields{display:grid;grid-template-columns:repeat(3,1fr);margin:20px 0 0;border-top:1px solid rgba(12,20,38,.15);border-bottom:1px solid rgba(12,20,38,.15);}.ds-cert-fields div{padding:14px 12px;}.ds-cert-fields div+div{border-left:1px solid rgba(12,20,38,.1);}.ds-cert-fields dt{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#56617A;}.ds-cert-fields dd{margin:4px 0 0;font-family:Archivo,'Public Sans',system-ui,sans-serif;font-stretch:116%;font-size:1.65rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;color:#0C1426;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Attested Record",
+    "overview": "Every screen is a document the placement cell has checked, sealed and signed. Content is printed on security paper; the navy degree folder is the ground the documents rest in; the Indian tricolour appears as engraved guilloche linework, the way it appears on a marksheet or a banknote; and status is a rubber stamp pressed in office ink. The world is built from the materials of an Indian certificate, which is why it reads as trustworthy to a placement officer preparing for a NAAC inspection rather than as another SaaS dashboard.\n\nThe system runs in two registers. **Persuade** (landing page, auth) gives the navy folder a full field, draws the rosette once on load and presses the \"Verified · Locked\" stamp as its signature moment. **Operate** (every signed-in screen) is dense and still: a navy sidebar folder, paper content, hairline-bordered cards, static stamps for status and no decorative motion. Both registers share one palette, one type pairing and the same brand pieces (`components/brand`).\n\nThe world refuses the category default: no gradient hero, no tilted dashboard screenshot, no logo strip, no glass, no grain or grid textures. Depth is paper resting on a desk, not light through frosted panels. Sample records are always labelled as samples.",
+    "keyCharacteristics": [
+      "Navy folder grounds (hero bands, auth aside, app sidebar) holding paper documents.",
+      "Guilloche rosettes, bands and certificate borders generated from spirograph curves in saffron, India green and ink.",
+      "Status set as rubber stamps in meaningful inks: violet attests, green clears, vermilion sends back.",
+      "Archivo set expanded (width 116) for headlines and figures, Public Sans for reading, JetBrains Mono for roll numbers and serials.",
+      "Hairline borders and a soft paper lift; no hard offset shadows, no blur.",
+      "Two motions that belong to the world: ink drawing itself, and a stamp landing."
+    ],
+    "rules": [
+      {
+        "name": "The Folder and Paper Rule",
+        "body": "Navy is a ground, not a fill. It holds documents (hero, report band, auth aside, sidebar); content you read sits on paper. A navy card on a paper page is wrong; a paper slip on the navy sidebar is the active state.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Hot Ink Rule",
+        "body": "Saffron is the only hot accent and appears in small doses: one primary CTA per landing viewport, focus rings, counts. Saffron text on paper uses saffron-700 or darker.",
+        "section": "colors"
+      },
+      {
+        "name": "The Stamp Pad Rule",
+        "body": "Violet, green and vermilion are inks with meaning (attested, cleared, sent back) and are never used decoratively. Pending and in-progress states use saffron.",
+        "section": "colors"
+      },
+      {
+        "name": "The Denomination Rule",
+        "body": "Archivo, expanded, is for headlines and figures. Paragraphs, labels and controls are Public Sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Data-Only Mono Rule",
+        "body": "JetBrains Mono is for roll numbers, serials, record figures and `kbd`, never a costume for headings or buttons.",
+        "section": "typography"
+      },
+      {
+        "name": "The Furniture Caps Rule",
+        "body": "Tracked uppercase belongs to document furniture: field names, table heads, a record's type line, stamps, nav group names. It never appears as a kicker above a headline.",
+        "section": "typography"
+      },
+      {
+        "name": "The Paper on a Desk Rule",
+        "body": "Shadows are soft, low and navy-tinted. No zero-blur offset blocks, no glass, no backdrop blur. The `block*` token names are historical; they resolve to paper lift.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Still Grid Rule",
+        "body": "Hover changes border, colour and shadow, never position. Cards, buttons and rows do not translate or scale, so a hovered card never moves its neighbours; a trailing arrow may nudge 4px inside its own button.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Hairline Document Rule",
+        "body": "Every surface is edged by a 1px ink hairline (13 to 20% alpha). Dashed borders mean \"empty\" (EmptyState) or a link in the chain, nothing else.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** set every signed-in page in PageShell on bone-50, with a PageHeader closed by the 8px guilloche band.",
+      "**Do** put documents on record-paper (#FFFDF8) with a 1px ink hairline and 14px corners; let depth come only from Lift on hover or overlay.",
+      "**Do** carry the tricolour as engraved linework (rosette, band, certificate border), not as surface fills.",
+      "**Do** express status as a stamp in its meaning ink: violet attests, green clears, vermilion sends back, saffron waits. Map statuses through the single `STATUS_TONES` table.",
+      "**Do** set headlines and figures in expanded Archivo and give figures `tabular-nums`; set roll numbers and serials in JetBrains Mono.",
+      "**Do** use the 2px saffron-600 focus ring with a 2px offset on every interactive element.",
+      "**Do** caption every sample record, report or student as sample data (\"Sample record. Names and marks are illustrative.\").",
+      "**Do** switch off ink-draw, stamp-press, reveals and counters under `prefers-reduced-motion`, rendering the final state."
+    ],
+    "donts": [
+      "**Don't** use hard zero-blur offset shadows, glassmorphism, backdrop blur, film grain or grid-texture overlays.",
+      "**Don't** put a navy card on a paper page or set paragraphs on saffron; navy is a ground, saffron is an accent.",
+      "**Don't** use violet, green or vermilion decoratively; each one is a state.",
+      "**Don't** set a kicker or eyebrow above a headline; the heading carries its own weight.",
+      "**Don't** animate decoration on app screens or press a stamp on a dense list; motion in Operate is state feedback only.",
+      "**Don't** move, scale or translate cards, buttons or rows on hover; the only hover motion is the 4px nudge of a trailing arrow inside its button.",
+      "**Don't** use Tailwind's default gray, blue, indigo or purple scales, or the legacy `azure`, `primary` and `secondary` scales, in new work; use ink, bone, saffron, india, stamp and vermilion.",
+      "**Don't** use emoji as icons; icons are Heroicons outline at 1.8 to 2 stroke."
+    ]
+  }
+}

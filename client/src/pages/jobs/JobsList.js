@@ -37,7 +37,7 @@ import {
   EyeIcon,
   UsersIcon
 } from '@heroicons/react/24/outline';
-import { formatSalary } from '../../utils/helpers';
+import { formatJobType, formatSalary } from '../../utils/helpers';
 
 const EMPTY_FILTERS = {
   search: '',
@@ -82,9 +82,10 @@ const getTimeAgo = (date) => {
   const diffInDays = Math.floor((new Date() - new Date(date)) / (1000 * 60 * 60 * 24));
   if (diffInDays === 0) return 'Today';
   if (diffInDays === 1) return 'Yesterday';
-  if (diffInDays < 7) return `${diffInDays} days ago`;
-  if (diffInDays < 30) return `${Math.floor(diffInDays / 7)} weeks ago`;
-  return `${Math.floor(diffInDays / 30)} months ago`;
+  const ago = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+  if (diffInDays < 7) return ago(diffInDays, 'day');
+  if (diffInDays < 30) return ago(Math.floor(diffInDays / 7), 'week');
+  return ago(Math.floor(diffInDays / 30), 'month');
 };
 
 /** One metadata line item — icon plus value, muted. */
@@ -238,7 +239,7 @@ const JobsList = () => {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Badge tone="neutral">{job.jobType?.replace('_', ' ') || 'unspecified'}</Badge>
+          <Badge tone="neutral">{formatJobType(job.jobType) || 'Type not set'}</Badge>
           {manageable && job.status && <StatusBadge status={job.status} />}
           {job.applicationDeadline && (
             <span className="text-xs font-medium text-saffron-800">
@@ -365,9 +366,7 @@ const JobsList = () => {
 
         {activeFilters.length > 0 && (
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-ink-950/10 pt-4">
-            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
-              Active
-            </span>
+            <span className="text-xs font-medium text-ink-500">Filtered by</span>
             {activeFilters.map(([key, value]) => (
               <span
                 key={key}

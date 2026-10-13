@@ -35,6 +35,7 @@ import {
   Pagination,
   Select,
   SkeletonCard,
+  StatStrip,
   StatTile,
 
   Table,
@@ -463,7 +464,7 @@ const TPOAnalytics = () => {
         <>
           {tab === 'overview' && (
             <>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatStrip>
                 <StatTile
                   label="Students"
                   value={analytics.students?.total ?? 0}
@@ -496,7 +497,7 @@ const TPOAnalytics = () => {
                   icon={DocumentTextIcon}
                   accent="saffron"
                 />
-              </div>
+              </StatStrip>
 
               <div className="mt-6 grid gap-6 lg:grid-cols-2">
                 <Card>

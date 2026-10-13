@@ -3,15 +3,16 @@
 // The signed-in app's design system.
 //
 // The landing page owns `components/landing/primitives.js`; this is its
-// counterpart for every screen behind the login. Same visual language — warm
-// bone canvas, near-black ink type, saffron as the single hot accent, india
-// green as the positive signal, hard 1px borders instead of soft drop shadows —
-// but tuned for density: smaller radii, tighter padding, no decorative motion.
+// counterpart for every screen behind the login. The visual world is the
+// attested record: security paper ground, degree-folder navy ink, saffron and
+// India green guilloche linework, violet attestation stamps for status. Tuned
+// for density here: 10–14px radii, tight padding, no decorative motion.
 //
 // Nothing here fetches data or makes routing decisions. Pages compose these.
-import React, { forwardRef, useEffect, useId, useRef, useState } from 'react';
+import React, { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { XMarkIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { GuillocheBand } from '../brand';
 
 /* =============================================================== primitives */
 
@@ -63,22 +64,20 @@ export const PageHeader = ({
   breadcrumbs,
   className = ''
 }) => (
+  // `eyebrow` is still accepted so existing call sites keep compiling, but it
+  // is no longer drawn: the title carries its own weight.
   <div className={cx('mb-8', className)}>
     {breadcrumbs && <Breadcrumbs items={breadcrumbs} className="mb-4" />}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        {eyebrow && (
-          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="mt-1.5 font-display text-3xl font-bold tracking-tight text-ink-950 sm:text-4xl">
+        <h1 className="text-balance font-display text-[1.75rem] font-bold leading-[1.1] tracking-[-0.02em] text-ink-950 sm:text-[2.15rem]">
           {title}
         </h1>
         {lead && <p className="mt-2 max-w-prose text-sm text-ink-600 sm:text-base">{lead}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
+    <GuillocheBand height={8} className="mt-5 opacity-70" />
   </div>
 );
 
@@ -93,7 +92,7 @@ export const Breadcrumbs = ({ items = [], className = '' }) => (
             {item.to && !last ? (
               <Link
                 to={item.to}
-                className="rounded px-1 py-0.5 font-medium hover:text-ink-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                className="rounded px-1 py-0.5 font-medium hover:text-ink-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600"
               >
                 {item.label}
               </Link>
@@ -117,7 +116,7 @@ export const SectionBlock = ({ title, description, actions, children, className 
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           {title && (
-            <h2 className="font-display text-lg font-bold tracking-tight text-ink-950">{title}</h2>
+            <h2 className="font-display text-lg font-bold tracking-[-0.01em] text-ink-950">{title}</h2>
           )}
           {description && <p className="mt-1 text-sm text-ink-600">{description}</p>}
         </div>
@@ -147,10 +146,10 @@ export const Card = ({
 }) => (
   <Tag
     className={cx(
-      'rounded-2xl border border-ink-950/15 bg-white transition-all duration-200',
+      'rounded-[14px] border border-ink-950/[0.13] bg-[#FFFDF8] transition-[border-color,box-shadow] duration-200',
       padded && 'p-5 sm:p-6',
       interactive &&
-        'cursor-pointer hover:border-ink-950/40 hover:shadow-block-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 focus-visible:ring-offset-2 focus-visible:ring-offset-bone-50',
+        'cursor-pointer hover:border-ink-950/35 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600 focus-visible:ring-offset-2 focus-visible:ring-offset-bone-50',
       className
     )}
     {...rest}
@@ -173,7 +172,7 @@ export const CardHeader = ({ title, description, actions, className = '' }) => (
 
 const BUTTON_BASE =
   'group relative inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap ' +
-  'rounded-full font-semibold transition-all duration-200 focus-visible:outline-none ' +
+  'rounded-[10px] font-semibold transition-[background-color,border-color,color,box-shadow] duration-200 focus-visible:outline-none ' +
   'focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bone-50 ' +
   'disabled:pointer-events-none disabled:opacity-50';
 
@@ -186,28 +185,30 @@ const BUTTON_SIZES = {
 };
 
 const BUTTON_VARIANTS = {
+  // Ink on paper: the default action. Saffron underline of light on hover.
   primary:
-    'border border-ink-950 bg-ink-950 text-white shadow-block-sm hover:-translate-x-[1px] ' +
-    'hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#FF9933] active:translate-x-0 ' +
-    'active:translate-y-0 active:shadow-none focus-visible:ring-ink-950',
+    'border border-ink-950 bg-ink-950 text-bone-50 shadow-[inset_0_-2px_0_0_rgba(255,153,51,0)] ' +
+    'hover:bg-ink-800 hover:shadow-[inset_0_-2px_0_0_#FF9933] active:bg-ink-950 focus-visible:ring-saffron-600',
   saffron:
-    'border border-ink-950 bg-saffron-500 text-ink-950 shadow-block-sm hover:-translate-x-[1px] ' +
-    'hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#0B0C0E] active:translate-x-0 ' +
-    'active:translate-y-0 active:shadow-none focus-visible:ring-ink-950',
+    'border border-saffron-600 bg-saffron-500 text-ink-950 hover:bg-saffron-400 ' +
+    'active:bg-saffron-600 focus-visible:ring-ink-950',
   secondary:
-    'border border-ink-950/20 bg-white text-ink-950 hover:border-ink-950 hover:bg-bone-100 ' +
-    'focus-visible:ring-ink-950',
+    'border border-ink-950/20 bg-[#FFFDF8] text-ink-950 hover:border-ink-950/60 hover:bg-bone-100 ' +
+    'focus-visible:ring-saffron-600',
   ghost:
     'border border-transparent bg-transparent text-ink-700 hover:bg-ink-950/[0.06] ' +
-    'hover:text-ink-950 focus-visible:ring-ink-950',
+    'hover:text-ink-950 focus-visible:ring-saffron-600',
   danger:
-    'border border-red-700 bg-red-700 text-white hover:bg-red-800 focus-visible:ring-red-700',
+    'border border-vermilion-600 bg-vermilion-600 text-white hover:bg-vermilion-700 focus-visible:ring-vermilion-600',
   success:
     'border border-india-700 bg-india-700 text-white hover:bg-india-800 focus-visible:ring-india-700',
-  // Sits on the inverted ink bands (dashboard hero strips, the conference UI).
+  // Attestation ink: verifying and locking a record. Green stays for cleared.
+  attest:
+    'border border-stamp-600 bg-stamp-600 text-white hover:bg-stamp-700 focus-visible:ring-stamp-600',
+  // Sits on the navy folder surfaces (dashboard strips, the conference UI).
   light:
-    'border border-white bg-white text-ink-950 hover:bg-saffron-500 hover:border-saffron-500 ' +
-    'focus-visible:ring-white focus-visible:ring-offset-ink-950'
+    'border border-bone-50 bg-bone-50 text-ink-950 hover:bg-saffron-500 hover:border-saffron-500 ' +
+    'focus-visible:ring-bone-50 focus-visible:ring-offset-ink-950'
 };
 
 /**
@@ -281,9 +282,9 @@ Button.displayName = 'Button';
  */
 const ICON_BUTTON_VARIANTS = {
   ghost: 'border border-transparent text-ink-600 hover:bg-ink-950/[0.06] hover:text-ink-950',
-  secondary: 'border border-ink-950/20 bg-white text-ink-800 hover:border-ink-950 hover:bg-bone-100',
-  primary: 'border border-ink-950 bg-ink-950 text-white hover:bg-ink-800',
-  danger: 'border border-transparent text-red-700 hover:bg-red-50'
+  secondary: 'border border-ink-950/20 bg-[#FFFDF8] text-ink-800 hover:border-ink-950/60 hover:bg-bone-100',
+  primary: 'border border-ink-950 bg-ink-950 text-bone-50 hover:bg-ink-800',
+  danger: 'border border-transparent text-vermilion-700 hover:bg-vermilion-50'
 };
 
 export const IconButton = forwardRef(
@@ -296,8 +297,8 @@ export const IconButton = forwardRef(
         aria-label={label}
         title={label}
         className={cx(
-          'inline-flex shrink-0 items-center justify-center rounded-full transition-colors duration-200',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 focus-visible:ring-offset-2',
+          'inline-flex shrink-0 items-center justify-center rounded-[10px] transition-colors duration-200',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600 focus-visible:ring-offset-2',
           'focus-visible:ring-offset-bone-50 disabled:pointer-events-none disabled:opacity-50',
           sizes[size],
           ICON_BUTTON_VARIANTS[variant] || ICON_BUTTON_VARIANTS.ghost,
@@ -315,14 +316,14 @@ IconButton.displayName = 'IconButton';
 /* =================================================================== fields */
 
 const FIELD_BASE =
-  'block w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-ink-950 ' +
+  'block w-full rounded-[10px] border bg-[#FFFDF8] px-3.5 py-2.5 text-sm text-ink-950 ' +
   'placeholder:text-ink-500 transition-colors duration-150 focus:outline-none focus:ring-2 ' +
   'disabled:cursor-not-allowed disabled:bg-bone-100 disabled:text-ink-500';
 
 const fieldTone = (invalid) =>
   invalid
-    ? 'border-red-600 focus:border-red-600 focus:ring-red-600/25'
-    : 'border-ink-950/20 hover:border-ink-950/40 focus:border-ink-950 focus:ring-ink-950/15';
+    ? 'border-vermilion-600 focus:border-vermilion-600 focus:ring-vermilion-600/25'
+    : 'border-ink-950/20 hover:border-ink-950/40 focus:border-ink-950 focus:ring-saffron-500/30';
 
 /**
  * Field — label + control + help/error, wired together.
@@ -337,7 +338,7 @@ export const Field = ({ label, htmlFor, required, error, help, children, classNa
       <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-ink-800">
         {label}
         {required && (
-          <span className="ml-0.5 text-red-600" aria-hidden="true">
+          <span className="ml-0.5 text-vermilion-600" aria-hidden="true">
             *
           </span>
         )}
@@ -346,7 +347,7 @@ export const Field = ({ label, htmlFor, required, error, help, children, classNa
     )}
     {children}
     {error && (
-      <p id={`${htmlFor}-error`} role="alert" className="mt-1.5 text-xs font-medium text-red-700">
+      <p id={`${htmlFor}-error`} role="alert" className="mt-1.5 text-xs font-medium text-vermilion-700">
         {error}
       </p>
     )}
@@ -452,7 +453,7 @@ export const Checkbox = forwardRef(({ label, description, className = '', id, ..
         ref={ref}
         type="checkbox"
         id={fieldId}
-        className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-950/30 text-ink-950 focus:ring-2 focus:ring-ink-950/40"
+        className="mt-0.5 h-4 w-4 shrink-0 rounded-[4px] border-ink-950/30 text-ink-950 focus:ring-2 focus:ring-saffron-500/50"
         {...rest}
       />
       <label htmlFor={fieldId} className="cursor-pointer text-sm text-ink-800">
@@ -468,12 +469,24 @@ Checkbox.displayName = 'Checkbox';
 
 const BADGE_TONES = {
   neutral: 'border-ink-950/15 bg-bone-100 text-ink-700',
-  ink: 'border-ink-950 bg-ink-950 text-white',
-  success: 'border-india-600/30 bg-india-50 text-india-800',
-  warning: 'border-saffron-500/40 bg-saffron-50 text-saffron-800',
-  danger: 'border-red-600/25 bg-red-50 text-red-800',
-  info: 'border-azure-500/30 bg-azure-500/10 text-azure-700',
-  purple: 'border-purple-500/25 bg-purple-50 text-purple-800'
+  ink: 'border-ink-950 bg-ink-950 text-bone-50',
+  success: 'border-india-700/30 bg-india-50 text-india-800',
+  warning: 'border-saffron-600/40 bg-saffron-50 text-saffron-800',
+  danger: 'border-vermilion-600/30 bg-vermilion-50 text-vermilion-800',
+  info: 'border-stamp-500/30 bg-stamp-50 text-stamp-700',
+  purple: 'border-stamp-500/30 bg-stamp-50 text-stamp-700',
+  attest: 'border-stamp-600/40 bg-stamp-50 text-stamp-700'
+};
+
+// Status reads as a rubber stamp: ink-coloured double rule, expanded capitals.
+const STAMP_TONES = {
+  neutral: 'border-ink-600/55 text-ink-600',
+  ink: 'border-ink-950 text-ink-950',
+  success: 'border-india-700/70 text-india-700',
+  warning: 'border-saffron-700/70 text-saffron-800',
+  danger: 'border-vermilion-600/70 text-vermilion-700',
+  info: 'border-stamp-600/70 text-stamp-700',
+  purple: 'border-stamp-600/70 text-stamp-700'
 };
 
 /**
@@ -485,7 +498,7 @@ const BADGE_TONES = {
 export const Badge = ({ tone = 'neutral', dot = false, className = '', children }) => (
   <span
     className={cx(
-      'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium',
+      'inline-flex items-center gap-1.5 whitespace-nowrap rounded-[6px] border px-2 py-0.5 text-xs font-medium',
       BADGE_TONES[tone] || BADGE_TONES.neutral,
       className
     )}
@@ -548,10 +561,18 @@ export const STATUS_TONES = {
 export const StatusBadge = ({ status, className = '' }) => {
   if (!status) return null;
   const key = String(status).toLowerCase();
+  const tone = STATUS_TONES[key] || 'neutral';
   return (
-    <Badge tone={STATUS_TONES[key] || 'neutral'} dot className={className}>
+    <span
+      className={cx(
+        'inline-flex items-center whitespace-nowrap rounded-[4px] border-[1.5px] bg-transparent px-1.5 py-[1px]',
+        'font-display text-[10.5px] font-bold uppercase leading-[16px] tracking-[0.08em]',
+        STAMP_TONES[tone],
+        className
+      )}
+    >
       {String(status).replace(/_/g, ' ')}
-    </Badge>
+    </span>
   );
 };
 
@@ -563,6 +584,36 @@ export const StatusBadge = ({ status, className = '' }) => {
  * The label sits above the number: on a dense grid the eye scans labels first
  * to find the metric it wants, then reads the value.
  */
+// Set by StatStrip so its tiles render as cells of one ruled register instead
+// of separate cards.
+const StripContext = createContext(false);
+
+/**
+ * StatStrip — a dashboard's headline figures as one ruled register: a single
+ * paper surface split by hairlines, two figures a row on phones. Replaces the
+ * grid of separate cards, which read as a template rather than a record.
+ */
+export const StatStrip = ({ cols = 4, className = '', children }) => (
+  <StripContext.Provider value={true}>
+    <div
+      className={cx(
+        'grid grid-cols-2 overflow-hidden rounded-[14px] border border-ink-950/15 bg-[#FFFDF8]',
+        cols === 4 && 'lg:grid-cols-4',
+        cols === 3 && 'lg:grid-cols-3',
+        className
+      )}
+    >
+      {children}
+    </div>
+  </StripContext.Provider>
+);
+
+/**
+ * StatTile — one headline figure.
+ *
+ * Inside a StatStrip it is a ruled cell (label above, figure below, no icon);
+ * on its own it is a card, with the icon tile as a quiet marker.
+ */
 export const StatTile = ({
   label,
   value,
@@ -573,23 +624,53 @@ export const StatTile = ({
   loading = false,
   className = ''
 }) => {
+  const inStrip = useContext(StripContext);
   const accents = {
-    ink: 'border-ink-950/15 bg-ink-950 text-white',
-    saffron: 'border-saffron-500/35 bg-saffron-50 text-saffron-800',
-    india: 'border-india-600/30 bg-india-50 text-india-700',
-    azure: 'border-azure-500/25 bg-azure-500/10 text-azure-700'
+    ink: 'border-ink-950/15 bg-ink-950 text-bone-50',
+    saffron: 'border-saffron-600/35 bg-saffron-50 text-saffron-800',
+    india: 'border-india-700/30 bg-india-50 text-india-700',
+    azure: 'border-stamp-500/30 bg-stamp-50 text-stamp-700'
   };
+  const figure = loading ? (
+    <div className="mt-3 h-9 w-20 animate-pulse rounded-lg bg-bone-200" />
+  ) : (
+    <p className="mt-2 font-display text-[clamp(1.6rem,1.2rem+1.4vw,2.1rem)] font-bold leading-none tabular-nums tracking-[-0.02em] text-ink-950">
+      {value}
+    </p>
+  );
+
+  if (inStrip) {
+    // -mb-px/-mr-px tuck the outer hairlines under the strip's own border.
+    const cell = cx(
+      '-mb-px -mr-px min-w-0 border-b border-r border-ink-950/10 px-4 py-4 sm:px-5 sm:py-5',
+      to && 'transition-colors hover:bg-bone-100 focus-visible:bg-bone-100 focus-visible:outline-none',
+      className
+    );
+    const body = (
+      <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-500">{label}</p>
+        {figure}
+        {hint && <p className="mt-1.5 text-xs text-ink-500">{hint}</p>}
+      </>
+    );
+    return to ? (
+      <Link to={to} className={cell}>
+        {body}
+      </Link>
+    ) : (
+      <div className={cell}>{body}</div>
+    );
+  }
+
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-ink-500">
-          {label}
-        </p>
+        <p className="text-[13px] font-semibold text-ink-600">{label}</p>
         {Icon && (
           <span
             aria-hidden="true"
             className={cx(
-              'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
+              'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border',
               accents[accent]
             )}
           >
@@ -597,13 +678,7 @@ export const StatTile = ({
           </span>
         )}
       </div>
-      {loading ? (
-        <div className="mt-3 h-9 w-20 animate-pulse rounded-lg bg-bone-200" />
-      ) : (
-        <p className="mt-2 font-display text-3xl font-bold tabular-nums tracking-tight text-ink-950">
-          {value}
-        </p>
-      )}
+      {figure}
       {hint && <p className="mt-1 text-xs text-ink-500">{hint}</p>}
     </>
   );
@@ -628,14 +703,14 @@ export const StatTile = ({
 export const EmptyState = ({ icon: Icon, title, description, action, className = '' }) => (
   <div
     className={cx(
-      'flex flex-col items-center justify-center rounded-2xl border border-dashed border-ink-950/20 bg-white px-6 py-14 text-center',
+      'flex flex-col items-center justify-center rounded-[14px] border border-dashed border-ink-950/25 bg-[#FFFDF8] px-6 py-14 text-center',
       className
     )}
   >
     {Icon && (
       <span
         aria-hidden="true"
-        className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-ink-950/15 bg-bone-100 text-ink-600"
+        className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-[12px] border border-ink-950/15 bg-bone-100 text-ink-600"
       >
         <Icon className="h-6 w-6" strokeWidth={1.6} />
       </span>
@@ -650,10 +725,10 @@ export const EmptyState = ({ icon: Icon, title, description, action, className =
 export const ErrorState = ({ title = 'Something went wrong', description, onRetry, className = '' }) => (
   <div
     role="alert"
-    className={cx('rounded-2xl border border-red-600/25 bg-red-50 px-5 py-6 text-center', className)}
+    className={cx('rounded-[14px] border border-vermilion-600/30 bg-vermilion-50 px-5 py-6 text-center', className)}
   >
-    <h3 className="font-display text-base font-bold text-red-900">{title}</h3>
-    {description && <p className="mx-auto mt-1.5 max-w-md text-sm text-red-800">{description}</p>}
+    <h3 className="font-display text-base font-bold text-vermilion-900">{title}</h3>
+    {description && <p className="mx-auto mt-1.5 max-w-md text-sm text-vermilion-800">{description}</p>}
     {onRetry && (
       <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
         Try again
@@ -710,8 +785,8 @@ export const Table = ({ children, className = '' }) => (
     role="region"
     aria-label="Data table"
     className={cx(
-      'overflow-x-auto rounded-2xl border border-ink-950/15 bg-white',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950',
+      'overflow-x-auto rounded-[14px] border border-ink-950/[0.13] bg-[#FFFDF8]',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600',
       className
     )}
   >
@@ -727,7 +802,7 @@ export const Th = ({ children, className = '', ...rest }) => (
   <th
     scope="col"
     className={cx(
-      'px-4 py-3 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-600',
+      'px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-600',
       className
     )}
     {...rest}
@@ -741,7 +816,7 @@ export const Tbody = ({ children }) => (
 );
 
 export const Tr = ({ children, className = '', ...rest }) => (
-  <tr className={cx('transition-colors hover:bg-bone-50', className)} {...rest}>
+  <tr className={cx('transition-colors hover:bg-bone-100/60', className)} {...rest}>
     {children}
   </tr>
 );
@@ -783,7 +858,7 @@ export const Tabs = ({ tabs, value, onChange, className = '' }) => {
       role="tablist"
       onKeyDown={onKeyDown}
       className={cx(
-        'flex gap-1 overflow-x-auto rounded-full border border-ink-950/15 bg-white p-1',
+        'flex gap-1 overflow-x-auto rounded-[12px] border border-ink-950/[0.13] bg-[#FFFDF8] p-1',
         className
       )}
     >
@@ -798,9 +873,9 @@ export const Tabs = ({ tabs, value, onChange, className = '' }) => {
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(tab.value)}
             className={cx(
-              'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors duration-150',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950',
-              active ? 'bg-ink-950 text-white' : 'text-ink-600 hover:bg-bone-100 hover:text-ink-950'
+              'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] px-4 py-2 text-sm font-medium transition-colors duration-150',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600',
+              active ? 'bg-ink-950 text-bone-50' : 'text-ink-600 hover:bg-bone-100 hover:text-ink-950'
             )}
           >
             {tab.icon && <tab.icon aria-hidden="true" className="h-4 w-4" strokeWidth={1.8} />}
@@ -808,8 +883,8 @@ export const Tabs = ({ tabs, value, onChange, className = '' }) => {
             {tab.count != null && (
               <span
                 className={cx(
-                  'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-                  active ? 'bg-white/20 text-white' : 'bg-bone-200 text-ink-700'
+                  'rounded-[5px] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                  active ? 'bg-saffron-500 text-ink-950' : 'bg-bone-200 text-ink-700'
                 )}
               >
                 {tab.count}
@@ -886,7 +961,7 @@ export const Modal = ({ open, onClose, title, description, children, footer, siz
       <div
         aria-hidden="true"
         onClick={onClose}
-        className="absolute inset-0 bg-ink-950/60 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-ink-950/65"
       />
       <div
         ref={panelRef}
@@ -894,8 +969,8 @@ export const Modal = ({ open, onClose, title, description, children, footer, siz
         aria-modal="true"
         aria-labelledby={titleId}
         className={cx(
-          'relative flex max-h-[92vh] w-full flex-col overflow-hidden border border-ink-950/15 bg-white',
-          'rounded-t-3xl sm:rounded-3xl',
+          'relative flex max-h-[92vh] w-full flex-col overflow-hidden border border-ink-950/15 bg-[#FFFDF8] shadow-lift-lg',
+          'rounded-t-[18px] sm:rounded-[16px]',
           sizes[size]
         )}
       >
@@ -957,11 +1032,11 @@ export const Pagination = ({ page, pages, onChange, className = '' }) => {
             aria-current={n === current ? 'page' : undefined}
             onClick={() => onChange(n)}
             className={cx(
-              'h-9 min-w-[36px] rounded-full px-2 text-sm font-medium tabular-nums transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950',
+              'h-9 min-w-[36px] rounded-[8px] px-2 text-sm font-medium tabular-nums transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600',
               n === current
-                ? 'bg-ink-950 text-white'
-                : 'border border-ink-950/15 bg-white text-ink-700 hover:border-ink-950/40'
+                ? 'bg-ink-950 text-bone-50'
+                : 'border border-ink-950/15 bg-[#FFFDF8] text-ink-700 hover:border-ink-950/40'
             )}
           >
             {n}
@@ -1022,8 +1097,8 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
       role="img"
       aria-label={name ? `${name}'s profile picture` : 'Profile picture'}
       className={cx(
-        'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl',
-        'border border-ink-950/15 bg-ink-950 font-semibold text-white',
+        'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[10px]',
+        'border border-ink-950/15 bg-ink-900 font-display font-bold text-bone-50',
         sizes[size],
         className
       )}
@@ -1045,7 +1120,7 @@ export const Avatar = ({ src, name = '', size = 'md', className = '' }) => {
 /** Definition row — a label/value pair, used across detail pages. */
 export const DetailRow = ({ label, children, className = '' }) => (
   <div className={cx('flex flex-col gap-0.5 py-2.5 sm:flex-row sm:gap-4', className)}>
-    <dt className="w-44 shrink-0 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-500 sm:pt-0.5">
+    <dt className="w-44 shrink-0 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-500 sm:pt-0.5">
       {label}
     </dt>
     <dd className="min-w-0 flex-1 text-sm text-ink-800">{children ?? '—'}</dd>
@@ -1061,7 +1136,7 @@ export const Divider = ({ className = '' }) => (
 export const Toolbar = ({ children, className = '' }) => (
   <div
     className={cx(
-      'mb-6 flex flex-col gap-3 rounded-2xl border border-ink-950/15 bg-white p-4 sm:flex-row sm:items-center',
+      'mb-6 flex flex-col gap-3 rounded-[14px] border border-ink-950/[0.13] bg-[#FFFDF8] p-4 sm:flex-row sm:items-center',
       className
     )}
   >

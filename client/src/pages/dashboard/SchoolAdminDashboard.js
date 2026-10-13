@@ -43,6 +43,7 @@ import {
   PageShell,
   SectionBlock,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Table,
@@ -485,7 +486,7 @@ const SchoolAdminDashboard = () => {
       />
 
       <SectionBlock>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatStrip>
           <StatTile
             label="Students"
             value={errors.people ? '—' : studentCount}
@@ -518,7 +519,7 @@ const SchoolAdminDashboard = () => {
             loading={loading}
             to="/conferences"
           />
-        </div>
+        </StatStrip>
       </SectionBlock>
 
       <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />

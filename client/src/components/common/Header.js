@@ -221,7 +221,7 @@ const Header = () => {
               <span className="font-display text-lg font-bold tracking-tight text-ink-950">
                 EduMapping
               </span>
-              <span className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-ink-500">
+              <span className="mt-0.5 text-[9px] uppercase tracking-[0.07em] text-ink-500">
                 Nurturing young minds
               </span>
             </span>

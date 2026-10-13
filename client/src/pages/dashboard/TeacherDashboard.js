@@ -45,6 +45,7 @@ import {
   PageShell,
   SectionBlock,
   SkeletonCard,
+  StatStrip,
   StatTile,
   Tabs
 } from '../../components/ui';
@@ -445,7 +446,7 @@ const TeacherDashboard = () => {
       />
 
       <SectionBlock>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatStrip>
           <StatTile
             label="Your live classes"
             value={errors.live ? '—' : myConferences.length}
@@ -476,7 +477,7 @@ const TeacherDashboard = () => {
             accent="azure"
             loading={loading}
           />
-        </div>
+        </StatStrip>
       </SectionBlock>
 
       <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />

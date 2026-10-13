@@ -5,14 +5,10 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-/* Import Inter font from Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-/* Plus Jakarta Sans — body face for the landing page */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-
-/* Space Grotesk — display face for the landing page headlines */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* The attested record's three faces, in one request:
+   Archivo (variable width + weight) for headlines and figures, Public Sans for
+   reading, JetBrains Mono for roll numbers and serials. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:ital,wght@0,300..800;1,400..600&display=swap');
 
 /* Global CSS Variables */
 :root {
@@ -47,11 +43,11 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f9fafb;
-  color: #1f2937;
+  background-color: #FBF9F4;
+  color: #0C1426;
   line-height: 1.6;
 }
 
@@ -617,4 +613,71 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in, .animate-slide-up, [class*="animate-[slideInLeft"] { animation: none !important; }
+}
+
+
+/* ============================================================ attested record
+   Browser surfaces and the few rules Tailwind utilities cannot express. */
+
+/* Headlines are set expanded, like the denomination on a banknote. The width
+   axis comes from the variable Archivo request above. */
+.font-display {
+  font-stretch: 116%;
+  font-optical-sizing: auto;
+}
+.font-display.condensed { font-stretch: 92%; }
+
+::selection {
+  background: #FFD1A0;
+  color: #0C1426;
+}
+
+html {
+  caret-color: #B35F0C;
+  accent-color: #0C1426;
+  scrollbar-color: #B6AA8D transparent;
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #DAD0B8;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #B6AA8D; background-clip: padding-box; border: 3px solid transparent; }
+
+:focus-visible {
+  outline: 2px solid #E57E14;
+  outline-offset: 2px;
+}
+
+a { text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
+
+/* Figures in tables and records line up in columns. */
+table, .tabular { font-variant-numeric: tabular-nums; }
+
+/* Guilloche linework draws itself once, then rests. */
+.ink-draw path,
+.ink-draw ellipse,
+.ink-draw circle {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: inkDraw 2.6s cubic-bezier(.16,1,.3,1) forwards;
+}
+@keyframes inkDraw { to { stroke-dashoffset: 0; } }
+
+.stamp-press {
+  animation: stampPress .6s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes stampPress {
+  0%   { opacity: 0; transform: scale(1.9) rotate(var(--stamp-rot, -7deg)); filter: blur(6px); }
+  60%  { opacity: 1; transform: scale(.96) rotate(var(--stamp-rot, -7deg)); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1) rotate(var(--stamp-rot, -7deg)); filter: blur(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-draw path, .ink-draw ellipse, .ink-draw circle { animation: none; stroke-dashoffset: 0; }
+  .stamp-press { animation: none; opacity: 1; transform: rotate(var(--stamp-rot, -7deg)); filter: none; }
 }

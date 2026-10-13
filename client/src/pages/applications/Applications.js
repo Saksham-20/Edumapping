@@ -35,6 +35,7 @@ import {
   ClipboardDocumentListIcon,
   UserIcon
 } from '@heroicons/react/24/outline';
+import { formatJobType } from '../../utils/helpers';
 
 const STUDENT_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -332,7 +333,7 @@ const Applications = () => {
                 <>
                   <p>{application.job?.organization?.name}</p>
                   <p>Location: {application.job?.location || 'Not specified'}</p>
-                  <p>Type: {application.job?.jobType?.replace('_', ' ') || 'Not specified'}</p>
+                  <p>Type: {formatJobType(application.job?.jobType) || 'Not specified'}</p>
                 </>
               ) : (
                 <>

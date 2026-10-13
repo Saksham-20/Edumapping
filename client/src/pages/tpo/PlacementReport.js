@@ -16,6 +16,7 @@ import {
   PageShell,
   Select,
   SkeletonCard,
+  StatStrip,
   StatTile,
   Table,
   Tbody,
@@ -124,12 +125,12 @@ const PlacementReport = () => {
         />
       ) : (
         <>
-          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatStrip className="mb-8">
             <StatTile label="Placement rate" value={`${s.placementRate}%`} hint={`${s.placed} of ${s.eligible} eligible students`} accent="india" />
             <StatTile label="Placed + higher studies" value={`${s.outcomeRate}%`} hint={`${s.higherStudies} went on to higher studies`} accent="azure" />
             <StatTile label="Median CTC" value={ctc(s.medianCtc)} hint={`Average ${ctc(s.averageCtc)}`} accent="saffron" />
             <StatTile label="Highest CTC" value={ctc(s.highestCtc)} hint={`${s.totalOffers} offers · ${s.ppos} PPO${s.ppos === 1 ? '' : 's'}`} />
-          </div>
+          </StatStrip>
 
           <Card padded={false} className="mb-8">
             <div className="p-5 sm:p-6">
@@ -188,21 +189,21 @@ const PlacementReport = () => {
               <CardHeader title="Evidence" description="NAAC peer teams sample offer letters. Verify them under Offers." />
               <dl className="mt-4 grid grid-cols-2 gap-4">
                 <div>
-                  <dt className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">Offer letters verified</dt>
+                  <dt className="text-[11px] uppercase tracking-[0.07em] text-ink-500">Offer letters verified</dt>
                   <dd className="mt-1 font-display text-2xl font-bold text-ink-950">
                     {s.offerLettersVerified} / {s.placed}
                   </dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">Unplaced</dt>
+                  <dt className="text-[11px] uppercase tracking-[0.07em] text-ink-500">Unplaced</dt>
                   <dd className="mt-1 font-display text-2xl font-bold text-ink-950">{s.unplaced}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">Opted out</dt>
+                  <dt className="text-[11px] uppercase tracking-[0.07em] text-ink-500">Opted out</dt>
                   <dd className="mt-1 font-display text-2xl font-bold text-ink-950">{s.optedOut}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">Deferred</dt>
+                  <dt className="text-[11px] uppercase tracking-[0.07em] text-ink-500">Deferred</dt>
                   <dd className="mt-1 font-display text-2xl font-bold text-ink-950">{s.deferred}</dd>
                 </div>
               </dl>

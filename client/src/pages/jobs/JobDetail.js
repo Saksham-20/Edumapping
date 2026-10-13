@@ -39,7 +39,7 @@ import {
   ExclamationTriangleIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
-import { formatSalary } from '../../utils/helpers';
+import { formatJobType, formatSalary } from '../../utils/helpers';
 
 const REQUIRED_PROFILE_FIELDS = [
   'course',
@@ -289,7 +289,7 @@ const JobDetail = () => {
             <Meta icon={BuildingOfficeIcon}>{job.organization.name}</Meta>
           )}
           {job.location && <Meta icon={MapPinIcon}>{job.location}</Meta>}
-          {job.jobType && <Meta icon={BriefcaseIcon}>{job.jobType.replace('_', ' ')}</Meta>}
+          {job.jobType && <Meta icon={BriefcaseIcon}>{formatJobType(job.jobType)}</Meta>}
           <Meta icon={CurrencyRupeeIcon}>{formatSalary(job.salaryMin, job.salaryMax)}</Meta>
           {deadline && <Meta icon={CalendarIcon}>Apply by {deadline}</Meta>}
           <Meta icon={EyeIcon}>{job.viewCount || 0} views</Meta>

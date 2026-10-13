@@ -9,36 +9,94 @@ import React, { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { Field, cx } from '../../components/ui';
+import { Guilloche, GuillocheBand, MicroRule, Stamp } from '../../components/brand';
 
-/** Centred, full-viewport ground. Not PageShell: there is no header above it. */
+/**
+ * Full-viewport ground. Not PageShell: there is no header above it.
+ *
+ * On wide screens the left half is the navy document folder the record lives
+ * in, with the rosette engraved once on load; the form sits on paper beside
+ * it. Small screens get a short navy band instead, so the form still sits
+ * high on the first screen but the page is recognisably the same document.
+ */
 export const AuthShell = ({ width = 'max-w-md', children }) => (
-  <main className="flex min-h-screen items-center justify-center bg-bone-50 px-5 py-12">
-    <div className={cx('w-full', width)}>{children}</div>
-  </main>
+  <div className="min-h-screen bg-bone-50 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    <aside className="relative hidden overflow-hidden bg-ink-950 text-bone-50 lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+      <Guilloche
+        size={820}
+        tone="dark"
+        draw
+        opacity={0.18}
+        className="pointer-events-none absolute -bottom-[30rem] -right-[30rem]"
+      />
+      <Link
+        to="/"
+        className="relative inline-flex items-center gap-3 self-start rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500"
+      >
+        <img src="/logo.svg" alt="" aria-hidden="true" className="h-10 w-auto" />
+        <span className="font-display text-xl font-bold">EduMapping</span>
+      </Link>
+      <div className="relative">
+        <p className="max-w-[12ch] font-display text-[clamp(2.6rem,1.4rem+2.6vw,4.2rem)] font-extrabold leading-[0.96] tracking-[-0.03em]">
+          From classroom to career.
+        </p>
+        <GuillocheBand tone="dark" height={10} className="mt-6 max-w-[22rem] opacity-90" />
+        <p className="mt-6 max-w-[40ch] text-base leading-relaxed text-bone-200/80">
+          One verified record for every student, from school guidance to the signed offer letter.
+        </p>
+      </div>
+      <div className="relative flex items-end justify-between gap-6">
+        <MicroRule tone="dark" className="max-w-[60%]" />
+        <Stamp tone="light" size="sm" rotate={-6}>
+          Verified · Locked
+        </Stamp>
+      </div>
+    </aside>
+    <header className="relative overflow-hidden bg-ink-950 px-5 pb-5 pt-6 text-bone-50 sm:px-8 lg:hidden">
+      <Guilloche
+        size={300}
+        tone="dark"
+        lace
+        opacity={0.16}
+        className="pointer-events-none absolute -right-24 -top-28"
+      />
+      <div className="relative flex items-center justify-between gap-4">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2.5 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-500"
+        >
+          <img src="/logo.svg" alt="" aria-hidden="true" className="h-9 w-auto" />
+          <span className="leading-tight">
+            <span className="block font-display text-lg font-bold">EduMapping</span>
+            <span className="block text-[11px] text-bone-300/80">From classroom to career</span>
+          </span>
+        </Link>
+        <Stamp tone="light" size="sm" rotate={-6}>
+          Verified
+        </Stamp>
+      </div>
+      <GuillocheBand tone="dark" height={10} className="relative mt-5 opacity-90" />
+    </header>
+    <main className="flex items-start justify-center px-5 pb-12 pt-8 sm:px-8 lg:min-h-screen lg:items-center lg:py-12">
+      <div className={cx('w-full', width)}>{children}</div>
+    </main>
+  </div>
 );
 
-/** Logo + wordmark, linking home. The wordmark carries the accessible name. */
-export const AuthBrand = ({ tagline }) => (
-  <Link
-    to="/"
-    className="mb-6 flex flex-col items-center gap-1.5 rounded-2xl text-center transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 focus-visible:ring-offset-2 focus-visible:ring-offset-bone-50"
-  >
-    <img src="/logo.svg" alt="" aria-hidden="true" className="h-14 w-auto" />
-    <span className="font-display text-2xl font-bold tracking-tight text-ink-950">EduMapping</span>
-    {tagline && (
-      <span className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-        {tagline}
-      </span>
-    )}
-  </Link>
-);
+/**
+ * The brand lockup used to sit above each form on small screens. The AuthShell
+ * now carries the brand at every breakpoint (navy band on phones, navy panel
+ * on desktop), so this renders nothing; it stays exported so the auth pages
+ * that still place it keep compiling.
+ */
+export const AuthBrand = () => null;
 
 /** Submit-level failure banner. Announced: it only appears after a submit. */
 export const FormError = ({ children }) =>
   children ? (
     <div
       role="alert"
-      className="rounded-xl border border-red-600/25 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+      className="rounded-[10px] border border-vermilion-600/30 bg-vermilion-50 px-4 py-3 text-sm font-medium text-vermilion-800"
     >
       {children}
     </div>
@@ -48,7 +106,7 @@ export const FormError = ({ children }) =>
 // not export its base classes, and a password input has to be rendered here to
 // sit next to the toggle.
 const FIELD_CLASS =
-  'block w-full rounded-xl border bg-white px-3.5 py-2.5 pr-11 text-sm text-ink-950 ' +
+  'block w-full rounded-[10px] border bg-[#FFFDF8] px-3.5 py-2.5 pr-11 text-sm text-ink-950 ' +
   'placeholder:text-ink-500 transition-colors duration-150 focus:outline-none focus:ring-2';
 
 export const PasswordField = ({ label, error, help, id, className = '', ...rest }) => {
@@ -67,8 +125,8 @@ export const PasswordField = ({ label, error, help, id, className = '', ...rest 
           className={cx(
             FIELD_CLASS,
             error
-              ? 'border-red-600 focus:border-red-600 focus:ring-red-600/25'
-              : 'border-ink-950/20 hover:border-ink-950/40 focus:border-ink-950 focus:ring-ink-950/15',
+              ? 'border-vermilion-600 focus:border-vermilion-600 focus:ring-vermilion-600/25'
+              : 'border-ink-950/20 hover:border-ink-950/40 focus:border-ink-950 focus:ring-saffron-500/30',
             className
           )}
           {...rest}
@@ -77,7 +135,7 @@ export const PasswordField = ({ label, error, help, id, className = '', ...rest 
           type="button"
           onClick={() => setShown((s) => !s)}
           aria-label={shown ? 'Hide password' : 'Show password'}
-          className="absolute inset-y-0 right-0 flex items-center rounded-r-xl px-3 text-ink-500 transition-colors hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+          className="absolute inset-y-0 right-0 flex items-center rounded-r-[10px] px-3 text-ink-500 transition-colors hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600"
         >
           {shown ? (
             <EyeSlashIcon aria-hidden="true" className="h-5 w-5" />

@@ -41,7 +41,7 @@ const PrivacyPolicy = () => (
       <BackLink />
 
       <header className="mt-6 border-b border-ink-950/15 pb-6">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+        <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
           EduMapping
         </p>
         <h1 className="mt-2 font-display text-4xl font-bold tracking-tight text-ink-950">
@@ -181,7 +181,7 @@ const PrivacyPolicy = () => (
         <p>If you have any questions about this Privacy Policy, please contact us at:</p>
         <dl className="rounded-2xl border border-ink-950/15 bg-white p-5 text-sm">
           <div className="flex gap-3 py-1">
-            <dt className="w-20 shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-500">
+            <dt className="w-20 shrink-0 text-[11px] uppercase tracking-[0.07em] text-ink-500">
               Email
             </dt>
             <dd>
@@ -191,7 +191,7 @@ const PrivacyPolicy = () => (
             </dd>
           </div>
           <div className="flex gap-3 py-1">
-            <dt className="w-20 shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-500">
+            <dt className="w-20 shrink-0 text-[11px] uppercase tracking-[0.07em] text-ink-500">
               Phone
             </dt>
             <dd>
@@ -201,7 +201,7 @@ const PrivacyPolicy = () => (
             </dd>
           </div>
           <div className="flex gap-3 py-1">
-            <dt className="w-20 shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-500">
+            <dt className="w-20 shrink-0 text-[11px] uppercase tracking-[0.07em] text-ink-500">
               Website
             </dt>
             <dd>www.edumapping.com</dd>

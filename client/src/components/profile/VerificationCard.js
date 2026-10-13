@@ -10,19 +10,19 @@ import {
   ClockIcon,
   ExclamationTriangleIcon,
   DocumentArrowUpIcon,
-  LockClosedIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
 import { Badge, Button, Card, cx } from '../ui';
+import { Stamp } from '../brand';
 import placementService from '../../services/placement';
 import openProtectedFile from '../../utils/openProtectedFile';
 
 const STATES = {
   verified: {
     icon: ShieldCheckIcon,
-    tone: 'success',
+    tone: 'attest',
     label: 'Verified',
-    frame: 'border-india-600/40 bg-india-50/50',
+    frame: 'border-stamp-600/30 bg-stamp-50/40',
     text: 'Your placement cell checked your academic details against your marksheets. They are locked; ask the cell if anything needs to change.'
   },
   pending: {
@@ -36,7 +36,7 @@ const STATES = {
     icon: ExclamationTriangleIcon,
     tone: 'danger',
     label: 'Sent back',
-    frame: 'border-red-600/30 bg-red-50/50',
+    frame: 'border-vermilion-600/30 bg-vermilion-50/50',
     text: 'Your placement cell asked for corrections. Fix the details below and submit again.'
   },
   unverified: {
@@ -94,16 +94,17 @@ const VerificationCard = ({ profile, onChange }) => {
         </span>
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 font-display text-base font-bold text-ink-950">
-            Academic verification <Badge tone={s.tone}>{s.label}</Badge>
-            {status === 'verified' && (
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-600">
-                <LockClosedIcon className="h-3.5 w-3.5" aria-hidden="true" /> Locked
-              </span>
-            )}
+            Academic verification
+            {status !== 'verified' && <Badge tone={s.tone}>{s.label}</Badge>}
           </p>
           <p className="mt-1 text-sm text-ink-700">{s.text}</p>
+          {status === 'verified' && (
+            <Stamp className="mt-3" size="md" rotate={-4} sub="Placement cell">
+              Verified · Locked
+            </Stamp>
+          )}
           {status === 'rejected' && profile?.verificationNotes && (
-            <p className="mt-2 rounded-xl border border-red-600/20 bg-white p-3 text-sm text-red-900">“{profile.verificationNotes}”</p>
+            <p className="mt-2 rounded-xl border border-vermilion-600/20 bg-white p-3 text-sm text-vermilion-800">“{profile.verificationNotes}”</p>
           )}
           {profile?.marksheetUrl && (
             <button

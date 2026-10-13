@@ -35,6 +35,7 @@ import {
   Pagination,
   Select,
   SkeletonCard,
+  StatStrip,
   StatTile,
   StatusBadge,
   Tabs,
@@ -56,6 +57,7 @@ import {
   ExclamationTriangleIcon,
   ArrowRightIcon
 } from '@heroicons/react/24/outline';
+import { formatJobType } from '../../utils/helpers';
 
 /**
  * Past tense of an action, for the confirmation toast. `${action}d` reads
@@ -692,7 +694,7 @@ const ApprovalManagement = () => {
                   <p className="truncate text-sm text-ink-600">
                     {j.organization?.name}
                     {j.location ? ` · ${j.location}` : ''}
-                    {j.jobType ? ` · ${j.jobType.replace(/_/g, ' ')}` : ''}
+                    {j.jobType ? ` · ${formatJobType(j.jobType)}` : ''}
                   </p>
                   <p className="truncate text-xs text-ink-500">
                     Submitted by {j.creator?.firstName} {j.creator?.lastName}
@@ -780,7 +782,7 @@ const ApprovalManagement = () => {
         <ErrorState className="mb-6" title="Could not load the queue counts" description={statsError} onRetry={loadStats} />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StatStrip>
         <StatTile
           label="Waiting"
           // The postings queue is part of this queue, so it belongs in the
@@ -814,7 +816,7 @@ const ApprovalManagement = () => {
           accent="india"
           loading={!stats && !statsError}
         />
-      </div>
+      </StatStrip>
 
       <Tabs className="mb-6 mt-8 w-fit max-w-full" tabs={tabs} value={tab} onChange={setTab} />
 

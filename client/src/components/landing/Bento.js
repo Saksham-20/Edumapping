@@ -115,7 +115,7 @@ const Bento = () => (
                     {points.map((point) => (
                       <li
                         key={point}
-                        className="rounded-full border border-white/20 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-white/70"
+                        className="rounded-full border border-white/20 px-3 py-1 text-[11px] uppercase tracking-[0.07em] text-white/70"
                       >
                         {point}
                       </li>
@@ -129,7 +129,7 @@ const Bento = () => (
                         <span className="block font-display text-3xl font-bold text-saffron-400 sm:text-4xl">
                           <Counter value="2,300+" />
                         </span>
-                        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-white/55">
+                        <span className="mt-1 block text-[10px] uppercase tracking-[0.07em] text-white/55">
                           Placements made
                         </span>
                       </dd>
@@ -140,7 +140,7 @@ const Bento = () => (
                         <span className="block font-display text-3xl font-bold text-white sm:text-4xl">
                           <Counter value="50+" />
                         </span>
-                        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-white/55">
+                        <span className="mt-1 block text-[10px] uppercase tracking-[0.07em] text-white/55">
                           Partner companies
                         </span>
                       </dd>

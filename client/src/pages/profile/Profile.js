@@ -6,6 +6,7 @@ import api from '../../services/api';
 import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
 import { calculateProfileCompletion } from '../../utils/helpers';
+import { formatRole } from '../../components/common/navigation';
 import VerificationCard from '../../components/profile/VerificationCard';
 import {
   Avatar,
@@ -435,7 +436,7 @@ const Profile = () => {
       <PageHeader
         eyebrow={isViewingOtherUser ? 'Student profile' : 'Account'}
         title={fullName || 'Profile'}
-        lead={[profile?.role?.replace(/_/g, ' '), profile?.organization?.name]
+        lead={[formatRole(profile?.role), profile?.organization?.name]
           .filter(Boolean)
           .join(' · ')}
         actions={
@@ -456,7 +457,7 @@ const Profile = () => {
           <Avatar src={profile?.profilePicture} name={fullName} size="lg" />
           <div className="min-w-0 flex-1">
             <p className="font-display text-lg font-bold text-ink-950">{fullName}</p>
-            <p className="text-sm capitalize text-ink-600">{profile?.role?.replace(/_/g, ' ')}</p>
+            <p className="text-sm text-ink-600">{formatRole(profile?.role)}</p>
             {profile?.organization?.name && (
               <p className="text-sm text-ink-500">{profile.organization.name}</p>
             )}
@@ -468,7 +469,7 @@ const Profile = () => {
           ) : (
             <div className="w-full sm:w-56">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono uppercase tracking-[0.12em] text-ink-500">
+                <span className="uppercase tracking-[0.07em] text-ink-500">
                   Completion
                 </span>
                 <span className="font-semibold tabular-nums text-ink-800">
@@ -828,7 +829,7 @@ const Profile = () => {
                           : 'Not provided'}
                       </DetailRow>
                       <DetailRow label="Gender">
-                        <span className="capitalize">{studentProfile.gender || 'Not provided'}</span>
+                        {studentProfile.gender ? <span className="capitalize">{studentProfile.gender}</span> : 'Not provided'}
                       </DetailRow>
                       <DetailRow label="Address">
                         {studentProfile.address || 'Not provided'}

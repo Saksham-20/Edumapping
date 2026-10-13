@@ -94,7 +94,7 @@ const DataTable = ({
                     <button
                       type="button"
                       onClick={() => toggleSort(column.key)}
-                      className="flex w-full items-center gap-1.5 px-4 py-3 text-left font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-600 transition-colors hover:bg-bone-200 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink-950"
+                      className="flex w-full items-center gap-1.5 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-600 transition-colors hover:bg-bone-200 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink-950"
                     >
                       {column.label}
                       {sorted ? (
