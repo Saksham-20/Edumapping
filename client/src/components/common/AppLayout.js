@@ -21,6 +21,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import NotificationPanel from './NotificationPanel';
+import AssistantWidget from './AssistantWidget';
 import { Avatar, IconButton, cx } from '../ui';
 import { getNavigation, isNavItemActive, formatRole } from './navigation';
 
@@ -366,6 +367,7 @@ const AppLayout = ({ children }) => {
         searchTarget={searchTarget}
       />
       <NotificationPanel isOpen={notifOpen} onClose={() => setNotifOpen(false)} />
+      <AssistantWidget />
     </div>
   );
 };

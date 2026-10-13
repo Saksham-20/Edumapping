@@ -35,6 +35,9 @@ const adminRoutes = require('./routes/admin');
 const contactRoutes = require('./routes/contact');
 const conferenceRoutes = require('./routes/conferences');
 const analyticsRoutes = require('./routes/analytics');
+const placementRoutes = require('./routes/placement');
+const roundRoutes = require('./routes/rounds');
+const assistantRoutes = require('./routes/assistant');
 const conferenceController = require('./controllers/conferenceController');
 
 
@@ -79,10 +82,13 @@ app.use(cors({
       'http://edumapping.com',
       'http://www.edumapping.com'
     ];
-    // Support multiple frontend URLs (comma-separated) and individual URLs
-    const frontendUrls = process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(',').map(url => url.trim()).filter(Boolean)
-      : [];
+    // Support multiple frontend URLs (comma-separated) and individual URLs.
+    // CLIENT_URL is accepted too because the deployment docs name it.
+    const frontendUrls = [process.env.FRONTEND_URL, process.env.CLIENT_URL]
+      .filter(Boolean)
+      .flatMap(v => v.split(','))
+      .map(url => url.trim().replace(/\/+$/, ''))
+      .filter(Boolean);
 
     const allowed = new Set([
       ...frontendUrls,
@@ -91,22 +97,60 @@ app.use(cors({
 
     if (!origin) return callback(null, true); // allow non-browser clients
     if (allowed.has(origin)) return callback(null, true);
-    
-    // In development, allow any localhost origin
-    if (process.env.NODE_ENV === 'development' && origin && origin.includes('localhost')) {
-      return callback(null, true);
+
+    // Decide on the parsed hostname, never on a substring of the raw origin.
+    // `origin.endsWith('edumapping.com')` let https://eviledumapping.com in,
+    // and `origin.includes('localhost')` let https://localhost.attacker.io in —
+    // both with credentials. Only edumapping.com itself and its real
+    // subdomains, plus loopback hosts in development.
+    let hostname;
+    let protocol;
+    try {
+      ({ hostname, protocol } = new URL(origin));
+    } catch (e) {
+      return callback(new Error('CORS not allowed from this origin'));
     }
-    // In production, allow same-domain (e.g. subdomains or alternate domains)
-    if (process.env.NODE_ENV === 'production' && origin && (origin.endsWith('edumapping.com') || origin.includes('.edumapping.com'))) {
-      return callback(null, true);
+    if (protocol === 'http:' || protocol === 'https:') {
+      if (
+        process.env.NODE_ENV === 'development' &&
+        (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
+      ) {
+        return callback(null, true);
+      }
+      if (
+        process.env.NODE_ENV === 'production' &&
+        protocol === 'https:' &&
+        (hostname === 'edumapping.com' || hostname.endsWith('.edumapping.com'))
+      ) {
+        return callback(null, true);
+      }
     }
-    
+
     return callback(new Error('CORS not allowed from this origin'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+/**
+ * The user id a request's bearer token belongs to, for rate-limit keying only.
+ *
+ * This was jwt.decode, which does not check the signature — so anyone could
+ * mint unsigned tokens with a fresh `userId` on every request, get a brand new
+ * bucket each time and never be limited; or put a victim's id in and burn
+ * through that user's allowance for them. Verified now; an invalid or expired
+ * token falls back to the IP like an anonymous request.
+ */
+function rateLimitUserId(token) {
+  if (!process.env.JWT_SECRET) return null;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return decoded && decoded.userId ? decoded.userId : null;
+  } catch (e) {
+    return null;
+  }
+}
 
 // Rate limiting with user-based keys for authenticated requests
 const limiter = rateLimit({
@@ -125,9 +169,9 @@ const limiter = rateLimit({
       if (authHeader) {
         const token = authHeader.split(' ')[1]; // Bearer TOKEN
         if (token) {
-          const decoded = jwt.decode(token); // Decode without verification (for rate limiting only)
-          if (decoded && decoded.userId) {
-            return `user_${decoded.userId}`;
+          const decoded = rateLimitUserId(token);
+          if (decoded) {
+            return `user_${decoded}`;
           }
         }
       }
@@ -180,9 +224,9 @@ const authCheckLimiter = rateLimit({
       if (authHeader) {
         const token = authHeader.split(' ')[1]; // Bearer TOKEN
         if (token) {
-          const decoded = jwt.decode(token); // Decode without verification (for rate limiting only)
-          if (decoded && decoded.userId) {
-            return `user_auth_${decoded.userId}`;
+          const decoded = rateLimitUserId(token);
+          if (decoded) {
+            return `user_auth_${decoded}`;
           }
         }
       }
@@ -261,8 +305,27 @@ app.post(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve uploaded files — images only.
+//
+// Everything under /uploads used to be public: students' resumes, marksheets
+// and offer letters could be downloaded by anyone who had (or guessed) the
+// URL, and an uploaded .html or .svg was served inline from our own origin,
+// which is stored XSS against every signed-in user. Now this public mount only
+// answers for profile pictures and organization logos, which are meant to be
+// seen. Every other file goes through GET /api/files/serve, which checks who
+// is asking (see services/fileAccessService.js).
+const { isPublicUploadName } = require('./services/fileAccessService');
+app.use('/uploads', (req, res, next) => {
+  const name = path.basename(decodeURIComponent(req.path || ''));
+  if (!isPublicUploadName(name)) {
+    return res.status(404).json({ error: 'Not Found', message: 'File not found' });
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Belt and braces for the image allow-list: nothing served from here may
+  // run script even if a file's bytes are not what its extension claims.
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  next();
+}, express.static(path.join(__dirname, '../uploads'), { dotfiles: 'deny', index: false }));
 
 // Swagger documentation
 const swaggerOptions = {
@@ -587,6 +650,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/conferences', conferenceRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/placement', placementRoutes);
+app.use('/api/rounds', roundRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 // Serve static files from React app in production (only if enabled)
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false') {
