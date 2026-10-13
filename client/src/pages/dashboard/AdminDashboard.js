@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import statisticsService from '../../services/statistics';
 import adminService from '../../services/adminService';
-import api from '../../services/api';
+import api, { fieldErrorsFrom } from '../../services/api';
 import approvalService from '../../services/approvals';
 import AnnounceModal from '../../components/notifications/AnnounceModal';
 import toast from 'react-hot-toast';
@@ -29,7 +29,6 @@ import {
   EmptyState,
   IconButton,
   Input,
-  Modal,
   PageHeader,
   PageLoader,
   PageShell,
@@ -99,18 +98,38 @@ const MeterRow = ({ label, value, total, tone = 'ink' }) => {
  * Universities, companies and schools were three copies of the same form; they
  * differ only in the noun in the heading and the `type` sent on save.
  */
-const OrganizationFormFields = ({ value = {}, onChange, noun }) => {
+const DOMAIN_EXAMPLES = { university: 'college.edu', company: 'company.com', school: 'school.edu.in' };
+
+const OrganizationFormFields = ({ value = {}, onChange, noun, errors = {}, showHigherEdType }) => {
   const set = (name) => (e) => onChange({ ...value, [name]: e.target.value });
   return (
     <div className="space-y-4">
-      <Input label="Name" required value={value.name || ''} onChange={set('name')} />
+      {/* Colleges and universities share one tab, so the form says which this
+          is. Everything used to be saved as "university". */}
+      {showHigherEdType && (
+        <Select
+          label="Type"
+          required
+          value={value.type || 'college'}
+          onChange={set('type')}
+          error={errors.type}
+          options={[
+            { value: 'college', label: 'College' },
+            { value: 'university', label: 'University' }
+          ]}
+        />
+      )}
+      <Input label="Name" required value={value.name || ''} onChange={set('name')} error={errors.name} />
       <Input
-        label="Domain"
+        label="Email domain"
         required
         value={value.domain || ''}
         onChange={set('domain')}
-        placeholder={`admin@${noun}.edu`}
-        help="The email domain accounts must register from."
+        error={errors.domain}
+        placeholder={DOMAIN_EXAMPLES[noun] || 'college.edu'}
+        help="The part after @ in its staff and student emails, e.g. college.edu."
+        autoCapitalize="none"
+        spellCheck={false}
       />
       <Input
         label="Contact email"
@@ -118,13 +137,63 @@ const OrganizationFormFields = ({ value = {}, onChange, noun }) => {
         required
         value={value.contactEmail || ''}
         onChange={set('contactEmail')}
+        error={errors.contactEmail}
+        autoCapitalize="none"
       />
-      <Input label="Contact phone" value={value.contactPhone || ''} onChange={set('contactPhone')} />
-      <Input label="Website" type="url" value={value.website || ''} onChange={set('website')} />
-      <Textarea label="Address" rows={3} value={value.address || ''} onChange={set('address')} />
+      <Input
+        label="Contact phone"
+        type="tel"
+        value={value.contactPhone || ''}
+        onChange={set('contactPhone')}
+        error={errors.contactPhone}
+        placeholder="+91 98765 43210"
+      />
+      {/* Not type="url": the browser's URL check refused "college.edu" before
+          the request was sent, and the server adds https:// itself. */}
+      <Input
+        label="Website"
+        inputMode="url"
+        value={value.website || ''}
+        onChange={set('website')}
+        error={errors.website}
+        placeholder={`www.${DOMAIN_EXAMPLES[noun] || 'college.edu'}`}
+        autoCapitalize="none"
+        spellCheck={false}
+      />
+      <Textarea
+        label="Address"
+        rows={3}
+        value={value.address || ''}
+        onChange={set('address')}
+        error={errors.address}
+      />
     </div>
   );
 };
+
+/** Which organization types each role can belong to (mirrors the server rule). */
+const ORG_TYPES_FOR_ROLE = {
+  student: ['university', 'college', 'school'],
+  tpo: ['university', 'college'],
+  recruiter: ['company'],
+  principal: ['school'],
+  teacher: ['school'],
+  school_admin: ['school'],
+  career_counselor: ['school']
+};
+
+const USER_ROLE_OPTIONS = [
+  { value: 'student', label: 'Student' },
+  { value: 'tpo', label: 'Placement officer (TPO)' },
+  { value: 'recruiter', label: 'Recruiter' },
+  { value: 'principal', label: 'Principal' },
+  { value: 'teacher', label: 'Teacher' },
+  { value: 'school_admin', label: 'School admin' },
+  { value: 'career_counselor', label: 'Career counsellor' },
+  { value: 'admin', label: 'EduMapping admin' }
+];
+
+const ORG_LABELS = { university: 'University', college: 'College', company: 'Company', school: 'School' };
 
 /**
  * Error toast that never doubles up.
@@ -243,7 +312,11 @@ const AdminDashboard = () => {
   const [selectedRecruiter, setSelectedRecruiter] = useState(null);
   const [selectedOrgIds, setSelectedOrgIds] = useState([]);
   const [selectedYears, setSelectedYears] = useState([]);
-  const [selectedStreams, setSelectedStreams] = useState([]);
+  // Kept as the raw text the admin types and split only on save. Parsing on
+  // every keystroke (and splitting on spaces) ate the comma the moment it was
+  // typed, so a second stream could not be entered, and "Computer Science"
+  // became two streams.
+  const [streamsText, setStreamsText] = useState('');
   const [selectedRegions, setSelectedRegions] = useState([]);
   const [selectedStates, setSelectedStates] = useState([]);
   const [selectedCities, setSelectedCities] = useState([]);
@@ -258,6 +331,28 @@ const AdminDashboard = () => {
 
   const [announcing, setAnnouncing] = useState(false);
 
+  // Field errors and the in-flight flag for whichever create/edit dialog is
+  // open (only one can be). Errors used to arrive only as a toast, which
+  // vanished before the admin found the field; and with no busy state a
+  // double-click on Save sent the request twice.
+  const [formErrors, setFormErrors] = useState({});
+  const [formSaving, setFormSaving] = useState(false);
+
+  /** Runs a dialog save: busy flag, field errors under inputs, toast fallback. */
+  const runFormSave = async (save, fallback) => {
+    if (formSaving) return;
+    setFormSaving(true);
+    setFormErrors({});
+    try {
+      await save();
+    } catch (error) {
+      setFormErrors(fieldErrorsFrom(error));
+      toastError(error, fallback);
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
   const pendingOrgs = Number(stats.organizations?.pendingApproval || 0);
   const pendingAccounts = Number(stats.users?.pendingApproval || 0);
   const pendingPostings = Number(stats.jobs?.pendingReview || 0);
@@ -269,7 +364,7 @@ const AdminDashboard = () => {
     { id: 'users', label: 'Users', icon: UsersIcon, badge: stats.users?.total },
     { id: 'import-students', label: 'Import Students', icon: ArrowUpTrayIcon },
     { id: 'tpos', label: 'TPOs', icon: AcademicCapIcon },
-    { id: 'universities', label: 'Universities', icon: BuildingOfficeIcon },
+    { id: 'universities', label: 'Colleges & universities', icon: BuildingOfficeIcon },
     { id: 'companies', label: 'Companies', icon: BriefcaseIcon },
     { id: 'schools', label: 'Schools', icon: AcademicCapIcon },
     { id: 'recruiter-permissions', label: 'Recruiter permissions', icon: ShieldCheckIcon }
@@ -501,15 +596,15 @@ const AdminDashboard = () => {
 
   const fetchInstitutions = async () => {
     try {
-      const [uniRes, schoolRes, collegeRes] = await Promise.all([
+      // The universities endpoint now returns colleges as well, each with its
+      // real type, so a separate colleges call would list every college twice.
+      const [uniRes, schoolRes] = await Promise.all([
         adminService.getAllUniversities({ limit: 500 }),
-        adminService.getAllSchools({ limit: 500 }),
-        adminService.getAllColleges({ limit: 500 })
+        adminService.getAllSchools({ limit: 500 })
       ]);
       const list = [
-        ...(uniRes.universities || []).map((o) => ({ id: o.id, name: o.name, type: 'university', region: o.region, state: o.state, city: o.city })),
-        ...(schoolRes.schools || []).map((o) => ({ id: o.id, name: o.name, type: 'school', region: o.region, state: o.state, city: o.city })),
-        ...(collegeRes.colleges || []).map((o) => ({ id: o.id, name: o.name, type: 'college', region: o.region, state: o.state, city: o.city }))
+        ...(uniRes.universities || []).map((o) => ({ id: o.id, name: o.name, type: o.type || 'university', region: o.region, state: o.state, city: o.city })),
+        ...(schoolRes.schools || []).map((o) => ({ id: o.id, name: o.name, type: 'school', region: o.region, state: o.state, city: o.city }))
       ].sort((a, b) => a.name.localeCompare(b.name));
       setInstitutions(list);
     } catch (error) {
@@ -520,6 +615,7 @@ const AdminDashboard = () => {
 
   // User management handlers
   const handleCreateUser = () => {
+    setFormErrors({});
     setSelectedUser(null);
     setUserFormData({
       firstName: '',
@@ -534,6 +630,7 @@ const AdminDashboard = () => {
   };
 
   const handleEditUser = (user) => {
+    setFormErrors({});
     setSelectedUser(user);
     setUserFormData({
       firstName: user.firstName,
@@ -548,28 +645,30 @@ const AdminDashboard = () => {
     setShowUserModal(true);
   };
 
-  const handleSaveUser = async (e) => {
+  const handleSaveUser = (e) => {
     e.preventDefault();
-    try {
+    // An admin has no organization; sending the stale id from the form would
+    // fail the role check on the server.
+    const payload =
+      userFormData.role === 'admin' ? { ...userFormData, organizationId: null } : userFormData;
+    return runFormSave(async () => {
       if (selectedUser) {
-        await adminService.updateUser(selectedUser.id, userFormData);
-        toast.success('User updated successfully');
+        await adminService.updateUser(selectedUser.id, payload);
+        toast.success('User updated');
       } else {
-        await adminService.createUser(userFormData);
-        toast.success('User created successfully');
+        await adminService.createUser(payload);
+        toast.success('User created');
       }
       setShowUserModal(false);
       fetchUsers();
       fetchOverviewStats();
-    } catch (error) {
-      toastError(error, 'Failed to save user');
-    }
+    }, 'Could not save the user');
   };
 
   const handleDeleteUser = async (userId) => {
     try {
       await adminService.deleteUser(userId);
-      toast.success('User deactivated successfully');
+      toast.success('User deactivated');
       fetchUsers();
       fetchOverviewStats();
     } catch (error) {
@@ -579,6 +678,7 @@ const AdminDashboard = () => {
 
   // TPO management handlers
   const handleCreateTPO = () => {
+    setFormErrors({});
     setSelectedTPO(null);
     setTpoFormData({
       firstName: '',
@@ -592,6 +692,7 @@ const AdminDashboard = () => {
   };
 
   const handleEditTPO = (tpo) => {
+    setFormErrors({});
     setSelectedTPO(tpo);
     setTpoFormData({
       firstName: tpo.firstName,
@@ -603,39 +704,39 @@ const AdminDashboard = () => {
     setShowTPOModal(true);
   };
 
-  const handleSaveTPO = async (e) => {
+  const handleSaveTPO = (e) => {
     e.preventDefault();
-    try {
+    return runFormSave(async () => {
       if (selectedTPO) {
         await adminService.updateTPO(selectedTPO.id, tpoFormData);
-        toast.success('TPO updated successfully');
+        toast.success('TPO updated');
       } else {
         await adminService.createTPO(tpoFormData);
-        toast.success('TPO created successfully');
+        toast.success('TPO created');
       }
       setShowTPOModal(false);
       fetchTPOs();
       fetchOverviewStats();
-    } catch (error) {
-      toastError(error, 'Failed to save TPO');
-    }
+    }, 'Could not save the TPO');
   };
 
   const handleDeleteTPO = async (tpoId) => {
     try {
       await adminService.deleteTPO(tpoId);
-      toast.success('TPO deleted successfully');
+      toast.success('TPO deactivated');
       fetchTPOs();
       fetchOverviewStats();
     } catch (error) {
-      toastError(error, 'Failed to delete TPO');
+      toastError(error, 'Could not deactivate the TPO');
     }
   };
 
   // University management handlers
   const handleCreateUniversity = () => {
+    setFormErrors({});
     setSelectedUniversity(null);
     setUniversityFormData({
+      type: 'college',
       name: '',
       domain: '',
       contactEmail: '',
@@ -660,8 +761,10 @@ const AdminDashboard = () => {
   };
 
   const handleEditUniversity = (university) => {
+    setFormErrors({});
     setSelectedUniversity(university);
     setUniversityFormData({
+      type: university.type || 'university',
       name: university.name,
       domain: university.domain,
       contactEmail: university.contactEmail,
@@ -672,32 +775,29 @@ const AdminDashboard = () => {
     setShowUniversityModal(true);
   };
 
-  const handleSaveUniversity = async (e) => {
+  const handleSaveUniversity = (e) => {
     e.preventDefault();
-    try {
+    const type = universityFormData.type === 'university' ? 'university' : 'college';
+    const label = ORG_LABELS[type];
+    return runFormSave(async () => {
       if (selectedUniversity) {
-        await adminService.updateOrganization(
-          selectedUniversity.id,
-          orgPayload(universityFormData, 'university')
-        );
-        toast.success('University updated successfully');
+        await adminService.updateOrganization(selectedUniversity.id, orgPayload(universityFormData, type));
+        toast.success(`${label} updated`);
       } else {
-        await adminService.createOrganization(orgPayload(universityFormData, 'university'));
-        toast.success('University created successfully');
+        await adminService.createOrganization(orgPayload(universityFormData, type));
+        toast.success(`${label} created`);
       }
       setShowUniversityModal(false);
       fetchUniversities();
       fetchOrganizations();
       fetchOverviewStats();
-    } catch (error) {
-      toastError(error, 'Failed to save university');
-    }
+    }, `Could not save the ${label.toLowerCase()}`);
   };
 
   const handleDeleteUniversity = async (universityId) => {
     try {
       await adminService.deleteOrganization(universityId);
-      toast.success('University deactivated');
+      toast.success('Deactivated');
       fetchUniversities();
       fetchOverviewStats();
     } catch (error) {
@@ -708,7 +808,7 @@ const AdminDashboard = () => {
   const handleVerifyUniversity = async (universityId, isVerified) => {
     try {
       await adminService.verifyOrganization(universityId, isVerified);
-      toast.success(`University ${isVerified ? 'verified' : 'unverified'} successfully`);
+      toast.success(isVerified ? 'Verified' : 'Verified badge removed');
       fetchUniversities();
     } catch (error) {
       toastError(error, 'Failed to update verification');
@@ -717,6 +817,7 @@ const AdminDashboard = () => {
 
   // Company management handlers
   const handleCreateCompany = () => {
+    setFormErrors({});
     setSelectedCompany(null);
     setCompanyFormData({
       name: '',
@@ -732,6 +833,7 @@ const AdminDashboard = () => {
   };
 
   const handleEditCompany = (company) => {
+    setFormErrors({});
     setSelectedCompany(company);
     setCompanyFormData({
       name: company.name,
@@ -744,26 +846,21 @@ const AdminDashboard = () => {
     setShowCompanyModal(true);
   };
 
-  const handleSaveCompany = async (e) => {
+  const handleSaveCompany = (e) => {
     e.preventDefault();
-    try {
+    return runFormSave(async () => {
       if (selectedCompany) {
-        await adminService.updateOrganization(
-          selectedCompany.id,
-          orgPayload(companyFormData, 'company')
-        );
-        toast.success('Company updated successfully');
+        await adminService.updateOrganization(selectedCompany.id, orgPayload(companyFormData, 'company'));
+        toast.success('Company updated');
       } else {
         await adminService.createOrganization(orgPayload(companyFormData, 'company'));
-        toast.success('Company created successfully');
+        toast.success('Company created');
       }
       setShowCompanyModal(false);
       fetchCompanies();
       fetchOrganizations();
       fetchOverviewStats();
-    } catch (error) {
-      toastError(error, 'Failed to save company');
-    }
+    }, 'Could not save the company');
   };
 
   const handleDeleteCompany = async (companyId) => {
@@ -789,6 +886,7 @@ const AdminDashboard = () => {
 
   // School management handlers
   const handleCreateSchool = () => {
+    setFormErrors({});
     setSelectedSchool(null);
     setSchoolFormData({
       name: '',
@@ -803,6 +901,7 @@ const AdminDashboard = () => {
   };
 
   const handleEditSchool = (school) => {
+    setFormErrors({});
     setSelectedSchool(school);
     setSchoolFormData({
       name: school.name,
@@ -815,26 +914,21 @@ const AdminDashboard = () => {
     setShowSchoolModal(true);
   };
 
-  const handleSaveSchool = async (e) => {
+  const handleSaveSchool = (e) => {
     e.preventDefault();
-    try {
+    return runFormSave(async () => {
       if (selectedSchool) {
-        await adminService.updateOrganization(
-          selectedSchool.id,
-          orgPayload(schoolFormData, 'school')
-        );
-        toast.success('School updated successfully');
+        await adminService.updateOrganization(selectedSchool.id, orgPayload(schoolFormData, 'school'));
+        toast.success('School updated');
       } else {
         await adminService.createOrganization(orgPayload(schoolFormData, 'school'));
-        toast.success('School created successfully');
+        toast.success('School created');
       }
       setShowSchoolModal(false);
       fetchSchools();
       fetchOrganizations();
       fetchOverviewStats();
-    } catch (error) {
-      toastError(error, 'Failed to save school');
-    }
+    }, 'Could not save the school');
   };
 
   const handleDeleteSchool = async (schoolId) => {
@@ -866,12 +960,12 @@ const AdminDashboard = () => {
   const handleApproveOrganization = async (organizationId, type) => {
     try {
       const body = await approvalService.approveOrganization(organizationId, 'approve', '', { silent: true });
-      const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
+      const typeLabel = ORG_LABELS[type] || 'Organization';
       const staff = body?.usersUpdated || 0;
       toast.success(
         `${typeLabel} approved${staff ? ` with ${staff} staff account${staff === 1 ? '' : 's'}` : ''}`
       );
-      if (type === 'university') {
+      if (type === 'university' || type === 'college') {
         fetchUniversities();
       } else if (type === 'company') {
         fetchCompanies();
@@ -887,9 +981,9 @@ const AdminDashboard = () => {
   const handleRejectOrganization = async (organizationId, type) => {
     try {
       await approvalService.approveOrganization(organizationId, 'reject', '', { silent: true });
-      const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
-      toast.success(`${typeLabel} rejected successfully`);
-      if (type === 'university') {
+      const typeLabel = ORG_LABELS[type] || 'Organization';
+      toast.success(`${typeLabel} rejected`);
+      if (type === 'university' || type === 'college') {
         fetchUniversities();
       } else if (type === 'company') {
         fetchCompanies();
@@ -907,7 +1001,7 @@ const AdminDashboard = () => {
     setSelectedRecruiter(recruiter);
     setSelectedOrgIds([]);
     setSelectedYears([]);
-    setSelectedStreams([]);
+    setStreamsText('');
     setSelectedRegions([]);
     setSelectedStates([]);
     setSelectedCities([]);
@@ -917,7 +1011,7 @@ const AdminDashboard = () => {
       const data = await adminService.getRecruiterPermissions(recruiter.id);
       setSelectedOrgIds(data.allowedOrganizationIds || []);
       setSelectedYears(Array.isArray(data.allowedYears) ? data.allowedYears.map((y) => Number(y)) : []);
-      setSelectedStreams(Array.isArray(data.allowedStreams) ? [...data.allowedStreams] : []);
+      setStreamsText(Array.isArray(data.allowedStreams) ? data.allowedStreams.join(', ') : '');
       setSelectedRegions(Array.isArray(data.allowedRegions) ? [...data.allowedRegions] : []);
       setSelectedStates(Array.isArray(data.allowedStates) ? [...data.allowedStates] : []);
       setSelectedCities(Array.isArray(data.allowedCities) ? [...data.allowedCities] : []);
@@ -950,11 +1044,8 @@ const AdminDashboard = () => {
     setSelectedCities((prev) => (prev.includes(v) ? prev.filter((c) => c !== v) : [...prev, v].sort()));
   };
 
-  const handleStreamInput = (e) => {
-    const raw = e.target.value || '';
-    const list = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-    setSelectedStreams(list);
-  };
+  const parseStreams = (text) =>
+    [...new Set(String(text || '').split(/[,;\n]+/).map((v) => v.trim()).filter(Boolean))];
 
   const handleSaveRecruiterPermissions = async (e) => {
     e.preventDefault();
@@ -964,7 +1055,7 @@ const AdminDashboard = () => {
       await adminService.setRecruiterAllowedOrganizations(selectedRecruiter.id, {
         organizationIds: selectedOrgIds,
         allowedYears: selectedYears,
-        allowedStreams: selectedStreams,
+        allowedStreams: parseStreams(streamsText),
         allowedRegions: selectedRegions,
         allowedStates: selectedStates,
         allowedCities: selectedCities
@@ -974,7 +1065,7 @@ const AdminDashboard = () => {
       setSelectedRecruiter(null);
       setSelectedOrgIds([]);
       setSelectedYears([]);
-      setSelectedStreams([]);
+      setStreamsText('');
       setSelectedRegions([]);
       setSelectedStates([]);
       setSelectedCities([]);
@@ -994,19 +1085,26 @@ const AdminDashboard = () => {
   const handleImportSubmit = async (e) => {
     e.preventDefault();
     if (!importFile || !importOrganizationId) {
-      toast.error('Choose an Excel file and an organization.');
+      toast.error('Choose the institution and a spreadsheet first.');
       return;
     }
     setImporting(true);
     setImportResult(null);
     try {
-      const res = await adminService.importStudentsExcel(
-        importFile,
-        parseInt(importOrganizationId, 10)
-      );
+      // Posted here rather than through adminService so it can wait longer
+      // than the shared 10-second timeout: a few hundred students, each with
+      // a hashed password, takes longer than that, and the browser then
+      // reported a failure for an import that had actually gone through.
+      const fd = new FormData();
+      fd.append('file', importFile);
+      fd.append('organizationId', String(parseInt(importOrganizationId, 10)));
+      const res = await api.post('/admin/students/import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000
+      });
       setImportResult(res);
       toast.success(
-        `Import finished: ${res.summary?.created ?? 0} created, ${res.summary?.skipped ?? 0} skipped, ${res.summary?.errors ?? 0} errors.`
+        `Import finished: ${res.summary?.created ?? 0} added, ${res.summary?.skipped ?? 0} already had accounts, ${res.summary?.errors ?? 0} not added.`
       );
       setImportFile(null);
       const input = document.getElementById('import-file-input');
@@ -1543,7 +1641,7 @@ const AdminDashboard = () => {
               <Button variant="secondary" onClick={() => setShowUserModal(false)}>
                 Cancel
               </Button>
-              <Button type="submit" form="admin-user-form">
+              <Button type="submit" form="admin-user-form" loading={formSaving}>
                 {selectedUser ? 'Save changes' : 'Create user'}
               </Button>
             </>
@@ -1555,6 +1653,7 @@ const AdminDashboard = () => {
                 label="First name"
                 required
                 value={userFormData.firstName || ''}
+                error={formErrors.firstName}
                 onChange={(e) =>
                   setUserFormData((prev) => ({ ...prev, firstName: e.target.value }))
                 }
@@ -1563,6 +1662,7 @@ const AdminDashboard = () => {
                 label="Last name"
                 required
                 value={userFormData.lastName || ''}
+                error={formErrors.lastName}
                 onChange={(e) => setUserFormData((prev) => ({ ...prev, lastName: e.target.value }))}
               />
             </div>
@@ -1570,7 +1670,9 @@ const AdminDashboard = () => {
               label="Email"
               type="email"
               required
+              autoCapitalize="none"
               value={userFormData.email || ''}
+              error={formErrors.email}
               onChange={(e) => setUserFormData((prev) => ({ ...prev, email: e.target.value }))}
             />
             {!selectedUser && (
@@ -1578,41 +1680,46 @@ const AdminDashboard = () => {
                 label="Password"
                 type="password"
                 required
+                minLength={8}
+                autoComplete="new-password"
                 value={userFormData.password || ''}
+                error={formErrors.password}
+                help="At least 8 characters. Share it privately; they can change it in Settings."
                 onChange={(e) => setUserFormData((prev) => ({ ...prev, password: e.target.value }))}
               />
             )}
+            {/* Every role is listed. With only four, editing a teacher or
+                principal showed "Student" (the first option) and saving
+                quietly changed their role. */}
             <Select
               label="Role"
               required
               value={userFormData.role || 'student'}
+              error={formErrors.role}
+              disabled={Boolean(selectedUser && selectedUser.id === user?.id)}
+              help={
+                selectedUser && selectedUser.id === user?.id
+                  ? 'You cannot change your own role.'
+                  : undefined
+              }
               onChange={(e) => setUserFormData((prev) => ({ ...prev, role: e.target.value }))}
-              options={[
-                { value: 'student', label: 'Student' },
-                { value: 'recruiter', label: 'Recruiter' },
-                { value: 'tpo', label: 'TPO' },
-                { value: 'admin', label: 'Admin' }
-              ]}
+              options={USER_ROLE_OPTIONS}
             />
             {userFormData.role !== 'admin' && (
               <Select
                 label="Organization"
                 required
-                value={userFormData.organizationId || ''}
+                value={String(userFormData.organizationId || '')}
+                error={formErrors.organizationId}
                 onChange={(e) =>
                   setUserFormData((prev) => ({ ...prev, organizationId: e.target.value }))
                 }
                 options={[
                   { value: '', label: 'Select organization' },
                   ...organizations
-                    .filter((org) => {
-                      if (userFormData.role === 'student') {
-                        return org.type === 'university' || org.type === 'school' || org.type === 'college';
-                      }
-                      if (userFormData.role === 'tpo') return org.type === 'university';
-                      if (userFormData.role === 'recruiter') return org.type === 'company';
-                      return true;
-                    })
+                    .filter((org) =>
+                      (ORG_TYPES_FOR_ROLE[userFormData.role || 'student'] || []).includes(org.type)
+                    )
                     .map((org) => ({ value: String(org.id), label: org.name }))
                 ]}
               />
@@ -1632,7 +1739,7 @@ const AdminDashboard = () => {
         render: (_, row) => `${row.firstName} ${row.lastName}`
       },
       { key: 'email', label: 'Email', sortable: true },
-      { key: 'organization', label: 'University', render: (_, row) => row.organization?.name || '—' },
+      { key: 'organization', label: 'College', render: (_, row) => row.organization?.name || '—' },
       {
         key: 'isActive',
         label: 'Status',
@@ -1655,7 +1762,7 @@ const AdminDashboard = () => {
           columns={tpoColumns}
           data={tpos}
           emptyTitle="No TPOs yet"
-          emptyDescription="Create one to give a university a placement officer."
+          emptyDescription="Create one to give a college a placement officer."
           actions={(row) => (
             <RowActions>
               <IconButton
@@ -1668,12 +1775,12 @@ const AdminDashboard = () => {
                 size="sm"
                 variant="danger"
                 icon={TrashIcon}
-                label={`Delete ${row.firstName} ${row.lastName}`}
+                label={`Deactivate ${row.firstName} ${row.lastName}`}
                 onClick={() =>
                   askToConfirm({
-                    title: 'Delete this TPO?',
-                    description: `${row.firstName} ${row.lastName} (${row.email}) will lose access immediately.`,
-                    confirmLabel: 'Delete',
+                    title: 'Deactivate this TPO?',
+                    description: `${row.firstName} ${row.lastName} (${row.email}) will not be able to sign in. Their college and its students are not affected. You can reactivate them from User management.`,
+                    confirmLabel: 'Deactivate',
                     run: () => handleDeleteTPO(row.id)
                   })
                 }
@@ -1695,7 +1802,7 @@ const AdminDashboard = () => {
               <Button variant="secondary" onClick={() => setShowTPOModal(false)}>
                 Cancel
               </Button>
-              <Button type="submit" form="admin-tpo-form">
+              <Button type="submit" form="admin-tpo-form" loading={formSaving}>
                 {selectedTPO ? 'Save changes' : 'Create TPO'}
               </Button>
             </>
@@ -1707,12 +1814,14 @@ const AdminDashboard = () => {
                 label="First name"
                 required
                 value={tpoFormData.firstName || ''}
+                error={formErrors.firstName}
                 onChange={(e) => setTpoFormData((prev) => ({ ...prev, firstName: e.target.value }))}
               />
               <Input
                 label="Last name"
                 required
                 value={tpoFormData.lastName || ''}
+                error={formErrors.lastName}
                 onChange={(e) => setTpoFormData((prev) => ({ ...prev, lastName: e.target.value }))}
               />
             </div>
@@ -1720,7 +1829,9 @@ const AdminDashboard = () => {
               label="Email"
               type="email"
               required
+              autoCapitalize="none"
               value={tpoFormData.email || ''}
+              error={formErrors.email}
               onChange={(e) => setTpoFormData((prev) => ({ ...prev, email: e.target.value }))}
             />
             {!selectedTPO && (
@@ -1728,21 +1839,28 @@ const AdminDashboard = () => {
                 label="Password"
                 type="password"
                 required
+                minLength={8}
+                autoComplete="new-password"
                 value={tpoFormData.password || ''}
+                error={formErrors.password}
+                help="At least 8 characters."
                 onChange={(e) => setTpoFormData((prev) => ({ ...prev, password: e.target.value }))}
               />
             )}
+            {/* Colleges were filtered out, so a new college could never be
+                given a placement officer from here. */}
             <Select
-              label="University"
+              label="College or university"
               required
-              value={tpoFormData.organizationId || ''}
+              value={String(tpoFormData.organizationId || '')}
+              error={formErrors.organizationId}
               onChange={(e) =>
                 setTpoFormData((prev) => ({ ...prev, organizationId: e.target.value }))
               }
               options={[
-                { value: '', label: 'Select university' },
+                { value: '', label: 'Select college or university' },
                 ...organizations
-                  .filter((org) => org.type === 'university')
+                  .filter((org) => org.type === 'university' || org.type === 'college')
                   .map((org) => ({ value: String(org.id), label: org.name }))
               ]}
             />
@@ -1774,8 +1892,13 @@ const AdminDashboard = () => {
     setFormData,
     onSubmit
   }) => {
+    const higherEd = type === 'university';
+    const noun = higherEd ? 'college or university' : type;
     const columns = [
       { key: 'name', label: 'Name', sortable: true },
+      ...(higherEd
+        ? [{ key: 'type', label: 'Type', render: (value) => ORG_LABELS[value] || value }]
+        : []),
       { key: 'domain', label: 'Domain', sortable: true },
       ...extraColumns,
       {
@@ -1797,7 +1920,7 @@ const AdminDashboard = () => {
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg font-bold text-ink-950">{heading}</h2>
           <Button size="sm" icon={PlusIcon} onClick={onCreate}>
-            New {type}
+            {higherEd ? 'New college' : `New ${type}`}
           </Button>
         </div>
 
@@ -1805,7 +1928,7 @@ const AdminDashboard = () => {
           columns={columns}
           data={rows}
           emptyTitle={`No ${heading.toLowerCase()} yet`}
-          emptyDescription={`Create the first ${type} to get started.`}
+          emptyDescription={`Create the first ${noun} to get started.`}
           actions={(row) => (
             <RowActions>
               {row.approvalStatus === 'pending' && (
@@ -1813,7 +1936,7 @@ const AdminDashboard = () => {
                   <Button
                     size="sm"
                     variant="success"
-                    onClick={() => handleApproveOrganization(row.id, type)}
+                    onClick={() => handleApproveOrganization(row.id, row.type || type)}
                   >
                     Approve
                   </Button>
@@ -1823,9 +1946,9 @@ const AdminDashboard = () => {
                     onClick={() =>
                       askToConfirm({
                         title: `Reject ${row.name}?`,
-                        description: `This ${type} will be marked rejected and its users will not be able to sign in.`,
+                        description: `This ${noun} will be marked rejected and its users will not be able to sign in.`,
                         confirmLabel: 'Reject',
-                        run: () => handleRejectOrganization(row.id, type)
+                        run: () => handleRejectOrganization(row.id, row.type || type)
                       })
                     }
                   >
@@ -1836,7 +1959,7 @@ const AdminDashboard = () => {
               <IconButton
                 size="sm"
                 icon={CheckBadgeIcon}
-                label={`${row.isVerified ? 'Unverify' : 'Verify'} ${row.name}`}
+                label={`${row.isVerified ? 'Remove verified badge from' : 'Verify'} ${row.name}`}
                 onClick={() => onVerify(row.id, !row.isVerified)}
               />
               <IconButton
@@ -1860,7 +1983,7 @@ const AdminDashboard = () => {
                     // stays in this table. The copy used to promise the record
                     // was removed from the platform and could not be undone,
                     // which is the opposite of what the button does.
-                    description: `This marks the ${type} rejected and unverified. Nobody can register against it and it stops appearing to students, but the record and its accounts are kept. Approve it again to reverse this.`,
+                    description: `This marks the ${noun} rejected and unverified, and nobody attached to it can sign in. It is only allowed once no accounts or jobs are attached. Verify it again to reverse this.`,
                     confirmLabel: 'Deactivate',
                     run: () => onDelete(row.id)
                   })
@@ -1876,21 +1999,29 @@ const AdminDashboard = () => {
         <AdminModal
           isOpen={modalOpen}
           onClose={onModalClose}
-          title={`${selected ? 'Edit' : 'New'} ${type}`}
+          title={`${selected ? 'Edit' : 'New'} ${
+            higherEd ? (ORG_LABELS[formData.type] || 'College').toLowerCase() : type
+          }`}
           size="md"
           footer={
             <>
               <Button variant="secondary" onClick={onModalClose}>
                 Cancel
               </Button>
-              <Button type="submit" form={`admin-${type}-form`}>
-                {selected ? 'Save changes' : `Create ${type}`}
+              <Button type="submit" form={`admin-${type}-form`} loading={formSaving}>
+                {selected ? 'Save changes' : 'Create'}
               </Button>
             </>
           }
         >
           <form id={`admin-${type}-form`} onSubmit={onSubmit}>
-            <OrganizationFormFields value={formData} onChange={setFormData} noun={type} />
+            <OrganizationFormFields
+              value={formData}
+              onChange={setFormData}
+              noun={type}
+              errors={formErrors}
+              showHigherEdType={higherEd}
+            />
           </form>
         </AdminModal>
       </>
@@ -1906,12 +2037,14 @@ const AdminDashboard = () => {
   const renderImportStudentsTab = () => (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h2 className="font-display text-lg font-bold text-ink-950">Import students from Excel</h2>
+        <h2 className="font-display text-lg font-bold text-ink-950">Import students from a spreadsheet</h2>
         <p className="mt-1.5 text-sm text-ink-600">
-          Upload an <strong>.xlsx</strong> or <strong>.xls</strong> file whose first row is the
-          header. <strong>Email</strong> is required; First Name, Last Name, Phone, Student ID,
-          Course, Branch, Year, Graduation Year, Gender, CGPA, Percentage and Date of Birth are
-          optional.
+          Upload an <strong>.xlsx</strong>, <strong>.xls</strong> or <strong>.csv</strong> file
+          with a header row. Each student needs an <strong>Email</strong> and a{' '}
+          <strong>Name</strong> (or first and last name). Roll No., Mobile No., Course, Branch,
+          Year, Batch, Gender, CGPA, Class X / XII %, Backlogs and Date of Birth (DD/MM/YYYY) are
+          optional; common spellings such as &ldquo;Email ID&rdquo; and &ldquo;Mobile No&rdquo;
+          are recognised. Up to 500 students at a time.
         </p>
       </div>
 
@@ -1933,12 +2066,12 @@ const AdminDashboard = () => {
             htmlFor="import-file-input"
             className="mb-1.5 block text-sm font-medium text-ink-800"
           >
-            Excel file
+            Spreadsheet
           </label>
           <input
             id="import-file-input"
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv"
             onChange={(e) => setImportFile(e.target.files?.[0] || null)}
             className="block w-full rounded-xl border border-ink-950/20 bg-white text-sm text-ink-700 file:mr-4 file:cursor-pointer file:border-0 file:border-r file:border-ink-950/15 file:bg-bone-100 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-ink-950 hover:file:bg-bone-200"
           />
@@ -1958,19 +2091,19 @@ const AdminDashboard = () => {
           <h3 className="font-display text-base font-bold text-ink-950">Import result</h3>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-india-600/30 bg-india-50 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.07em] text-india-800">Created</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-india-800">Added</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.created) || 0}
               </p>
             </div>
             <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.07em] text-saffron-800">Skipped</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-saffron-800">Already on EduMapping</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.skipped) || 0}
               </p>
             </div>
             <div className="rounded-xl border border-red-600/25 bg-red-50 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.07em] text-red-800">Errors</p>
+              <p className="text-[11px] uppercase tracking-[0.07em] text-red-800">Not added</p>
               <p className="font-display text-2xl font-bold tabular-nums text-ink-950">
                 {Number(importResult.summary?.errors) || 0}
               </p>
@@ -2000,18 +2133,20 @@ const AdminDashboard = () => {
 
           {Number(importResult.summary?.skipped) > 0 && (
             <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
-              <p className="text-sm font-semibold text-saffron-800">Why were rows skipped?</p>
-              {/* The previous copy asserted "your 140 rows were skipped" — a
-                  number that came from nowhere. Only the response's own
-                  examples are shown now. */}
+              <p className="text-sm font-semibold text-saffron-800">Rows left unchanged</p>
               <p className="mt-1 text-sm text-ink-700">
-                A row is skipped when an account with that email already exists. No new account was
-                created for it.
+                These students already have an account (or appear twice in the file), so nothing
+                was changed for them.
               </p>
               {importResult.skipped?.length > 0 && (
-                <p className="mt-2 text-sm text-ink-600">
-                  For example: {importResult.skipped.slice(0, 3).map((s) => s.email).join(', ')}
-                </p>
+                <ul className="mt-2 space-y-0.5 text-sm text-ink-600">
+                  {importResult.skipped.slice(0, 5).map((row) => (
+                    <li key={`${row.row}-${row.email}`}>
+                      Row {row.row}: {row.email}
+                      {row.reason ? ` (${row.reason})` : ''}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}
@@ -2019,16 +2154,44 @@ const AdminDashboard = () => {
           {importResult.errors?.length > 0 && (
             <div>
               <p className="text-sm font-semibold text-ink-800">
-                Errors (first {Math.min(10, importResult.errors.length)})
+                Not added: fix these rows and upload them again
+                {importResult.errors.length > 10 ? ' (first 10 shown)' : ''}
               </p>
-              <ul className="mt-1.5 list-inside list-disc text-sm text-red-700">
+              <ul className="mt-1.5 list-inside list-disc text-sm text-vermilion-700">
                 {importResult.errors.slice(0, 10).map((err, idx) => (
                   <li key={idx}>
-                    Row {err.row}: {err.message}
+                    Row {err.row}
+                    {err.email ? ` (${err.email})` : ''}: {err.message}
                   </li>
                 ))}
               </ul>
             </div>
+          )}
+
+          {/* The shared importer adds the student but drops a value it could
+              not read (CGPA 85, DOB 31/02/2004). Those used to vanish without
+              a word. */}
+          {importResult.warnings?.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-ink-800">
+                Added, but check these details
+                {importResult.warnings.length > 10 ? ' (first 10 shown)' : ''}
+              </p>
+              <ul className="mt-1.5 list-inside list-disc text-sm text-saffron-800">
+                {importResult.warnings.slice(0, 10).map((w, idx) => (
+                  <li key={idx}>
+                    Row {w.row}
+                    {w.email ? ` (${w.email})` : ''}: {w.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {importResult.ignoredColumns?.length > 0 && (
+            <p className="text-xs text-ink-500">
+              Columns not used: {importResult.ignoredColumns.join(', ')}
+            </p>
           )}
         </Card>
       )}
@@ -2050,7 +2213,7 @@ const AdminDashboard = () => {
       setSelectedRecruiter(null);
       setSelectedOrgIds([]);
       setSelectedYears([]);
-      setSelectedStreams([]);
+      setStreamsText('');
       setSelectedRegions([]);
       setSelectedStates([]);
       setSelectedCities([]);
@@ -2073,7 +2236,7 @@ const AdminDashboard = () => {
             description="Recruiter accounts appear here once companies have registered."
           />
         ) : (
-          <Table>
+          <Table className="relative">
             <Thead>
               <Tr className="hover:bg-transparent">
                 <Th>Name</Th>
@@ -2225,10 +2388,10 @@ const AdminDashboard = () => {
                   <Input
                     className="mt-3"
                     label="Streams"
-                    value={selectedStreams.join(', ')}
-                    onChange={handleStreamInput}
-                    placeholder="e.g. CSE, ECE, Mechanical"
-                    help="Comma- or space-separated. Leave empty for all streams."
+                    value={streamsText}
+                    onChange={(e) => setStreamsText(e.target.value)}
+                    placeholder="e.g. CSE, ECE, Mechanical Engineering"
+                    help="Separate streams with commas. Leave empty for all streams."
                   />
                 </fieldset>
               </>
@@ -2279,7 +2442,7 @@ const AdminDashboard = () => {
       {activeTab === 'universities' &&
         renderOrganizationTab({
           type: 'university',
-          heading: 'Universities',
+          heading: 'Colleges & universities',
           rows: universities,
           pagination: universitiesPagination,
           onPageChange: fetchUniversities,
@@ -2344,7 +2507,7 @@ const AdminDashboard = () => {
       <AdminModal
         isOpen={showApprovalInfo}
         onClose={() => setShowApprovalInfo(false)}
-        title={`New ${approvalInfoType} goes live immediately`}
+        title={`New ${approvalInfoType === 'university' ? 'college' : approvalInfoType} goes live immediately`}
         size="sm"
         footer={
           <>
@@ -2359,16 +2522,17 @@ const AdminDashboard = () => {
           <InformationCircleIcon aria-hidden="true" className="h-6 w-6 shrink-0 text-saffron-600" />
           <ul className="list-inside list-disc space-y-1.5 text-sm text-ink-700">
             <li>
-              Because you are an admin, the {approvalInfoType} is created{' '}
+              Because you are an admin, the{' '}
+              {approvalInfoType === 'university' ? 'college' : approvalInfoType} is created{' '}
               <strong>approved and verified</strong> — it does not enter the approval queue.
             </li>
             <li>People can register against its domain as soon as you save.</li>
-            <li>Delete it from this tab if you created it by mistake.</li>
+            <li>Deactivate it from this tab if you created it by mistake.</li>
           </ul>
         </div>
       </AdminModal>
 
-      <Modal
+      <AdminModal
         open={Boolean(confirmAction)}
         onClose={() => setConfirmAction(null)}
         size="sm"
@@ -2385,8 +2549,10 @@ const AdminDashboard = () => {
           </>
         }
       >
-        <p className="text-sm text-ink-700">This cannot be undone from here.</p>
-      </Modal>
+        {/* The fixed line "This cannot be undone from here." contradicted
+            every dialog that uses it: each action here can be reversed. */}
+        {confirmAction?.note && <p className="text-sm text-ink-700">{confirmAction.note}</p>}
+      </AdminModal>
     </PageShell>
   );
 };

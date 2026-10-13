@@ -14,8 +14,9 @@ import {
   CalendarDaysIcon,
   MapPinIcon
 } from '@heroicons/react/24/outline';
-import { Badge, Button, Card, EmptyState, IconButton, PageHeader, PageShell, Tabs, cx } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, IconButton, PageHeader, PageShell, Tabs, cx } from '../../components/ui';
 import placementService from '../../services/placement';
+import { useAuth } from '../../contexts/AuthContext';
 
 const KIND_STYLES = {
   round: { dot: 'bg-saffron-500', chip: 'border-saffron-500/40 bg-saffron-50 text-saffron-900', label: 'Selection round' },
@@ -28,6 +29,11 @@ const time = (d) => new Date(d).toLocaleTimeString('en-IN', { hour: 'numeric', m
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const DriveCalendar = () => {
+  const { user } = useAuth();
+  const isStudent = user?.role === 'student';
+  const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [downloading, setDownloading] = useState(false);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -47,12 +53,29 @@ const DriveCalendar = () => {
 
   useEffect(() => {
     setLoading(true);
+    setFailed(false);
     placementService
       .getCalendar({ from: range.from.toISOString(), to: range.to.toISOString() })
       .then((res) => setData({ items: res.items || [], clashes: res.clashes || [] }))
-      .catch(() => setData({ items: [], clashes: [] }))
+      .catch(() => {
+        // An empty month here reads as "nothing scheduled", which is the
+        // wrong thing to tell a student on drive week. Say it failed.
+        setData({ items: [], clashes: [] });
+        setFailed(true);
+      })
       .finally(() => setLoading(false));
-  }, [range]);
+  }, [range, reloadKey]);
+
+  const downloadIcs = async () => {
+    setDownloading(true);
+    try {
+      await placementService.downloadCalendar({ from: range.from.toISOString(), to: range.to.toISOString() });
+    } catch {
+      // The api interceptor has already said why.
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const byDay = useMemo(() => {
     const map = {};
@@ -111,7 +134,7 @@ const DriveCalendar = () => {
         title="Drive calendar"
         lead="Selection rounds, campus events and application deadlines in one place."
         actions={
-          <Button variant="secondary" icon={ArrowDownTrayIcon} onClick={() => placementService.downloadCalendar({ from: range.from.toISOString(), to: range.to.toISOString() })}>
+          <Button variant="secondary" icon={ArrowDownTrayIcon} loading={downloading} onClick={downloadIcs}>
             Add to Google / Outlook (.ics)
           </Button>
         }
@@ -152,6 +175,15 @@ const DriveCalendar = () => {
         </div>
       </div>
 
+      {failed && (
+        <ErrorState
+          className="mb-5"
+          title="Could not load the calendar"
+          description="Your rounds and deadlines did not load. Check your connection and try again."
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      )}
+
       {data.clashes.length > 0 && (
         <div className="mb-5 flex items-start gap-3 rounded-2xl border border-saffron-500/40 bg-saffron-50 p-4 text-sm text-saffron-900">
           <ExclamationTriangleIcon className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -160,13 +192,18 @@ const DriveCalendar = () => {
             {data.clashes
               .map((c) => `${new Date(c.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} (${c.count} rounds)`)
               .join(', ')}
-            . Check that the same students are not expected in two places.
+            {isStudent
+              ? '. Check the times, and tell your placement cell if you are expected in two places at once.'
+              : '. Check that the same students are not expected in two places.'}
           </p>
         </div>
       )}
 
       {view === 'month' ? (
-        <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+        // `grid-cols-1` is minmax(0, 1fr): a bare `grid` sizes its column to
+        // the longest item title in the day panel and pushed the month grid
+        // off a 390px screen.
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_22rem]">
           <Card padded={false} className={cx('overflow-hidden', loading && 'opacity-60')}>
             <div className="grid grid-cols-7 border-b border-ink-950/10 bg-bone-100">
               {WEEKDAYS.map((d) => (

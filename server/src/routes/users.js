@@ -26,6 +26,85 @@ const uploadExcel = createUploadMiddleware('file', {
  *     security:
  *       - bearerAuth: []
  */
+// Profile rules. Every one says, in plain words, what to change: the bare
+// default "Invalid value" left students guessing, and several fields were not
+// checked at all — "8,5" saved as CGPA 8, and a DD-MM-YYYY birth date reached
+// the DATEONLY column and came back as a 500. Blank optional inputs arrive as
+// '' and mean "not set", so they skip validation ('falsy').
+const THIS_YEAR = new Date().getFullYear();
+const blankOk = { values: 'falsy' };
+const decimal = (field, label, min, max, example) =>
+  body(field)
+    .optional(blankOk)
+    .custom((value) => {
+      const s = String(value).trim();
+      if (/^\d+,\d+$/.test(s)) {
+        throw new Error(`Use a full stop, not a comma, in ${label} (for example ${example})`);
+      }
+      if (!/^\d+(\.\d+)?$/.test(s)) throw new Error(`${label} must be a number, like ${example}`);
+      const n = Number(s);
+      if (n < min || n > max) throw new Error(`${label} must be between ${min} and ${max}`);
+      return true;
+    });
+const wholeNumber = (field, label, min, max) =>
+  body(field)
+    .optional(blankOk)
+    .custom((value) => {
+      const s = String(value).trim();
+      if (!/^\d+$/.test(s) || Number(s) < min || Number(s) > max) {
+        throw new Error(`${label} must be a whole number from ${min} to ${max}`);
+      }
+      return true;
+    });
+
+const profileRules = [
+  body('firstName').optional().trim()
+    .isLength({ min: 1, max: 100 }).withMessage('First name cannot be empty (100 characters at most)'),
+  body('lastName').optional().trim()
+    .isLength({ min: 1, max: 100 }).withMessage('Last name cannot be empty (100 characters at most)'),
+  // A blank phone is "no phone"; the form sends '' for an empty input.
+  body('phone').optional(blankOk).matches(/^[\+]?[\d\s-]{5,20}$/)
+    .withMessage('Enter a phone number like 98765 43210 or +91 98765 43210'),
+  decimal('cgpa', 'CGPA', 0, 10, '8.5'),
+  decimal('percentage', 'Percentage', 0, 100, '76.4'),
+  decimal('class10Percentage', 'Class X percentage', 0, 100, '88.6'),
+  decimal('class12Percentage', 'Class XII percentage', 0, 100, '82'),
+  decimal('diplomaPercentage', 'Diploma percentage', 0, 100, '74.5'),
+  wholeNumber('activeBacklogs', 'Active backlogs', 0, 50),
+  wholeNumber('totalBacklogs', 'Total backlogs', 0, 50),
+  wholeNumber('educationGapYears', 'Education gap', 0, 20),
+  // 1–6 for college years; school students' records carry their class
+  // (11, 12) here, and the form posts the stored value back on every save.
+  wholeNumber('yearOfStudy', 'Year of study', 1, 12),
+  // Wide on purpose: alumni re-save their stored year with every edit, and a
+  // narrow window locked anyone who graduated a decade ago out of their profile.
+  wholeNumber('graduationYear', 'Graduation year', 1970, THIS_YEAR + 8),
+  body('dateOfBirth')
+    .optional(blankOk)
+    .custom((value) => {
+      const s = String(value).trim();
+      // A cleared date picker can post "Invalid date"; the controller stores
+      // that as "not set", so it is not an error.
+      if (s === 'Invalid date') return true;
+      const m = /^(\d{4})-(\d{2})-(\d{2})(T[\d:.]+Z?)?$/.exec(s);
+      const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      if (!m || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) {
+        throw new Error('Enter your date of birth using the date picker (day, month and year)');
+      }
+      const age = THIS_YEAR - +m[1];
+      if (age < 10 || age > 80) throw new Error('Check the year of your date of birth');
+      return true;
+    }),
+  body('gender').optional(blankOk).isIn(['male', 'female', 'other'])
+    .withMessage('Choose male, female or other'),
+  ...['linkedinUrl', 'githubUrl', 'portfolioUrl'].map((field) =>
+    body(field).optional(blankOk).isURL()
+      .withMessage('Enter a full web address, such as https://linkedin.com/in/your-name')
+  ),
+  body('studentId').optional(blankOk).trim().isLength({ max: 50 })
+    .withMessage('Roll number can be at most 50 characters')
+];
+
 router.get('/profile', authenticateToken, userController.getProfile);
 
 /**
@@ -39,12 +118,7 @@ router.get('/profile', authenticateToken, userController.getProfile);
  */
 router.put('/profile',
   authenticateToken,
-  [
-    body('firstName').optional().trim().isLength({ min: 1, max: 100 }),
-    body('lastName').optional().trim().isLength({ min: 1, max: 100 }),
-    // A blank phone is "no phone"; the form sends '' for an empty input.
-    body('phone').optional({ values: 'falsy' }).matches(/^[\+]?[\d\s-]{5,20}$/)
-  ],
+  profileRules,
   userController.updateProfile
 );
 

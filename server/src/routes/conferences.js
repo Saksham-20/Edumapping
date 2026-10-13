@@ -47,13 +47,33 @@ router.post(
   '/',
   authenticateToken,
   [
-    body('title').trim().isLength({ min: 3, max: 255 }),
-    body('description').optional({ nullable: true }).isLength({ max: 5000 }),
-    body('eventId').optional({ nullable: true }).isInt({ min: 1 }),
-    body('scheduledStart').optional({ nullable: true }).isISO8601(),
-    body('scheduledEnd').optional({ nullable: true }).isISO8601(),
-    body('access').optional().isIn(['organization', 'registered', 'invite', 'public']),
-    body('maxParticipants').optional().isInt({ min: 2, max: 200 })
+    // Every rule carries its own sentence: the bare default ("Invalid value")
+    // gave the host nothing to fix.
+    body('title')
+      .trim()
+      .isLength({ min: 3, max: 255 })
+      .withMessage('Give the class a title between 3 and 255 characters'),
+    body('description')
+      .optional({ nullable: true })
+      .isLength({ max: 5000 })
+      .withMessage('Keep the description under 5000 characters'),
+    body('eventId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('Pick a valid event'),
+    body('scheduledStart')
+      .optional({ nullable: true })
+      .isISO8601()
+      .withMessage('Enter a valid start date and time'),
+    body('scheduledEnd')
+      .optional({ nullable: true })
+      .isISO8601()
+      .withMessage('Enter a valid end date and time'),
+    body('access')
+      .optional()
+      .isIn(['organization', 'registered', 'invite', 'public'])
+      .withMessage('Choose who can join the class'),
+    body('maxParticipants')
+      .optional()
+      .isInt({ min: 2, max: 200 })
+      .withMessage('Participant limit must be a whole number from 2 to 200')
   ],
   conferenceController.createConference
 );

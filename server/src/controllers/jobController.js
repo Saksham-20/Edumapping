@@ -156,6 +156,41 @@ function resolveStatusChange(user, job, requested) {
   return { status: requested };
 }
 
+/**
+ * The 400 body for a failed validation chain, in the shape the client reads:
+ * a sentence in `message` (the first problem, so a toast says something
+ * useful) and every problem per field in `details`.
+ */
+const validationFailure = (res, errors) => {
+  const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
+  return res.status(400).json({
+    error: 'Validation Error',
+    message: details[0]?.message || 'Some details need fixing',
+    details
+  });
+};
+
+/**
+ * Today's date in India as YYYY-MM-DD. Deadlines are calendar dates, and the
+ * people setting and reading them are in IST; comparing against the server's
+ * UTC clock would make "today" flip at 05:30 in the morning.
+ */
+const todayInIndia = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+/**
+ * A deadline must leave students at least a day to apply. Returns an error
+ * message, or null. Only called when the deadline is being set or changed, so
+ * editing some other field of a posting whose deadline has passed still saves.
+ */
+const deadlineError = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const day = String(value).slice(0, 10);
+  if (day <= todayInIndia()) {
+    return 'Application deadline must be a future date, so students have time to apply';
+  }
+  return null;
+};
+
 class JobController {
   /**
    * The placement cell's review queue: postings waiting to be published.
@@ -187,7 +222,7 @@ class JobController {
         where,
         include: [
           { model: Organization, as: 'organization', attributes: ['id', 'name', 'logoUrl', 'type'] },
-          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] }
         ],
         order: [['createdAt', 'ASC']],
         limit: limitNum,
@@ -222,9 +257,7 @@ class JobController {
   async reviewJob(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
-      }
+      if (!errors.isEmpty()) return validationFailure(res, errors);
 
       const { id } = req.params;
       const { action, notes } = req.body;
@@ -295,10 +328,14 @@ class JobController {
   async createJob(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
+      if (!errors.isEmpty()) return validationFailure(res, errors);
+
+      const pastDeadline = deadlineError(req.body.applicationDeadline);
+      if (pastDeadline) {
         return res.status(400).json({
           error: 'Validation Error',
-          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
+          message: pastDeadline,
+          details: [{ field: 'applicationDeadline', message: pastDeadline }]
         });
       }
 
@@ -364,7 +401,7 @@ class JobController {
       const jobWithDetails = await Job.findByPk(job.id, {
         include: [
           { model: Organization, as: 'organization' },
-          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] }
         ]
       });
 
@@ -412,8 +449,6 @@ class JobController {
   async getAllJobs(req, res, next) {
     try {
       const {
-        page = 1,
-        limit = 10,
         status,
         jobType,
         location,
@@ -424,6 +459,10 @@ class JobController {
         experienceRequired
       } = req.query;
 
+      // Bounded: `?limit=100000` used to pull the whole table, with every
+      // application row joined in for the counts.
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
       const offset = (page - 1) * limit;
       const whereClause = {};
 
@@ -507,8 +546,8 @@ class JobController {
             required: false
           }
         ],
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit,
+        offset,
         order: [['createdAt', 'DESC']],
         distinct: true
       });
@@ -525,7 +564,7 @@ class JobController {
         message: 'Jobs retrieved successfully',
         jobs: jobsWithCounts,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: page,
           totalPages: Math.ceil(count / limit),
           totalJobs: count,
           hasMore: offset + jobs.length < count
@@ -550,7 +589,7 @@ class JobController {
           { 
             model: User, 
             as: 'creator', 
-            attributes: ['id', 'firstName', 'lastName', 'email'] 
+            attributes: ['id', 'firstName', 'lastName'] 
           },
           {
             model: Assessment,
@@ -621,7 +660,8 @@ class JobController {
       const jobData = job.toJSON();
       if (applications) jobData.applications = applications.map((a) => a.toJSON());
       jobData.userApplication = userApplication ? userApplication.toJSON() : null;
-      jobData.hasApplied = !!userApplication;
+      // A withdrawn application does not count: the student may apply again.
+      jobData.hasApplied = !!userApplication && userApplication.status !== 'withdrawn';
       jobData.applicationCount = applicationCount;
       // The attached assessment rode along with its answer key to every
       // viewer, students included. Only the owning organization keeps it.
@@ -665,7 +705,9 @@ class JobController {
       // page for, so it is fired off and its error only logged.
       const isOwnPosting =
         userId && (userId === job.createdBy || req.user?.organizationId === job.organizationId);
-      if (!isOwnPosting) {
+      // Only a published posting has an audience; a TPO opening a pending one
+      // to review it is not a student viewing the job.
+      if (!isOwnPosting && PUBLISHED_STATUSES.includes(job.status)) {
         job
           .increment('viewCount', { by: 1 })
           .catch((err) => logger.warn('Failed to record job view', { jobId: id, error: err.message }));
@@ -686,12 +728,7 @@ class JobController {
   async updateJob(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Validation Error',
-          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
-        });
-      }
+      if (!errors.isEmpty()) return validationFailure(res, errors);
 
       const { id } = req.params;
       const job = await Job.findByPk(id);
@@ -714,6 +751,35 @@ class JobController {
       const updates = {};
       for (const field of EDITABLE_JOB_FIELDS) {
         if (req.body[field] !== undefined) updates[field] = req.body[field];
+      }
+
+      // A changed deadline must be in the future; an unchanged one is left
+      // alone, or a closed drive could never have its description corrected.
+      if (
+        updates.applicationDeadline !== undefined &&
+        String(updates.applicationDeadline || '').slice(0, 10) !== String(job.applicationDeadline || '').slice(0, 10)
+      ) {
+        const pastDeadline = deadlineError(updates.applicationDeadline);
+        if (pastDeadline) {
+          return res.status(400).json({
+            error: 'Validation Error',
+            message: pastDeadline,
+            details: [{ field: 'applicationDeadline', message: pastDeadline }]
+          });
+        }
+      }
+
+      // The route compares a submitted pair; an update that sends only one
+      // figure has to be checked against the one already stored.
+      const nextMin = updates.salaryMin !== undefined ? updates.salaryMin : job.salaryMin;
+      const nextMax = updates.salaryMax !== undefined ? updates.salaryMax : job.salaryMax;
+      if (nextMin != null && nextMax != null && nextMin !== '' && nextMax !== '' && Number(nextMin) > Number(nextMax)) {
+        const msg = 'Maximum pay must be greater than or equal to minimum pay';
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: msg,
+          details: [{ field: 'salaryMax', message: msg }]
+        });
       }
 
       // Status goes through the same gate as PATCH /:id/status, so the edit
@@ -747,7 +813,7 @@ class JobController {
       const updatedJob = await Job.findByPk(id, {
         include: [
           { model: Organization, as: 'organization' },
-          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] }
         ]
       });
 

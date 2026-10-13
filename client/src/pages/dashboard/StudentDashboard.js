@@ -142,7 +142,8 @@ const StudentDashboard = () => {
     upcomingEvents: [],
     achievements: [],
     profile: null,
-    statsRows: []
+    statsRows: [],
+    offers: null
   });
   const [loading, setLoading] = useState(true);
   const [allFailed, setAllFailed] = useState(false);
@@ -163,7 +164,11 @@ const StudentDashboard = () => {
       // every user's achievements — this panel was showing other students'
       // awards, from other organizations, as the viewer's own.
       api.get('/achievements', { params: { userId: user?.id, limit: 5 }, silent: true }),
-      api.get('/users/profile', { silent: true })
+      api.get('/users/profile', { silent: true }),
+      // The student's real offers. "Offers" used to count applications marked
+      // selected, which disagrees with /offers once an offer is declined or
+      // withdrawn.
+      api.get('/offers', { params: { limit: 100 }, silent: true })
     ]);
 
     const value = (i) => (results[i].status === 'fulfilled' ? results[i].value : null);
@@ -175,7 +180,8 @@ const StudentDashboard = () => {
       upcomingEvents: value(2)?.events || [],
       statsRows: value(3)?.stats?.byStatus || [],
       achievements: value(4)?.achievements || [],
-      profile
+      profile,
+      offers: results[6].status === 'fulfilled' ? value(6)?.offers || [] : null
     });
 
     setAllFailed(results.every((r) => r.status === 'rejected'));
@@ -192,7 +198,12 @@ const StudentDashboard = () => {
       totalApplications: sumByStatus(rows),
       activeApplications: sumByStatus(rows, IN_PROGRESS),
       interviewed: sumByStatus(rows, ['interviewed']),
-      offers: sumByStatus(rows, ['selected']),
+      offers: Array.isArray(data.offers)
+        ? data.offers.filter((o) => o.status === 'offered' || o.status === 'accepted').length
+        : sumByStatus(rows, ['selected']),
+      awaitingAnswer: Array.isArray(data.offers)
+        ? data.offers.filter((o) => o.status === 'offered').length
+        : 0,
       profileCompletion: calculateProfileCompletion(data.profile, user?.role),
       skillsCount: Array.isArray(data.profile?.studentProfile?.skills)
         ? data.profile.studentProfile.skills.length
@@ -321,10 +332,14 @@ const StudentDashboard = () => {
         <StatTile
           label="Offers"
           value={stats.offers}
-          hint="Applications marked selected"
+          hint={
+            stats.awaitingAnswer > 0
+              ? `${stats.awaitingAnswer} waiting for your answer`
+              : 'Offers you hold or have accepted'
+          }
           icon={StarIcon}
           accent="india"
-          to="/applications"
+          to="/offers"
           loading={loading}
         />
       </StatStrip>

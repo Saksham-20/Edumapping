@@ -4,38 +4,88 @@ const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 const { cascadeOrganizationDecision } = require('../utils/approvalCascade');
 
+const ORG_TYPES = ['university', 'college', 'company', 'school'];
+
+// Fields an admin may change through the generic edit form. Approval state is
+// left out on purpose: it goes through the approvals flow, which cascades to
+// the organisation's staff and writes the audit trail. Passing the whole body
+// to update() let an edit silently approve or reject an institution.
+const EDITABLE_FIELDS = [
+  'name', 'type', 'domain', 'contactEmail', 'contactPhone', 'website', 'address',
+  'logoUrl', 'region', 'state', 'city', 'zone', 'workMode', 'locations'
+];
+
+const FIELD_LABELS = { name: 'Name', type: 'Type', domain: 'Domain', contactEmail: 'Contact email' };
+
+/** Same normalisation as the model's domain setter, for duplicate lookups. */
+const bareDomain = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^.*@/, '')
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '');
+
+/** Sequelize validation errors as the house 400 shape, keyed by field. */
+const sequelizeValidation = (res, error) => {
+  const details = (error.errors || []).map((e) => ({ field: e.path, message: e.message }));
+  return res.status(400).json({
+    error: 'Validation Error',
+    message: details.map((d) => d.message).join('. ') || 'Some details need fixing.',
+    details
+  });
+};
+
+const auditOrg = (req, action, organization, extra = {}) =>
+  AuditLog.create({
+    userId: req.user.id,
+    action,
+    entityType: 'organization',
+    entityId: organization.id,
+    newValues: { name: organization.name, type: organization.type, ...extra },
+    ipAddress: req.ip || req.connection?.remoteAddress,
+    userAgent: req.get('user-agent')
+  }).catch((err) => logger.error('Audit log failed', err));
+
+const duplicateDomain = (res, domain) =>
+  res.status(400).json({
+    error: 'Validation Error',
+    message: `Another organization already uses the domain ${domain}. Each organization needs its own email domain.`,
+    details: [{ field: 'domain', message: `${domain} is already registered to another organization` }]
+  });
+
 class AdminOrganizationController {
   // Create organization
   async createOrganization(req, res, next) {
     try {
       const { name, type, domain, contactEmail, contactPhone, website, address } = req.body;
 
-      // Validate required fields
-      if (!name || !type || !domain || !contactEmail) {
+      // Name the missing fields, so the form can mark each one.
+      const missing = Object.keys(FIELD_LABELS).filter((k) => !String(req.body[k] || '').trim());
+      if (missing.length) {
+        const details = missing.map((field) => ({ field, message: `${FIELD_LABELS[field]} is required` }));
         return res.status(400).json({
           error: 'Validation Error',
-          message: 'Name, type, domain, and contact email are required'
+          message: `Fill in: ${missing.map((f) => FIELD_LABELS[f].toLowerCase()).join(', ')}`,
+          details
         });
       }
 
-      // Validate type
       // `college` is a valid organization type (the enum has carried it since
       // migration 27) but was missing here, so an admin could not create one.
-      if (!['university', 'college', 'company', 'school'].includes(type)) {
+      if (!ORG_TYPES.includes(type)) {
         return res.status(400).json({
           error: 'Validation Error',
-          message: 'Type must be one of "university", "college", "company" or "school"'
+          message: 'Choose whether this is a university, college, company or school',
+          details: [{ field: 'type', message: 'Choose a type' }]
         });
       }
 
-      // Check if organization with same domain already exists
-      const existingOrg = await Organization.findOne({ where: { domain } });
-      if (existingOrg) {
-        return res.status(400).json({
-          error: 'Domain Already Exists',
-          message: 'An organization with this domain already exists'
-        });
-      }
+      // Compare in the stored form: "College.EDU " and "college.edu" are the
+      // same institution, and the raw lookup missed that.
+      const existingOrg = await Organization.findOne({ where: { domain: bareDomain(domain) } });
+      if (existingOrg) return duplicateDomain(res, bareDomain(domain));
 
       // Create organization
       const organization = await Organization.create({
@@ -54,25 +104,16 @@ class AdminOrganizationController {
         validate: true // Ensure validation runs
       });
 
+      auditOrg(req, 'organization_created', organization, { domain: organization.domain });
+
       res.status(201).json({
         message: 'Organization created successfully',
         organization
       });
     } catch (error) {
-      // Handle Sequelize validation errors
-      if (error.name === 'SequelizeValidationError') {
-        const validationErrors = error.errors.map(err => err.message).join(', ');
-        return res.status(400).json({
-          error: 'Validation Error',
-          message: validationErrors || 'Invalid organization data'
-        });
-      }
-      // Handle unique constraint errors
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
       if (error.name === 'SequelizeUniqueConstraintError') {
-        return res.status(400).json({
-          error: 'Duplicate Entry',
-          message: 'An organization with this domain already exists'
-        });
+        return duplicateDomain(res, bareDomain(req.body.domain));
       }
       next(error);
     }
@@ -82,7 +123,9 @@ class AdminOrganizationController {
   async updateOrganization(req, res, next) {
     try {
       const { id } = req.params;
-      const updateData = req.body;
+      const updateData = Object.fromEntries(
+        Object.entries(req.body || {}).filter(([key]) => EDITABLE_FIELDS.includes(key))
+      );
 
       const organization = await Organization.findByPk(id);
       if (!organization) {
@@ -92,20 +135,35 @@ class AdminOrganizationController {
         });
       }
 
-      // Check if domain is being changed and if new domain already exists
-      if (updateData.domain && updateData.domain !== organization.domain) {
-        const existingOrg = await Organization.findOne({
-          where: { domain: updateData.domain }
+      if (updateData.type !== undefined && !ORG_TYPES.includes(updateData.type)) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Choose whether this is a university, college, company or school',
+          details: [{ field: 'type', message: 'Choose a type' }]
         });
-        if (existingOrg) {
-          return res.status(400).json({
-            error: 'Domain Already Exists',
-            message: 'An organization with this domain already exists'
-          });
-        }
+      }
+      // Required fields may be changed but not emptied.
+      const emptied = ['name', 'domain', 'contactEmail'].filter(
+        (k) => k in updateData && !String(updateData[k] || '').trim()
+      );
+      if (emptied.length) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: `${FIELD_LABELS[emptied[0]]} cannot be empty`,
+          details: emptied.map((field) => ({ field, message: `${FIELD_LABELS[field]} is required` }))
+        });
+      }
+
+      // Check if domain is being changed and if new domain already exists
+      if (updateData.domain && bareDomain(updateData.domain) !== organization.domain) {
+        const existingOrg = await Organization.findOne({
+          where: { domain: bareDomain(updateData.domain), id: { [Op.ne]: organization.id } }
+        });
+        if (existingOrg) return duplicateDomain(res, bareDomain(updateData.domain));
       }
 
       await organization.update(updateData);
+      auditOrg(req, 'organization_updated', organization, { fields: Object.keys(updateData) });
 
       const updatedOrg = await Organization.findByPk(id, {
         include: [
@@ -122,6 +180,10 @@ class AdminOrganizationController {
         organization: updatedOrg
       });
     } catch (error) {
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return duplicateDomain(res, bareDomain(req.body?.domain));
+      }
       next(error);
     }
   }
@@ -146,9 +208,16 @@ class AdminOrganizationController {
 
       if (userCount > 0 || jobCount > 0) {
         if (hardDelete !== 'true' && !migrateToOrgId) {
+          // Deactivating blocks sign-in for every account attached to it, so
+          // it is refused while any remain. The old text pointed at "hard
+          // delete", which no screen offers.
+          const parts = [
+            userCount ? `${userCount} account${userCount === 1 ? '' : 's'}` : null,
+            jobCount ? `${jobCount} job${jobCount === 1 ? '' : 's'}` : null
+          ].filter(Boolean);
           return res.status(400).json({
             error: 'Cannot Delete Organization',
-            message: `This organization has ${userCount} user(s) and ${jobCount} job(s). Please migrate users to another organization or use hard delete.`,
+            message: `${organization.name} still has ${parts.join(' and ')}. Deactivating it would lock all of them out, so it can only be deactivated once they are moved or removed. Use Unverify to remove its verified badge instead.`,
             userCount,
             jobCount
           });
@@ -200,6 +269,7 @@ class AdminOrganizationController {
         });
       } else {
         await organization.update({ isVerified: false, approvalStatus: 'rejected' });
+        auditOrg(req, 'organization_deactivated', organization);
         return res.json({
           message: 'Organization deactivated successfully'
         });
@@ -276,7 +346,10 @@ class AdminOrganizationController {
       const { page = 1, limit = 20, search, verified } = req.query;
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
-      const whereClause = { type: 'university' };
+      // The "universities" tab is every higher-education institution. Colleges
+      // are their own enum value, and filtering on 'university' alone hid every
+      // college an admin created or approved from the console.
+      const whereClause = { type: { [Op.in]: ['university', 'college'] } };
 
       if (search) {
         whereClause[Op.or] = [

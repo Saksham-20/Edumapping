@@ -29,17 +29,41 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
 
   if (!rounds || rounds.length === 0) return null;
 
+  const now = Date.now();
+  const WEEK = 7 * 24 * 3600e3;
+
+  // Across all applications (the dashboard) this is "what is next", so a
+  // round already decided, cancelled, or in a drive the student is out of is
+  // not "upcoming". It used to list cleared rounds from last week under
+  // "Your upcoming rounds". A round they sat with no result yet stays for a
+  // week, as "Result awaited".
+  const outOfDrive = new Set(
+    rounds
+      .filter((r) => ['not_cleared', 'absent'].includes(r.participation?.result))
+      .map((r) => r.job?.id ?? r.applicationId)
+  );
+  const relevant = applicationId
+    ? rounds
+    : rounds.filter((r) => {
+        if (r.status === 'cancelled' || r.status === 'completed') return false;
+        if (outOfDrive.has(r.job?.id ?? r.applicationId)) return false;
+        const at = new Date(r.participation?.slotAt || r.scheduledAt || 0).getTime();
+        if (r.participation?.result === 'pending') return !r.scheduledAt || at > now - WEEK;
+        if (!r.participation) return !r.scheduledAt || at > now;
+        return false;
+      });
+  if (relevant.length === 0) return null;
+
   // What the student still has to show up for comes first: rounds they are in
   // with no result yet, then rounds of their drives they have not reached,
   // then rounds already decided; cancelled last. Within a group, by date.
-  const now = Date.now();
   const rank = (r) => {
     if (r.status === 'cancelled') return 4;
     if (r.participation?.result === 'pending') return 0;
     if (!r.participation) return 1;
     return 2;
   };
-  const sorted = [...rounds].sort(
+  const sorted = [...relevant].sort(
     (a, b) => rank(a) - rank(b) || new Date(a.scheduledAt || 0) - new Date(b.scheduledAt || 0)
   );
   const ordered = applicationId ? [...rounds].sort((a, b) => a.sequence - b.sequence) : sorted;
@@ -51,8 +75,15 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
       <ol className="mt-4 space-y-3">
         {shown.map((r) => {
           const p = r.participation;
-          const [tone, label] = p ? RESULT[p.result] : ['neutral', 'Not shortlisted yet'];
-          const upcoming = p?.result === 'pending' && r.status !== 'cancelled' && r.scheduledAt && new Date(r.scheduledAt) > now;
+          const when = new Date(p?.slotAt || r.scheduledAt || 0).getTime();
+          const upcoming = p?.result === 'pending' && r.status !== 'cancelled' && r.scheduledAt && when > now;
+          // A round already held with no result recorded is not one the
+          // student is still "in"; they are waiting to hear.
+          const [tone, label] = !p
+            ? ['neutral', 'Not shortlisted yet']
+            : p.result === 'pending' && r.scheduledAt && when < now - 3 * 3600e3
+            ? ['info', 'Result awaited']
+            : RESULT[p.result] || ['neutral', p.result];
           return (
             <li
               key={r.id}

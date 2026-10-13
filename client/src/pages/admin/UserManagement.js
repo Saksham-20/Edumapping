@@ -6,7 +6,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
-import api from '../../services/api';
+import api, { fieldErrorsFrom } from '../../services/api';
+import { formatRole } from '../../components/common/navigation';
 import {
   Avatar,
   Badge,
@@ -17,7 +18,6 @@ import {
   ErrorState,
   IconButton,
   Input,
-  Modal,
   PageHeader,
   PageShell,
   Pagination,
@@ -32,6 +32,7 @@ import {
   Toolbar,
   Tr
 } from '../../components/ui';
+import AdminModal from '../../components/admin/AdminModal';
 import {
   MagnifyingGlassIcon,
   PencilSquareIcon,
@@ -39,7 +40,8 @@ import {
   EyeIcon,
   BuildingOfficeIcon,
   UsersIcon,
-  LockClosedIcon
+  LockClosedIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 const ROLE_OPTIONS = [
@@ -80,6 +82,17 @@ const EMPTY_FILTERS = {
 
 const PAGE_SIZE = 20;
 
+/** Which organization types each role can belong to (mirrors the server rule). */
+const ORG_TYPES_FOR_ROLE = {
+  student: ['university', 'college', 'school'],
+  tpo: ['university', 'college'],
+  recruiter: ['company'],
+  principal: ['school'],
+  teacher: ['school'],
+  school_admin: ['school'],
+  career_counselor: ['school']
+};
+
 const UserManagement = () => {
   const { user: currentUser } = useAuth();
 
@@ -97,6 +110,8 @@ const UserManagement = () => {
   const [editData, setEditData] = useState({});
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState(null);
+  const [editFieldErrors, setEditFieldErrors] = useState({});
+  const [reactivatingId, setReactivatingId] = useState(null);
   const [pendingDeactivate, setPendingDeactivate] = useState(null);
   const [deactivating, setDeactivating] = useState(false);
 
@@ -167,6 +182,7 @@ const UserManagement = () => {
 
   const openEdit = (row) => {
     setEditError(null);
+    setEditFieldErrors({});
     setEditing(row);
     setEditData({
       firstName: row.firstName || '',
@@ -174,6 +190,7 @@ const UserManagement = () => {
       email: row.email || '',
       phone: row.phone || '',
       role: row.role,
+      organizationId: row.organizationId ? String(row.organizationId) : '',
       approvalStatus: row.approvalStatus || 'pending',
       isActive: Boolean(row.isActive)
     });
@@ -181,14 +198,25 @@ const UserManagement = () => {
 
   const submitEdit = async (e) => {
     e.preventDefault();
+    if (saving) return;
     setSaving(true);
     setEditError(null);
+    setEditFieldErrors({});
     try {
-      await api.put(`/admin/users/${editing.id}`, editData, { silent: true });
+      // An admin belongs to no organization; anyone else must keep one.
+      const payload = {
+        ...editData,
+        organizationId: editData.role === 'admin' ? null : editData.organizationId || null
+      };
+      await api.put(`/admin/users/${editing.id}`, payload, { silent: true });
       toast.success('User updated');
       setEditing(null);
       fetchUsers();
     } catch (err) {
+      const fields = fieldErrorsFrom(err);
+      setEditFieldErrors(fields);
+      // The message also goes above the form: a field error can sit below
+      // the fold on a phone.
       setEditError(err?.message || 'Could not save those changes.');
     } finally {
       setSaving(false);
@@ -209,6 +237,26 @@ const UserManagement = () => {
     }
   };
 
+  // Deactivated accounts had no way back except opening Edit and finding the
+  // "Account state" field.
+  const reactivate = async (row) => {
+    setReactivatingId(row.id);
+    try {
+      await api.patch(`/users/${row.id}/status`, { isActive: true });
+      toast.success(`${row.firstName} ${row.lastName} can sign in again`);
+      fetchUsers();
+    } catch (err) {
+      // The shared API layer has already shown the error.
+    } finally {
+      setReactivatingId(null);
+    }
+  };
+
+  const isSelfEdit = Boolean(editing && editing.id === currentUser?.id);
+  const editOrgOptions = organizations.filter((o) =>
+    (ORG_TYPES_FOR_ROLE[editData.role] || []).includes(o.type)
+  );
+
   if (!isAdmin) {
     return (
       <PageShell>
@@ -226,7 +274,7 @@ const UserManagement = () => {
       <PageHeader
         eyebrow="Administration"
         title="User management"
-        lead="Every account on the platform, with the filters the API supports."
+        lead="Every account on EduMapping. Search, filter, edit or deactivate."
         actions={
           <Badge tone="neutral">
             <UsersIcon aria-hidden="true" className="h-3.5 w-3.5" />
@@ -335,7 +383,7 @@ const UserManagement = () => {
 
       {!loading && !error && users.length > 0 && (
         <>
-          <Table>
+          <Table className="relative">
             <Thead>
               <Tr className="hover:bg-transparent">
                 <Th>User</Th>
@@ -367,7 +415,7 @@ const UserManagement = () => {
                     </div>
                   </Td>
                   <Td>
-                    <Badge tone={ROLE_TONES[row.role] || 'neutral'}>{row.role.replace(/_/g, ' ')}</Badge>
+                    <Badge tone={ROLE_TONES[row.role] || 'neutral'}>{formatRole(row.role)}</Badge>
                   </Td>
                   <Td>
                     <span className="flex items-center gap-1.5 text-sm">
@@ -402,7 +450,16 @@ const UserManagement = () => {
                           a self-comparison that is always false, so the control
                           could never render. The real rule is that an admin
                           must not deactivate their own account. */}
-                      {row.id !== currentUser?.id && (
+                      {row.id !== currentUser?.id && !row.isActive && (
+                        <IconButton
+                          size="sm"
+                          icon={ArrowPathIcon}
+                          label={`Reactivate ${row.firstName} ${row.lastName}`}
+                          disabled={reactivatingId === row.id}
+                          onClick={() => reactivate(row)}
+                        />
+                      )}
+                      {row.id !== currentUser?.id && row.isActive && (
                         <IconButton
                           size="sm"
                           variant="danger"
@@ -428,7 +485,7 @@ const UserManagement = () => {
       )}
 
       {/* ------------------------------------------------------------ detail */}
-      <Modal
+      <AdminModal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
         title="User details"
@@ -468,7 +525,7 @@ const UserManagement = () => {
                 </h3>
                 <p className="truncate text-sm text-ink-600">{detail.email}</p>
                 <Badge tone={ROLE_TONES[detail.role] || 'neutral'} className="mt-1.5">
-                  {detail.role.replace(/_/g, ' ')}
+                  {formatRole(detail.role)}
                 </Badge>
               </div>
             </div>
@@ -492,10 +549,10 @@ const UserManagement = () => {
             </dl>
           </>
         )}
-      </Modal>
+      </AdminModal>
 
       {/* -------------------------------------------------------------- edit */}
-      <Modal
+      <AdminModal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
         title={editing ? `Edit ${editing.firstName} ${editing.lastName}` : 'Edit user'}
@@ -518,12 +575,14 @@ const UserManagement = () => {
               label="First name"
               required
               value={editData.firstName || ''}
+              error={editFieldErrors.firstName}
               onChange={(e) => setEditData((d) => ({ ...d, firstName: e.target.value }))}
             />
             <Input
               label="Last name"
               required
               value={editData.lastName || ''}
+              error={editFieldErrors.lastName}
               onChange={(e) => setEditData((d) => ({ ...d, lastName: e.target.value }))}
             />
           </div>
@@ -531,24 +590,32 @@ const UserManagement = () => {
             label="Email"
             type="email"
             required
+            autoCapitalize="none"
             value={editData.email || ''}
+            error={editFieldErrors.email}
             onChange={(e) => setEditData((d) => ({ ...d, email: e.target.value }))}
           />
           <Input
             label="Phone"
             type="tel"
             value={editData.phone || ''}
+            error={editFieldErrors.phone}
+            placeholder="+91 98765 43210"
             onChange={(e) => setEditData((d) => ({ ...d, phone: e.target.value }))}
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Role"
               value={editData.role || 'student'}
+              error={editFieldErrors.role}
+              disabled={isSelfEdit}
+              help={isSelfEdit ? 'You cannot change your own role.' : undefined}
               onChange={(e) => setEditData((d) => ({ ...d, role: e.target.value }))}
               options={ROLE_OPTIONS.filter((o) => o.value !== '')}
             />
             <Select
               label="Approval status"
+              disabled={isSelfEdit}
               value={editData.approvalStatus || 'pending'}
               onChange={(e) => setEditData((d) => ({ ...d, approvalStatus: e.target.value }))}
               options={[
@@ -558,8 +625,25 @@ const UserManagement = () => {
               ]}
             />
           </div>
+          {/* Changing the role without the organization used to be the only
+              option, so a teacher made a recruiter stayed attached to a
+              school. The list narrows to organizations the role can join. */}
+          {editData.role !== 'admin' && (
+            <Select
+              label="Organization"
+              required
+              value={editData.organizationId || ''}
+              error={editFieldErrors.organizationId}
+              onChange={(e) => setEditData((d) => ({ ...d, organizationId: e.target.value }))}
+              options={[
+                { value: '', label: 'Select organization' },
+                ...editOrgOptions.map((o) => ({ value: String(o.id), label: o.name }))
+              ]}
+            />
+          )}
           <Select
             label="Account state"
+            disabled={isSelfEdit}
             value={editData.isActive ? 'true' : 'false'}
             onChange={(e) => setEditData((d) => ({ ...d, isActive: e.target.value === 'true' }))}
             options={[
@@ -568,10 +652,10 @@ const UserManagement = () => {
             ]}
           />
         </form>
-      </Modal>
+      </AdminModal>
 
       {/* -------------------------------------------------- deactivate guard */}
-      <Modal
+      <AdminModal
         open={Boolean(pendingDeactivate)}
         onClose={() => setPendingDeactivate(null)}
         title="Deactivate this user?"
@@ -593,7 +677,7 @@ const UserManagement = () => {
             ? `${pendingDeactivate.firstName} ${pendingDeactivate.lastName} (${pendingDeactivate.email})`
             : ''}
         </p>
-      </Modal>
+      </AdminModal>
     </PageShell>
   );
 };

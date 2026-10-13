@@ -77,6 +77,73 @@ const forViewer = (req, application) => {
   return data;
 };
 
+/**
+ * The last moment an application is accepted for a deadline stored as a date.
+ *
+ * `application_deadline` is a DATEONLY. `new Date('2026-10-22')` is midnight
+ * UTC — 05:30 IST on the 22nd — so a drive that says "apply by 22 October"
+ * stopped taking applications before students woke up on the last day. The
+ * drive calendar already treats the deadline as 23:59 IST; this matches it.
+ */
+/**
+ * The deadline's calendar day in IST, as YYYY-MM-DD, whether it arrives as a
+ * DATEONLY string ('2026-10-22'), an ISO timestamp, or a Date object (a
+ * timestamp column, or a row built in code). A timestamp is read as the IST
+ * day it falls on, so '2026-10-21T20:00:00Z' is the 22nd.
+ */
+const deadlineDay = (deadline) => {
+  if (!deadline) return null;
+  if (typeof deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(deadline)) return deadline;
+  const d = deadline instanceof Date ? deadline : new Date(deadline);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+const deadlineCutoff = (deadline) => {
+  const day = deadlineDay(deadline);
+  if (!day) return null;
+  const cutoff = new Date(`${day}T23:59:59.999+05:30`);
+  return Number.isNaN(cutoff.getTime()) ? null : cutoff;
+};
+
+const formatDeadline = (deadline) =>
+  new Date(`${deadlineDay(deadline)}T12:00:00+05:30`).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata'
+  });
+
+// Plain names for the profile fields an application needs, so "Profile
+// Incomplete" can say exactly what is missing instead of "all required
+// details".
+const PROFILE_FIELD_LABELS = {
+  firstName: 'first name',
+  lastName: 'last name',
+  email: 'email',
+  phone: 'phone number',
+  course: 'course',
+  branch: 'branch',
+  yearOfStudy: 'year of study',
+  graduationYear: 'graduation year',
+  cgpa: 'CGPA',
+  skills: 'skills',
+  bio: 'a short bio'
+};
+
+/** Clamp `page`/`limit` query values: `?page=abc` used to reach SQL as NaN. */
+const paging = (query, { defaultLimit = 10, maxLimit = 100 } = {}) => {
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
+  const page = Math.max(parseInt(query.page, 10) || 1, 1);
+  return { page, limit, offset: (page - 1) * limit };
+};
+
+// Staff of a school or college who are not the placement cell. They may see
+// their own institution's students' applications, never anyone else's — they
+// used to fall through every role branch with no filter at all, so a school
+// teacher could list every college's applicants with full academic profiles.
+const INSTITUTION_VIEWER_ROLES = ['tpo', 'principal', 'teacher', 'school_admin', 'career_counselor'];
+
 class ApplicationController {
   async submitApplication(req, res, next) {
     try {
@@ -110,11 +177,12 @@ class ApplicationController {
         });
       }
 
-      // Check if deadline has passed
-      if (job.applicationDeadline && new Date() > new Date(job.applicationDeadline)) {
+      // Closed at the end of the deadline day in IST, not at UTC midnight.
+      const cutoff = deadlineCutoff(job.applicationDeadline);
+      if (cutoff && new Date() > cutoff) {
         return res.status(400).json({
           error: 'Deadline Passed',
-          message: 'Application deadline has passed'
+          message: `Applications for this drive closed on ${formatDeadline(job.applicationDeadline)}.`
         });
       }
 
@@ -228,10 +296,12 @@ class ApplicationController {
       });
 
       if (missingUserFields.length > 0 || missingProfileFields.length > 0) {
+        const missing = [...missingUserFields, ...missingProfileFields].map(
+          (f) => PROFILE_FIELD_LABELS[f] || f
+        );
         return res.status(400).json({
           error: 'Profile Incomplete',
-          message:
-            'Your profile is incomplete. Please fill in all required details before applying for jobs.',
+          message: `Add your ${missing.join(', ')} on your profile, then apply again.`,
           details: {
             missingUserFields,
             missingProfileFields
@@ -243,12 +313,18 @@ class ApplicationController {
         return res.status(400).json({
           error: 'Resume Not Generated',
           message:
-            'You must generate your resume from your profile before applying for jobs.'
+            'You need a resume before you can apply. Generate one from your profile or upload your own on the Resume page.'
         });
       }
 
-      // Create application (always use resume from student profile)
-      const application = existingApplication
+      // Create application (always use resume from student profile).
+      //
+      // Two taps on "Apply" race past the duplicate check above; the unique
+      // (job_id, student_id) index stops the second insert, and that is
+      // answered as the same "already applied" rather than a database error.
+      let application;
+      try {
+        application = existingApplication
         ? await existingApplication.update({
             coverLetter,
             resumeUrl: studentProfile.resumeUrl,
@@ -266,6 +342,15 @@ class ApplicationController {
             resumeUrl: studentProfile.resumeUrl,
             status: 'applied'
           });
+      } catch (createError) {
+        if (createError.name === 'SequelizeUniqueConstraintError') {
+          return res.status(409).json({
+            error: 'Already Applied',
+            message: 'You have already applied for this job'
+          });
+        }
+        throw createError;
+      }
 
       // Get application with details
       const applicationWithDetails = await Application.findByPk(application.id, {
@@ -301,23 +386,15 @@ class ApplicationController {
 
   async getApplications(req, res, next) {
     try {
-      const {
-        page = 1,
-        limit = 10,
-        status,
-        jobId,
-        studentId,
-        organizationId,
-        search
-      } = req.query;
-
-      const offset = (page - 1) * limit;
+      const { status, jobId, studentId, search } = req.query;
+      const { page, limit, offset } = paging(req.query);
       const whereClause = {};
 
       // Apply filters
       if (status) whereClause.status = status;
-      if (jobId) whereClause.jobId = jobId;
-      if (studentId) whereClause.studentId = studentId;
+      // Parsed: a non-numeric jobId reached Postgres and came back as a 500.
+      if (jobId) whereClause.jobId = parseInt(jobId, 10) || -1;
+      if (studentId) whereClause.studentId = parseInt(studentId, 10) || -1;
 
       // Role-based filtering
       if (req.user.role === 'student') {
@@ -349,13 +426,14 @@ class ApplicationController {
         includeOptions[0].where = { organizationId: req.user.organizationId };
       }
 
-      // For TPO users, we need to filter applications by student organization
-      if (req.user.role === 'tpo') {
+      // Institution staff — the placement cell, and school staff — see their
+      // own institution's students only. Any other role sees nothing.
+      if (INSTITUTION_VIEWER_ROLES.includes(req.user.role)) {
         // Get all students in the TPO's organization
         const studentsInOrg = await User.findAll({
           where: { 
             role: 'student',
-            organizationId: req.user.organizationId 
+            organizationId: req.user.organizationId || -1
           },
           attributes: ['id']
         });
@@ -364,11 +442,8 @@ class ApplicationController {
         
         // Only show applications from these students
         whereClause.studentId = { [Op.in]: studentIds };
-        
-        logger.debug('TPO Student Filter', {
-          tpoOrgId: req.user.organizationId,
-          studentCount: studentIds.length
-        });
+      } else if (!['student', 'recruiter', 'admin'].includes(req.user.role)) {
+        whereClause.id = -1;
       }
 
       // Free-text search across the joined job title and the applicant's name.
@@ -396,8 +471,8 @@ class ApplicationController {
       const { count, rows: applications } = await Application.findAndCountAll({
         where: whereClause,
         include: includeOptions,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit,
+        offset,
         // A `$association.column$` reference can only resolve against a real
         // JOIN. Sequelize's default paging strategy pushes the limit into a
         // subquery over the base table alone, where those columns do not
@@ -415,18 +490,18 @@ class ApplicationController {
         userOrgId: req.user.organizationId,
         count,
         applicationsCount: applications.length,
-        limit: parseInt(limit),
-        offset: parseInt(offset)
+        limit,
+        offset
       });
 
       // Ensure pagination object has all required fields
       const pagination = {
-        currentPage: parseInt(page),
+        currentPage: page,
         totalPages: Math.ceil(count / limit),
         totalItems: count,
         totalApplications: count,
         hasMore: offset + applications.length < count,
-        limit: parseInt(limit)
+        limit
       };
 
       res.json({
@@ -477,9 +552,11 @@ class ApplicationController {
       } else if (req.user.role === 'recruiter') {
         // Recruiters can view applications for jobs from their organization
         canView = application.job && application.job.organizationId === req.user.organizationId;
-      } else if (req.user.role === 'tpo') {
-        // TPO can only view applications from students in their own university
-        canView = application.student && application.student.organizationId === req.user.organizationId;
+      } else if (INSTITUTION_VIEWER_ROLES.includes(req.user.role)) {
+        // Institution staff can only view applications from their own students
+        // — the same scope the list endpoint applies.
+        canView = Boolean(application.student && req.user.organizationId &&
+          application.student.organizationId === req.user.organizationId);
       }
 
       // Debug logging for permission issues
@@ -630,11 +707,21 @@ class ApplicationController {
         });
       }
 
+      if (application.status === 'withdrawn') {
+        return res.status(409).json({
+          error: 'Already Withdrawn',
+          message: 'You have already withdrawn this application.'
+        });
+      }
+
       // Check if application can be withdrawn
       if (['selected', 'rejected'].includes(application.status)) {
         return res.status(400).json({
           error: 'Cannot Withdraw',
-          message: 'Cannot withdraw application that has been finalized'
+          message:
+            application.status === 'selected'
+              ? 'You were selected for this job, so the application can no longer be withdrawn. Decline the offer on the Offers page instead.'
+              : 'This application already has a result, so it can no longer be withdrawn.'
         });
       }
 
@@ -667,9 +754,24 @@ class ApplicationController {
         });
         const jobIds = jobs.map(job => job.id);
         whereClause.jobId = { [Op.in]: jobIds };
+      } else if (INSTITUTION_VIEWER_ROLES.includes(req.user.role)) {
+        // Was unscoped for every role but student and recruiter: a TPO's
+        // dashboard counted every institution's applications, and the
+        // "recent" list named other colleges' students.
+        const students = await User.findAll({
+          where: { role: 'student', organizationId: req.user.organizationId || -1 },
+          attributes: ['id']
+        });
+        whereClause.studentId = { [Op.in]: students.map((s) => s.id) };
+      } else if (req.user.role !== 'admin') {
+        whereClause.id = -1;
       }
 
-      if (jobId) whereClause.jobId = jobId;
+      // Narrow within the scope above, never widen it: a recruiter passing
+      // another company's jobId must not get that job's numbers.
+      if (jobId) {
+        whereClause[Op.and] = [...(whereClause[Op.and] || []), { jobId: parseInt(jobId, 10) || -1 }];
+      }
 
       const stats = await Application.findAll({
         where: whereClause,
@@ -880,12 +982,17 @@ class ApplicationController {
 
   async bulkUpdateApplications(req, res, next) {
     try {
-      const { applicationIds, status, feedback } = req.body;
+      const { status, feedback } = req.body;
+      // Whole numbers only: a stray string id reached Postgres and came back
+      // as a 500.
+      const applicationIds = Array.isArray(req.body.applicationIds)
+        ? [...new Set(req.body.applicationIds.map((v) => parseInt(v, 10)).filter((v) => Number.isInteger(v) && v > 0))]
+        : [];
 
-      if (!Array.isArray(applicationIds) || applicationIds.length === 0) {
+      if (applicationIds.length === 0) {
         return res.status(400).json({
           error: 'Invalid Data',
-          message: 'Application IDs must be provided as an array'
+          message: 'Select at least one application to update.'
         });
       }
 
@@ -963,6 +1070,18 @@ class ApplicationController {
         attributes: ['id', 'studentId']
       });
 
+      // Nothing the caller may touch: say so, rather than answering 200 with
+      // "0 applications updated" as if the request had simply been a no-op.
+      if (affected.length === 0) {
+        const anyExist = await Application.count({ where: { id: { [Op.in]: applicationIds } } });
+        return res.status(anyExist ? 403 : 404).json({
+          error: anyExist ? 'Access Forbidden' : 'Applications Not Found',
+          message: anyExist
+            ? 'None of these applications can be updated by you: they belong to another organisation, or the students withdrew them.'
+            : 'None of these applications exist. Refresh the page and try again.'
+        });
+      }
+
       const [updatedCount] = await Application.update(updateData, {
         where: whereClause
       });
@@ -996,7 +1115,11 @@ class ApplicationController {
       );
 
       res.json({
-        message: `${updatedCount} applications updated successfully`,
+        message: `${updatedCount} application${updatedCount === 1 ? '' : 's'} updated${
+          updatedCount < applicationIds.length
+            ? `; ${applicationIds.length - updatedCount} skipped (withdrawn, or not yours to change)`
+            : ''
+        }`,
         updatedCount,
         status
       });

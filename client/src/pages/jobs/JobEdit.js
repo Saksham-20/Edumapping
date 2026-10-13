@@ -9,17 +9,20 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import {
   ACADEMIC_CRITERIA,
-  parseBranchList,
-  parseYearList,
   readNumeric,
-  withNumeric,
   readAllowedBranches,
   readGraduationYears,
-  readMinCGPA,
-  withAllowedBranches,
-  withGraduationYears,
-  withMinCGPA
+  readMinCGPA
 } from '../../utils/eligibility';
+import {
+  JOB_TYPE_OPTIONS,
+  PayInputs,
+  buildJobPayload,
+  deadlineMin,
+  jobFieldErrors,
+  validateJobForm
+} from '../../components/forms/jobForm';
+import { rupeesForInput } from '../../components/forms/salary';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -34,13 +37,7 @@ import {
   Textarea
 } from '../../components/ui';
 import { ListField } from './JobPost';
-import { LockClosedIcon } from '@heroicons/react/24/outline';
-
-const JOB_TYPE_OPTIONS = [
-  { value: 'full_time', label: 'Full time' },
-  { value: 'part_time', label: 'Part time' },
-  { value: 'internship', label: 'Internship' }
-];
+import { BriefcaseIcon, LockClosedIcon } from '@heroicons/react/24/outline';
 
 const JobEdit = () => {
   const navigate = useNavigate();
@@ -60,6 +57,13 @@ const JobEdit = () => {
   // no longer part of the edit payload at all; only an active/closed posting
   // can be opened or closed here, through the status endpoint.
   const [jobStatus, setJobStatus] = useState(null);
+  // The deadline as loaded. Only a changed deadline has to be in the future;
+  // a drive whose deadline has passed must still be correctable.
+  const [originalDeadline, setOriginalDeadline] = useState('');
+  // 'missing' when the job cannot be loaded, 'forbidden' when it belongs to
+  // another organisation. Both used to toast and bounce to /jobs, on top of
+  // the toast the API client had already shown.
+  const [loadProblem, setLoadProblem] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -89,8 +93,7 @@ const JobEdit = () => {
       const job = response.job || response;
 
       if (job.organizationId !== user.organizationId) {
-        toast.error('You are not authorized to edit this job');
-        navigate('/jobs');
+        setLoadProblem('forbidden');
         return;
       }
 
@@ -103,6 +106,7 @@ const JobEdit = () => {
         : [''];
       if (requirements.length === 0) requirements.push('');
 
+      setOriginalDeadline(job.applicationDeadline ? job.applicationDeadline.split('T')[0] : '');
       setFormData({
         title: job.title || '',
         description: job.description || '',
@@ -110,8 +114,9 @@ const JobEdit = () => {
         skillsRequired: job.skillsRequired?.length ? job.skillsRequired : [''],
         jobType: job.jobType || 'full_time',
         location: job.location || '',
-        salaryMin: job.salaryMin ? job.salaryMin.toString() : '',
-        salaryMax: job.salaryMax ? job.salaryMax.toString() : '',
+        // Shown in Indian grouping ("10,00,000"); the pay inputs accept it back.
+        salaryMin: rupeesForInput(job.salaryMin),
+        salaryMax: rupeesForInput(job.salaryMax),
         experienceRequired: job.experienceRequired || 0,
         totalPositions: job.totalPositions || 1,
         applicationDeadline: job.applicationDeadline ? job.applicationDeadline.split('T')[0] : '',
@@ -129,12 +134,11 @@ const JobEdit = () => {
         isActive: job.status === 'active'
       });
     } catch (error) {
-      toast.error('Failed to load job details');
-      navigate('/jobs');
+      setLoadProblem('missing');
     } finally {
       setIsLoadingJob(false);
     }
-  }, [id, user.organizationId, navigate]);
+  }, [id, user.organizationId]);
 
   useEffect(() => {
     fetchJobDetails();
@@ -165,58 +169,13 @@ const JobEdit = () => {
   };
 
   const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.title.trim()) newErrors.title = 'Job title is required';
-    if (!formData.description.trim()) newErrors.description = 'Job description is required';
-    if (!formData.location.trim()) newErrors.location = 'Job location is required';
-
-    if (
-      formData.salaryMin &&
-      formData.salaryMax &&
-      parseInt(formData.salaryMin, 10) > parseInt(formData.salaryMax, 10)
-    ) {
-      newErrors.salaryMax = 'Maximum salary must be greater than or equal to minimum salary';
-    }
-
-    if (formData.minCGPA && (parseFloat(formData.minCGPA) < 0 || parseFloat(formData.minCGPA) > 10)) {
-      newErrors.minCGPA = 'CGPA must be between 0 and 10';
-    }
-    if (formData.graduationYears.trim() && parseYearList(formData.graduationYears) === null) {
-      newErrors.graduationYears = 'Enter four-digit years separated by commas, e.g. 2025, 2026';
-    }
-
-    for (const rule of ACADEMIC_CRITERIA) {
-      const raw = formData[rule.field];
-      if (raw === '' || raw === null || raw === undefined) continue;
-      const value = Number(raw);
-      if (!Number.isFinite(value) || value < 0 || value > rule.max) {
-        newErrors[rule.field] = `Enter a value between 0 and ${rule.max}`;
-      } else if (rule.integer && !Number.isInteger(value)) {
-        newErrors[rule.field] = 'Enter a whole number';
-      }
-    }
-
-    if (formData.applicationDeadline && new Date(formData.applicationDeadline) <= new Date()) {
-      newErrors.applicationDeadline = 'Application deadline must be in the future';
-    }
-
-    // The numeric bounds used to be enforced only by the browser's own
-    // validation, via min/max on the inputs. Now that the form carries
-    // noValidate they have to be checked here, or an out-of-range number would
-    // reach the API and come back as a generic toast.
-    const negative = (v) => v !== '' && v !== null && v !== undefined && Number(v) < 0;
-    if (negative(formData.salaryMin)) newErrors.salaryMin = 'Salary cannot be negative';
-    if (negative(formData.salaryMax)) newErrors.salaryMax = 'Salary cannot be negative';
-    if (negative(formData.experienceRequired)) {
-      newErrors.experienceRequired = 'Experience cannot be negative';
-    }
-    if (formData.totalPositions !== '' && Number(formData.totalPositions) < 1) {
-      newErrors.totalPositions = 'There must be at least one opening';
-    }
-
+    const newErrors = validateJobForm(formData, {
+      checkDeadline: formData.applicationDeadline !== originalDeadline
+    });
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const first = Object.keys(newErrors)[0];
+    if (first) document.getElementsByName(first)[0]?.focus();
+    return !first;
   };
 
   const handleSubmit = async (e) => {
@@ -233,65 +192,31 @@ const JobEdit = () => {
     try {
       setLoading(true);
 
-      const cleanedData = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        jobType: formData.jobType,
-        location: formData.location.trim(),
-        requirements: formData.requirements.filter((req) => req.trim() !== '').join('\n'),
-        skillsRequired: formData.skillsRequired.filter((skill) => skill.trim() !== '')
-      };
-
       // Merge rather than replace: the criteria object can carry keys this form
-      // does not model, and assigning a fresh object discarded them on save.
-      // Every field the form does own is written unconditionally — sending the
-      // criteria only when a field was non-empty meant a rule could be cleared
-      // in the form and still be enforced on the job.
-      let criteria = withMinCGPA(eligibilityCriteria, formData.minCGPA.trim());
-      criteria = withAllowedBranches(criteria, parseBranchList(formData.allowedBranches));
-      criteria = withGraduationYears(criteria, parseYearList(formData.graduationYears) || []);
-      // The academic bars, driven off one table so the form, the payload and
-      // the server's reader cannot drift apart.
-      for (const rule of ACADEMIC_CRITERIA) {
-        criteria = withNumeric(criteria, formData[rule.field], rule.camel, rule.snake);
-      }
-      cleanedData.eligibilityCriteria = criteria;
-
-      if (formData.salaryMin && formData.salaryMin.trim()) {
-        cleanedData.salaryMin = parseInt(formData.salaryMin, 10);
-      }
-      if (formData.salaryMax && formData.salaryMax.trim()) {
-        cleanedData.salaryMax = parseInt(formData.salaryMax, 10);
-      }
-      if (formData.experienceRequired !== undefined && formData.experienceRequired !== '') {
-        cleanedData.experienceRequired = parseInt(formData.experienceRequired, 10);
-      }
-      if (formData.totalPositions && formData.totalPositions > 0) {
-        cleanedData.totalPositions = parseInt(formData.totalPositions, 10);
-      }
-      if (formData.applicationDeadline) {
-        cleanedData.applicationDeadline = formData.applicationDeadline;
-      }
-
-      await api.put(`/jobs/${id}`, cleanedData);
+      // does not model. Every field the form owns is written, so a rule cleared
+      // here is cleared on the job too.
+      const response = await api.put(
+        `/jobs/${id}`,
+        buildJobPayload(formData, { baseCriteria: eligibilityCriteria, editing: true })
+      );
 
       // Opening or closing a live posting is a separate, explicit action.
-      const canToggle = jobStatus === 'active' || jobStatus === 'closed';
+      const savedStatus = response.job?.status || jobStatus;
+      const canToggle = savedStatus === 'active' || savedStatus === 'closed';
       const wantedStatus = formData.isActive ? 'active' : 'closed';
-      if (canToggle && wantedStatus !== jobStatus) {
+      if (canToggle && wantedStatus !== savedStatus) {
         await api.patch(`/jobs/${id}/status`, { status: wantedStatus });
       }
 
-      toast.success('Job updated');
+      toast.success(
+        response.sentForReview
+          ? 'Saved. The change goes to the placement cell before students see it.'
+          : 'Job updated'
+      );
       navigate(`/jobs/${id}`);
     } catch (error) {
-      if (error.data && error.data.details) {
-        toast.error(
-          `Validation error: ${error.data.details.map((detail) => detail.message).join(', ')}`
-        );
-      } else {
-        toast.error(error.message || 'Failed to update job');
-      }
+      // Already toasted by the API client; also mark the fields.
+      setErrors(jobFieldErrors(error));
     } finally {
       setLoading(false);
     }
@@ -304,6 +229,27 @@ const JobEdit = () => {
           icon={LockClosedIcon}
           title="Access denied"
           description="Only recruiters and placement officers can edit jobs."
+          action={
+            <Button as={Link} to="/jobs">
+              Back to jobs
+            </Button>
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  if (loadProblem) {
+    return (
+      <PageShell width="narrow">
+        <EmptyState
+          icon={loadProblem === 'forbidden' ? LockClosedIcon : BriefcaseIcon}
+          title={loadProblem === 'forbidden' ? 'You cannot edit this job' : 'Job not found'}
+          description={
+            loadProblem === 'forbidden'
+              ? 'Only people from the organisation that posted it can edit it.'
+              : 'It may have been removed, or the link is wrong.'
+          }
           action={
             <Button as={Link} to="/jobs">
               Back to jobs
@@ -332,7 +278,7 @@ const JobEdit = () => {
         ]}
         eyebrow="Hiring"
         title="Edit job"
-        lead="Update your job posting."
+        lead="Changes to a live posting reach students straight away, unless they need the placement cell's approval."
       />
 
       <Card>
@@ -373,44 +319,24 @@ const JobEdit = () => {
               value={formData.location}
               onChange={handleInputChange}
               error={errors.location}
-              placeholder="e.g. New York, NY"
+              placeholder="e.g. Pune, Maharashtra or Remote"
             />
-            <Input
-              label="Minimum salary"
-              name="salaryMin"
-              type="number"
-              min="0"
-              value={formData.salaryMin}
-              onChange={handleInputChange}
-              placeholder="50000"
-              error={errors.salaryMin}
-            />
-            <Input
-              label="Maximum salary"
-              name="salaryMax"
-              type="number"
-              min="0"
-              value={formData.salaryMax}
-              onChange={handleInputChange}
-              error={errors.salaryMax}
-              placeholder="80000"
-            />
+            <PayInputs formData={formData} errors={errors} onChange={handleInputChange} />
             <Input
               label="Experience required (years)"
               name="experienceRequired"
               type="number"
               min="0"
-              max="20"
+              max="50"
               value={formData.experienceRequired}
               onChange={handleInputChange}
               error={errors.experienceRequired}
             />
             <Input
-              label="Total positions"
+              label="Number of openings"
               name="totalPositions"
               type="number"
               min="1"
-              max="100"
               value={formData.totalPositions}
               onChange={handleInputChange}
               error={errors.totalPositions}
@@ -452,10 +378,11 @@ const JobEdit = () => {
               label="Application deadline"
               name="applicationDeadline"
               type="date"
-              min={new Date().toISOString().split('T')[0]}
+              min={deadlineMin()}
               value={formData.applicationDeadline}
               onChange={handleInputChange}
               error={errors.applicationDeadline}
+              help="The last day students can apply."
             />
             <Input
               label="Minimum CGPA"
@@ -467,7 +394,8 @@ const JobEdit = () => {
               value={formData.minCGPA}
               onChange={handleInputChange}
               error={errors.minCGPA}
-              placeholder="7.5"
+              placeholder="e.g. 7.0"
+              help="Leave blank for no minimum."
             />
           </div>
 
@@ -514,11 +442,11 @@ const JobEdit = () => {
           )}
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-ink-950/10 pt-6">
-            <Button as={Link} to="/jobs" variant="ghost">
+            <Button as={Link} to={`/jobs/${id}`} variant="ghost">
               Cancel
             </Button>
             <Button type="submit" loading={loading}>
-              Update job
+              Save changes
             </Button>
           </div>
         </form>

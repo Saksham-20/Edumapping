@@ -156,6 +156,7 @@ const TPODashboard = () => {
           value={toInt(students.total)}
           hint="Enrolled at your institution"
           icon={UserGroupIcon}
+          to="/tpo/students"
           loading={loading}
         />
         <StatTile
@@ -378,13 +379,12 @@ const TPODashboard = () => {
                     description: 'Set up a drive, workshop or talk'
                   },
                   {
-                    // Was /students, which has never existed as a route — the
-                    // tile silently bounced to the landing page. The roster
-                    // lives inside the analytics surface.
-                    to: '/tpo/analytics',
+                    // The roster has its own page now (/tpo/students): import,
+                    // verification and outcomes live there, not in analytics.
+                    to: '/tpo/students',
                     icon: AcademicCapIcon,
-                    title: 'Students & analytics',
-                    description: 'Placement performance and student roster'
+                    title: 'Students',
+                    description: 'Import, verify and track your batch'
                   },
                   {
                     to: '/applications',

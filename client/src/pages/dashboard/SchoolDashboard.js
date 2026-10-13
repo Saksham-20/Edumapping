@@ -20,6 +20,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
+import api from '../../services/api';
 import {
   EVENT_TYPE_LABELS,
   cancelEventRegistration,
@@ -32,7 +33,6 @@ import {
   registerForEvent,
   registrationOpen,
   submitAssessment,
-  takeAssessment,
   toErrorState,
   withMyRegistration
 } from '../../services/school';
@@ -42,15 +42,16 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  Modal,
   PageHeader,
   PageShell,
   SectionBlock,
   SkeletonCard,
   StatStrip,
   StatTile,
+  StatusBadge,
   Tabs
 } from '../../components/ui';
+import AdminModal from '../../components/admin/AdminModal';
 import {
   CalendarIcon,
   CheckCircleIcon,
@@ -61,6 +62,23 @@ import {
   TrophyIcon,
   VideoCameraIcon
 } from '@heroicons/react/24/outline';
+
+/**
+ * The shared API layer already toasts every failure except 401/403, so a
+ * second toast in a catch block doubled every error. Only the ones it stays
+ * quiet about get a message here.
+ */
+const toastIfUnreported = (err, fallback) => {
+  if (err?.status === 401 || err?.status === 403) toast.error(err?.message || fallback);
+};
+
+/**
+ * Starting an assessment, posted directly rather than through the shared
+ * school service so it can be `silent`: a 409 here means "you already took
+ * it", which this page explains itself — the interceptor would otherwise flash
+ * it as a red error first.
+ */
+const startAssessment = (id) => api.post(`/assessments/${id}/take`, {}, { silent: true });
 
 const TABS = [
   { value: 'events', label: 'Events', icon: CalendarIcon },
@@ -74,10 +92,10 @@ const TABS = [
 const EventCard = ({ event, busy, onRegister, onCancel }) => {
   const when = formatEventWhen(event.startTime);
   const registered = event.myRegistration?.status === 'registered';
-  // The server refuses a second registration even after a cancellation, so a
-  // cancelled row is a dead end, not an invitation to sign up again.
-  const cancelled = event.myRegistration?.status === 'cancelled';
-  const canRegister = !cancelled && registrationOpen(event);
+  // The server lets a student sign up again after cancelling (a cancelled row
+  // no longer blocks registration), so a cancellation is not a dead end: it
+  // just means the Register button comes back.
+  const canRegister = registrationOpen(event);
 
   return (
     <Card className="flex flex-col">
@@ -134,10 +152,6 @@ const EventCard = ({ event, busy, onRegister, onCancel }) => {
               Cancel registration
             </Button>
           </>
-        ) : cancelled ? (
-          <Badge tone="neutral" dot>
-            You cancelled — this event cannot be rejoined
-          </Badge>
         ) : (
           <Button
             size="sm"
@@ -191,14 +205,16 @@ const AssessmentRunner = ({ open, assessment, onClose, onSubmitted }) => {
       toast.success('Assessment submitted');
       onClose();
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not submit the assessment');
+      toastIfUnreported(err, 'Could not submit the assessment');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal
+    // AdminModal keeps onClose stable, so a parent re-render cannot pull
+    // focus out of the answer you are choosing (see AdminModal.js).
+    <AdminModal
       open={open}
       onClose={onClose}
       size="lg"
@@ -262,7 +278,7 @@ const AssessmentRunner = ({ open, assessment, onClose, onSubmitted }) => {
           </li>
         ))}
       </ol>
-    </Modal>
+    </AdminModal>
   );
 };
 
@@ -324,7 +340,7 @@ const SchoolDashboard = () => {
         conferencesRes.reason?.response?.status === 503
           ? {
               title: 'Live classes are not switched on yet',
-              description: 'This server has no LiveKit connection configured.'
+              description: 'Live classes have not been set up on EduMapping yet. Please check back later.'
             }
           : toErrorState(conferencesRes.reason, 'Could not load live classes');
     }
@@ -347,6 +363,16 @@ const SchoolDashboard = () => {
     () => conferences.filter((c) => c.status !== 'ended'),
     [conferences]
   );
+  // Assessments are a stage of a job application, so the server only lists
+  // ones for roles this student applied to. For most school students that is
+  // none, and an always-empty tab read as broken; it appears once there is
+  // something (or an error) to show.
+  const visibleTabs = useMemo(
+    () =>
+      TABS.filter((t) => t.value !== 'assessments' || assessments.length || errors.assessments),
+    [assessments.length, errors.assessments]
+  );
+
   const registeredCount = useMemo(
     () => events.filter((e) => e.myRegistration?.status === 'registered').length,
     [events]
@@ -360,7 +386,7 @@ const SchoolDashboard = () => {
       // Re-read from the server rather than guessing the new count locally.
       setEvents(await withMyRegistration(events, user?.id));
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not register for this event');
+      toastIfUnreported(err, 'Could not register for this event');
     } finally {
       setBusyEventId(null);
     }
@@ -373,7 +399,7 @@ const SchoolDashboard = () => {
       toast.success('Registration cancelled');
       setEvents(await withMyRegistration(events, user?.id));
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not cancel the registration');
+      toastIfUnreported(err, 'Could not cancel the registration');
     } finally {
       setBusyEventId(null);
     }
@@ -382,7 +408,7 @@ const SchoolDashboard = () => {
   const onStart = async (assessment) => {
     setStartingId(assessment.id);
     try {
-      const data = await takeAssessment(assessment.id);
+      const data = await startAssessment(assessment.id);
       setRunner(data.assessment);
     } catch (err) {
       // 409 is the server saying this student has already attempted it. That is
@@ -392,7 +418,7 @@ const SchoolDashboard = () => {
         setResults((r) => ({ ...r, [assessment.id]: { alreadyTaken: true } }));
         toast('You have already taken this assessment', { icon: '✓' });
       } else {
-        toast.error(err?.response?.data?.message || 'Could not start the assessment');
+        toast.error(err?.message || 'Could not start the assessment. Try again.');
       }
     } finally {
       setStartingId(null);
@@ -441,15 +467,15 @@ const SchoolDashboard = () => {
         <EmptyState
           icon={ClipboardDocumentCheckIcon}
           title="No assessments published"
-          description="Assessments set by recruiters and placement officers show up here as soon as they are published."
+          description="An assessment appears here when a role you have applied for includes one."
         />
       );
     }
     return (
       <>
         <p className="mb-4 rounded-xl border border-ink-950/15 bg-bone-100 px-4 py-3 text-sm text-ink-700">
-          Each assessment can be attempted once. Scores from earlier sessions are
-          not shown — the API has no endpoint that lists past attempts yet.
+          You can take each assessment only once, so start when you have enough
+          time to finish. Your score is shown here right after you submit.
         </p>
         <div className="grid gap-4 sm:grid-cols-2">
           {assessments.map((a) => {
@@ -537,9 +563,7 @@ const SchoolDashboard = () => {
           <Card key={c.id} className="flex flex-col">
             <div className="flex items-start justify-between gap-3">
               <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
-              <Badge tone={c.status === 'live' ? 'danger' : 'info'} dot>
-                {c.status}
-              </Badge>
+              <StatusBadge status={c.status} />
             </div>
             <p className="mt-1 text-xs text-ink-600">
               {c.host ? `${c.host.firstName} ${c.host.lastName}` : 'Unknown host'}
@@ -617,7 +641,7 @@ const SchoolDashboard = () => {
       <PageHeader
         eyebrow={user?.organization?.name || 'School'}
         title={`Welcome back, ${user?.firstName || 'student'}`}
-        lead="Events, assessments and live classes open to you across EduMapping."
+        lead="Events and live classes open to you, and your achievements."
         actions={
           <Button as={Link} to="/events" variant="secondary" icon={CalendarIcon}>
             All events
@@ -643,11 +667,12 @@ const SchoolDashboard = () => {
             hint="Among the events shown"
           />
           <StatTile
-            label="Assessments open"
-            value={errors.assessments ? '—' : assessments.length}
-            icon={ClipboardDocumentCheckIcon}
+            label="Achievements"
+            value={errors.achievements ? '—' : achievements.length}
+            icon={TrophyIcon}
             accent="saffron"
             loading={loading}
+            hint="On your record"
           />
           <StatTile
             label="Live classes"
@@ -660,7 +685,7 @@ const SchoolDashboard = () => {
         </StatStrip>
       </SectionBlock>
 
-      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+      <Tabs className="mb-6 w-fit max-w-full" value={tab} onChange={setTab} tabs={visibleTabs} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -2,50 +2,110 @@
 const { User, Organization, StudentProfile, RecruiterProfile, RecruiterAllowedOrganization, AuditLog } = require('../models');
 const authService = require('../services/authService');
 const { Op } = require('sequelize');
-const XLSX = require('xlsx');
-const crypto = require('crypto');
+
+const ROLES = ['student', 'recruiter', 'tpo', 'admin', 'principal', 'teacher', 'school_admin', 'career_counselor'];
+
+// Which kind of organization each role can belong to. One table instead of
+// the four slightly different copies that lived in create/update, the update
+// copy of which rejected every school student and never looked at school
+// staff at all, so an edit could turn a teacher into a recruiter at a school.
+const ORG_TYPES_FOR_ROLE = {
+  student: ['university', 'college', 'school'],
+  tpo: ['university', 'college'],
+  recruiter: ['company'],
+  principal: ['school'],
+  teacher: ['school'],
+  school_admin: ['school'],
+  career_counselor: ['school']
+};
+const ORG_TYPE_WORDS = {
+  student: 'a university, college or school',
+  tpo: 'a university or college',
+  recruiter: 'a company',
+  principal: 'a school',
+  teacher: 'a school',
+  school_admin: 'a school',
+  career_counselor: 'a school'
+};
+
+/** Emails are compared and stored trimmed and lower-case. */
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+/** The house 400 shape: a readable message plus per-field details. */
+const invalid = (res, field, message, error = 'Validation Error') =>
+  res.status(400).json({ error, message, details: [{ field, message }] });
+
+/** Returns a sentence when `organization` cannot hold `role`, else null. */
+const roleOrgProblem = (role, organization) => {
+  if (role === 'admin') return null;
+  if (!organization) return `Choose the organization this ${role.replace(/_/g, ' ')} belongs to`;
+  if (!ORG_TYPES_FOR_ROLE[role]?.includes(organization.type)) {
+    return `${organization.name} is a ${organization.type}; this role must belong to ${ORG_TYPE_WORDS[role]}`;
+  }
+  return null;
+};
+
+/** True when someone other than `exceptUserId` can still administer the platform. */
+const anotherActiveAdminExists = async (exceptUserId) =>
+  (await User.count({
+    where: { role: 'admin', isActive: true, id: { [Op.ne]: exceptUserId } }
+  })) > 0;
 
 /**
- * A one-off password for an imported student: 12 characters from an alphabet
- * without look-alikes (0/O, 1/l/I), always containing an upper-case letter,
- * a lower-case letter and a digit so it satisfies the registration policy.
+ * Fire-and-forget audit row for an admin change to an account. Role changes
+ * and deactivations decide who can see student data, and none of them were
+ * recorded.
  */
-function generateTemporaryPassword() {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const lower = 'abcdefghijkmnpqrstuvwxyz';
-  const digits = '23456789';
-  const all = upper + lower + digits;
-  const pickFrom = (set) => set[crypto.randomInt(set.length)];
-  const chars = [pickFrom(upper), pickFrom(lower), pickFrom(digits)];
-  while (chars.length < 12) chars.push(pickFrom(all));
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
-}
+const auditAccountChange = (req, action, user, newValues) =>
+  AuditLog.create({
+    userId: req.user.id,
+    action,
+    entityType: 'user',
+    entityId: user.id,
+    newValues: { email: user.email, ...newValues },
+    ipAddress: req.ip || req.connection?.remoteAddress,
+    userAgent: req.get('user-agent')
+  }).catch(() => {});
+
+const sequelizeValidation = (res, error) => {
+  const details = (error.errors || []).map((e) => ({ field: e.path, message: e.message }));
+  return res.status(400).json({
+    error: 'Validation Error',
+    message: details.map((d) => d.message).join('. ') || 'Some details need fixing.',
+    details
+  });
+};
 
 class AdminController {
   // Create a new user
   async createUser(req, res, next) {
     try {
-      const { email, password, role, organizationId, ...userData } = req.body;
+      const { password, role, organizationId, firstName, lastName, phone } = req.body;
+      // Only the fields this form owns. Spreading the body let a caller set
+      // anything on the row (approval, verification, timestamps).
+      const userData = { firstName, lastName, phone };
+      const email = normalizeEmail(req.body.email);
 
-      // Validate required fields
-      if (!email || !password || !role) {
-        return res.status(400).json({
-          error: 'Validation Error',
-          message: 'Email, password, and role are required'
-        });
+      const missing = [
+        !String(firstName || '').trim() && { field: 'firstName', message: 'First name is required' },
+        !String(lastName || '').trim() && { field: 'lastName', message: 'Last name is required' },
+        !email && { field: 'email', message: 'Email is required' },
+        !password && { field: 'password', message: 'Password is required' },
+        !role && { field: 'role', message: 'Choose a role' }
+      ].filter(Boolean);
+      if (missing.length) {
+        return res.status(400).json({ error: 'Validation Error', message: missing[0].message, details: missing });
+      }
+      if (!ROLES.includes(role)) return invalid(res, 'role', 'Choose one of the listed roles');
+      if (String(password).length < 8) {
+        return invalid(res, 'password', 'Password must be at least 8 characters');
       }
 
-      // Check if user already exists
-      const existingUser = await User.findOne({ where: { email } });
+      // Case-insensitive: " R.K.Sharma@Gmail.com" and "r.k.sharma@gmail.com"
+      // are one inbox, and the exact-match lookup let both be created.
+      const existingUser = await User.findOne({ where: { email: { [Op.iLike]: email } } });
       if (existingUser) {
-        return res.status(400).json({
-          error: 'User Already Exists',
-          message: 'A user with this email already exists'
-        });
+        return invalid(res, 'email', `An account with ${email} already exists`, 'User Already Exists');
       }
 
       // Validate organization if provided
@@ -58,40 +118,10 @@ class AdminController {
           });
         }
 
-        // Enforce role-organization rules
-        // Students: university, college, or school. TPOs: university or college.
-        if (role === 'student' && !['university', 'college', 'school'].includes(organization.type)) {
-          return res.status(400).json({
-            error: 'Invalid Organization Type',
-            message: 'Students can only belong to university, college, or school organizations'
-          });
-        }
-        if (role === 'tpo' && organization.type !== 'university' && organization.type !== 'college') {
-          return res.status(400).json({
-            error: 'Invalid Organization Type',
-            message: 'TPOs can only belong to university or college organizations'
-          });
-        }
-
-        if (role === 'recruiter' && organization.type !== 'company') {
-          return res.status(400).json({
-            error: 'Invalid Organization Type',
-            message: 'Recruiters can only belong to company organizations'
-          });
-        }
-        
-        // School roles must belong to school organizations
-        if ((role === 'principal' || role === 'teacher' || role === 'school_admin' || role === 'career_counselor') && organization.type !== 'school') {
-          return res.status(400).json({
-            error: 'Invalid Organization Type',
-            message: 'School roles can only belong to school organizations'
-          });
-        }
+        const problem = roleOrgProblem(role, organization);
+        if (problem) return invalid(res, 'organizationId', problem, 'Invalid Organization Type');
       } else if (role !== 'admin') {
-        return res.status(400).json({
-          error: 'Organization Required',
-          message: 'Organization is required for this role'
-        });
+        return invalid(res, 'organizationId', roleOrgProblem(role, null), 'Organization Required');
       }
 
       // Hash password
@@ -151,6 +181,7 @@ class AdminController {
         user: userResponse
       });
     } catch (error) {
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
       next(error);
     }
   }
@@ -159,7 +190,13 @@ class AdminController {
   async updateUser(req, res, next) {
     try {
       const { id } = req.params;
-      const { password, organizationId, ...updateData } = req.body;
+      const { password, organizationId } = req.body;
+      // Whitelist: the rest of the body used to go straight into update().
+      const updateData = Object.fromEntries(
+        ['firstName', 'lastName', 'email', 'phone', 'role', 'isActive', 'approvalStatus']
+          .filter((k) => req.body[k] !== undefined)
+          .map((k) => [k, req.body[k]])
+      );
 
       const user = await User.findByPk(id);
       if (!user) {
@@ -169,41 +206,58 @@ class AdminController {
         });
       }
 
-      // Prevent admin from deleting themselves
-      if (id == req.user.id && updateData.isActive === false) {
-        return res.status(400).json({
-          error: 'Invalid Operation',
-          message: 'You cannot deactivate yourself'
-        });
+      const isSelf = Number(id) === Number(req.user.id);
+      const nextRole = updateData.role ?? user.role;
+      if (updateData.role !== undefined && !ROLES.includes(nextRole)) {
+        return invalid(res, 'role', 'Choose one of the listed roles');
       }
 
-      // Validate organization if provided
-      if (organizationId !== undefined) {
-        if (organizationId) {
-          const organization = await Organization.findByPk(organizationId);
-          if (!organization) {
-            return res.status(400).json({
-              error: 'Invalid Organization',
-              message: 'Organization not found'
-            });
-          }
+      // Guard rails on admin accounts. An admin could demote or deactivate
+      // themselves from the edit form (only `isActive` was checked), and
+      // nothing stopped the last administrator being removed, which leaves
+      // nobody able to approve institutions.
+      if (isSelf && nextRole !== 'admin') {
+        return invalid(res, 'role', 'You cannot change your own role. Ask another admin to do it.', 'Invalid Operation');
+      }
+      if (isSelf && (updateData.isActive === false || (updateData.approvalStatus && updateData.approvalStatus !== 'approved'))) {
+        return invalid(res, 'isActive', 'You cannot deactivate your own account', 'Invalid Operation');
+      }
+      const losesAdmin =
+        user.role === 'admin' &&
+        (nextRole !== 'admin' || updateData.isActive === false || ['pending', 'rejected'].includes(updateData.approvalStatus));
+      if (losesAdmin && !(await anotherActiveAdminExists(user.id))) {
+        return invalid(res, 'role', 'This is the only active admin. Make someone else an admin first.', 'Invalid Operation');
+      }
 
-          // Enforce role-organization rules
-          if ((user.role === 'student' || user.role === 'tpo') && organization.type !== 'university' && organization.type !== 'college') {
-            return res.status(400).json({
-              error: 'Invalid Organization Type',
-              message: 'Students and TPOs can only belong to university or college organizations'
-            });
-          }
-
-          if (user.role === 'recruiter' && organization.type !== 'company') {
-            return res.status(400).json({
-              error: 'Invalid Organization Type',
-              message: 'Recruiters can only belong to company organizations'
-            });
-          }
+      if (updateData.email !== undefined) {
+        updateData.email = normalizeEmail(updateData.email);
+        if (!updateData.email) return invalid(res, 'email', 'Email is required');
+        if (updateData.email !== String(user.email).toLowerCase()) {
+          const taken = await User.findOne({
+            where: { email: { [Op.iLike]: updateData.email }, id: { [Op.ne]: user.id } }
+          });
+          if (taken) return invalid(res, 'email', `Another account already uses ${updateData.email}`);
         }
-        updateData.organizationId = organizationId;
+      }
+      ['firstName', 'lastName'].forEach((k) => {
+        if (updateData[k] !== undefined) updateData[k] = String(updateData[k]).trim();
+      });
+      if (updateData.firstName === '' || updateData.lastName === '') {
+        return invalid(res, updateData.firstName === '' ? 'firstName' : 'lastName', 'Name cannot be empty');
+      }
+
+      // Re-check the role/organization pair whenever either side changes, so
+      // an edit cannot leave (say) a recruiter attached to a school.
+      if (updateData.role !== undefined || organizationId !== undefined) {
+        const nextOrgId =
+          nextRole === 'admin' ? null : organizationId !== undefined ? organizationId || null : user.organizationId;
+        const organization = nextOrgId ? await Organization.findByPk(nextOrgId) : null;
+        if (nextOrgId && !organization) {
+          return invalid(res, 'organizationId', 'That organization no longer exists', 'Invalid Organization');
+        }
+        const problem = roleOrgProblem(nextRole, organization);
+        if (problem) return invalid(res, 'organizationId', problem, 'Invalid Organization Type');
+        updateData.organizationId = nextOrgId;
       }
 
       // Update password if provided
@@ -216,7 +270,14 @@ class AdminController {
         updateData.phone = null;
       }
 
+      const before = { role: user.role, organizationId: user.organizationId, isActive: user.isActive, approvalStatus: user.approvalStatus };
       await user.update(updateData);
+      const changed = Object.fromEntries(
+        Object.keys(before).filter((k) => before[k] !== user[k]).map((k) => [k, { from: before[k], to: user[k] }])
+      );
+      if (Object.keys(changed).length || password) {
+        auditAccountChange(req, 'admin_user_updated', user, { ...changed, ...(password ? { passwordReset: true } : {}) });
+      }
 
       // Return updated user
       const updatedUser = await User.findByPk(id, {
@@ -233,6 +294,7 @@ class AdminController {
         user: updatedUser
       });
     } catch (error) {
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
       next(error);
     }
   }
@@ -255,7 +317,13 @@ class AdminController {
       if (id == req.user.id) {
         return res.status(400).json({
           error: 'Invalid Operation',
-          message: 'You cannot delete yourself'
+          message: 'You cannot deactivate your own account'
+        });
+      }
+      if (user.role === 'admin' && !(await anotherActiveAdminExists(user.id))) {
+        return res.status(400).json({
+          error: 'Invalid Operation',
+          message: 'This is the only active admin. Make someone else an admin first.'
         });
       }
 
@@ -268,6 +336,7 @@ class AdminController {
       } else {
         // Soft delete - deactivate
         await user.update({ isActive: false });
+        auditAccountChange(req, 'admin_user_deactivated', user, { role: user.role });
         return res.json({
           message: 'User deactivated successfully'
         });
@@ -353,8 +422,8 @@ class AdminController {
   }
 
   /**
-   * Import students from Excel file (Admin only).
-   * Expects multipart/form-data: file (xlsx/xls), organizationId.
+   * Import students from a spreadsheet (admin, and via /users/import the
+   * institution's own staff). Expects multipart/form-data: file (xlsx/xls/csv), organizationId.
    * Sheet: first row = headers. Required: email. Optional: first name, last name, phone, student id, course, branch, year of study, graduation year, gender, cgpa, percentage, date of birth.
    */
   async importStudentsFromExcel(req, res, next) {
@@ -362,7 +431,7 @@ class AdminController {
       if (!req.file || !req.file.buffer) {
         return res.status(400).json({
           error: 'Validation Error',
-          message: 'Please upload an Excel file (.xlsx or .xls)'
+          message: 'Choose a spreadsheet to upload (.xlsx, .xls or .csv)'
         });
       }
 
@@ -388,139 +457,25 @@ class AdminController {
         });
       }
 
-      // Every imported student used to get the same password, 'Student@123'
-      // unless BULK_IMPORT_DEFAULT_PASSWORD was set — a value printed in the
-      // code, so anyone who knew a student's email (usually guessable from
-      // the institution's pattern) could sign in as them. Each student now
-      // gets their own random temporary password, returned once in the import
-      // result for the importer to hand out (the client offers it as a CSV).
-      // BULK_IMPORT_DEFAULT_PASSWORD is no longer read.
+      // Parsing, validation and the per-student transaction live in the
+      // shared importer (also used by the TPO/school import). The copy that
+      // was here failed CSV dates ("2004-05-12" became a serial number),
+      // only knew the template's exact headers, and left an account without
+      // a profile behind whenever the profile insert failed.
       //
-      // There is no "must change password" flag on users (adding one needs a
-      // migration); the import screen tells the importer to have students
-      // change it after their first sign-in.
-
-      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-      const headerMap = (rawKey) => {
-        const k = String(rawKey).trim().toLowerCase().replace(/\s+/g, '_');
-        const map = {
-          email: 'email',
-          first_name: 'firstName',
-          firstname: 'firstName',
-          last_name: 'lastName',
-          lastname: 'lastName',
-          phone: 'phone',
-          student_id: 'studentId',
-          studentid: 'studentId',
-          course: 'course',
-          branch: 'branch',
-          year: 'yearOfStudy',
-          year_of_study: 'yearOfStudy',
-          yearofstudy: 'yearOfStudy',
-          graduation_year: 'graduationYear',
-          graduationyear: 'graduationYear',
-          gender: 'gender',
-          cgpa: 'cgpa',
-          percentage: 'percentage',
-          date_of_birth: 'dateOfBirth',
-          dob: 'dateOfBirth',
-          dateofbirth: 'dateOfBirth'
-        };
-        return map[k] || null;
-      };
-
-      const created = [];
-      const skipped = [];
-      const errors = [];
-
-      for (let i = 0; i < rows.length; i++) {
-        const raw = rows[i];
-        const rowNum = i + 2; // 1-based + header
-        const get = (key) => {
-          const k = Object.keys(raw).find(kk => headerMap(kk) === key);
-          return k != null ? (raw[k] != null ? String(raw[k]).trim() : '') : '';
-        };
-
-        const email = (get('email') || '').toLowerCase();
-        if (!email) {
-          errors.push({ row: rowNum, message: 'Missing email' });
-          continue;
+      // Each student gets their own random temporary password, returned once
+      // in `created` for the importer to hand out (the client offers a CSV).
+      const { status, body } = await require('../utils/studentImport').importStudents(
+        require('../models'),
+        {
+          buffer: req.file.buffer,
+          originalname: req.file.originalname,
+          organizationId,
+          actorId: req.user.id
         }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          errors.push({ row: rowNum, email, message: 'Invalid email format' });
-          continue;
-        }
-
-        const existingUser = await User.findOne({ where: { email: { [Op.iLike]: email } } });
-        if (existingUser) {
-          skipped.push({ row: rowNum, email, reason: 'Email already exists' });
-          continue;
-        }
-
-        const firstName = get('firstName') || get('lastName') || 'Student';
-        const lastName = get('lastName') || get('firstName') || 'User';
-        const phone = get('phone') || null;
-        const studentId = get('studentId') || null;
-        const course = get('course') || null;
-        const branch = get('branch') || null;
-        const yearOfStudyRaw = get('yearOfStudy') ? parseInt(get('yearOfStudy'), 10) : null;
-        let graduationYear = get('graduationYear') ? parseInt(get('graduationYear'), 10) : null;
-        let yearOfStudy = null;
-        if (yearOfStudyRaw != null && !Number.isNaN(yearOfStudyRaw)) {
-          if (yearOfStudyRaw >= 1 && yearOfStudyRaw <= 6) {
-            yearOfStudy = yearOfStudyRaw;
-          } else if (yearOfStudyRaw >= 1900 && yearOfStudyRaw <= 2100) {
-            graduationYear = graduationYear || yearOfStudyRaw;
-          }
-        }
-        const genderRaw = (get('gender') || '').toLowerCase();
-        const gender = ['male', 'female', 'other'].includes(genderRaw) ? genderRaw : null;
-        const cgpaVal = get('cgpa');
-        const cgpa = cgpaVal !== '' && !Number.isNaN(Number(cgpaVal)) ? parseFloat(cgpaVal) : null;
-        const pctVal = get('percentage');
-        const percentage = pctVal !== '' && !Number.isNaN(Number(pctVal)) ? parseFloat(pctVal) : null;
-        const dateOfBirth = get('dateOfBirth') || null;
-
-        try {
-          const temporaryPassword = generateTemporaryPassword();
-          const passwordHash = await authService.hashPassword(temporaryPassword);
-          const user = await User.create({
-            email,
-            passwordHash,
-            role: 'student',
-            organizationId,
-            firstName,
-            lastName,
-            phone: phone || null,
-            approvalStatus: 'approved',
-            isActive: true,
-            isVerified: true,
-            approvedBy: req.user.id,
-            approvedAt: new Date()
-          });
-
-          await StudentProfile.create({
-            userId: user.id,
-            studentId,
-            course,
-            branch,
-            yearOfStudy,
-            graduationYear,
-            gender,
-            cgpa,
-            percentage,
-            dateOfBirth
-          });
-
-          created.push({ row: rowNum, email, name: `${firstName} ${lastName}`, temporaryPassword });
-        } catch (err) {
-          errors.push({ row: rowNum, email, message: err.message || 'Failed to create user' });
-        }
-      }
+      );
+      if (status !== 200) return res.status(status).json(body);
+      const { created = [], skipped = [], errors = [], summary = {} } = body;
 
       // Who loaded which students into which institution. Bulk import creates
       // accounts with access to the platform in one request, and nothing
@@ -531,7 +486,7 @@ class AdminController {
         entityType: 'organization',
         entityId: organizationId,
         newValues: {
-          total: rows.length,
+          total: summary.total,
           created: created.map((c) => c.email),
           skipped: skipped.length,
           errors: errors.length
@@ -541,18 +496,7 @@ class AdminController {
       }).catch(() => {});
 
       res.setHeader('Cache-Control', 'no-store');
-      res.json({
-        message: 'Import completed',
-        summary: {
-          total: rows.length,
-          created: created.length,
-          skipped: skipped.length,
-          errors: errors.length
-        },
-        created,
-        skipped,
-        errors
-      });
+      return res.status(status).json(body);
     } catch (error) {
       next(error);
     }
@@ -607,13 +551,22 @@ class AdminController {
   // Create TPO
   async createTPO(req, res, next) {
     try {
-      const { email, password, organizationId, ...userData } = req.body;
+      const { password, organizationId, firstName, lastName, phone } = req.body;
+      const userData = { firstName, lastName, phone };
+      const email = normalizeEmail(req.body.email);
 
-      if (!email || !password || !organizationId) {
-        return res.status(400).json({
-          error: 'Validation Error',
-          message: 'Email, password, and organizationId are required'
-        });
+      const missing = [
+        !String(firstName || '').trim() && { field: 'firstName', message: 'First name is required' },
+        !String(lastName || '').trim() && { field: 'lastName', message: 'Last name is required' },
+        !email && { field: 'email', message: 'Email is required' },
+        !password && { field: 'password', message: 'Password is required' },
+        !organizationId && { field: 'organizationId', message: 'Choose the college or university' }
+      ].filter(Boolean);
+      if (missing.length) {
+        return res.status(400).json({ error: 'Validation Error', message: missing[0].message, details: missing });
+      }
+      if (String(password).length < 8) {
+        return invalid(res, 'password', 'Password must be at least 8 characters');
       }
 
       // Validate organization is a university
@@ -632,13 +585,9 @@ class AdminController {
         });
       }
 
-      // Check if user already exists
-      const existingUser = await User.findOne({ where: { email } });
+      const existingUser = await User.findOne({ where: { email: { [Op.iLike]: email } } });
       if (existingUser) {
-        return res.status(400).json({
-          error: 'User Already Exists',
-          message: 'A user with this email already exists'
-        });
+        return invalid(res, 'email', `An account with ${email} already exists`, 'User Already Exists');
       }
 
       // Hash password
@@ -675,6 +624,7 @@ class AdminController {
         tpo: tpoResponse
       });
     } catch (error) {
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
       next(error);
     }
   }
@@ -683,7 +633,19 @@ class AdminController {
   async updateTPO(req, res, next) {
     try {
       const { id } = req.params;
-      const { password, organizationId, ...updateData } = req.body;
+      const { password, organizationId } = req.body;
+      const updateData = Object.fromEntries(
+        ['firstName', 'lastName', 'email', 'phone']
+          .filter((k) => req.body[k] !== undefined)
+          .map((k) => [k, req.body[k]])
+      );
+      if (updateData.email !== undefined) {
+        updateData.email = normalizeEmail(updateData.email);
+        const taken = await User.findOne({
+          where: { email: { [Op.iLike]: updateData.email }, id: { [Op.ne]: Number(req.params.id) } }
+        });
+        if (taken) return invalid(res, 'email', `Another account already uses ${updateData.email}`);
+      }
 
       const tpo = await User.findOne({
         where: { id, role: 'tpo' }
@@ -741,6 +703,7 @@ class AdminController {
         tpo: updatedTPO
       });
     } catch (error) {
+      if (error.name === 'SequelizeValidationError') return sequelizeValidation(res, error);
       next(error);
     }
   }
@@ -762,22 +725,12 @@ class AdminController {
         });
       }
 
-      // Check if TPO's university has students
-      if (tpo.organizationId) {
-        const studentCount = await User.count({
-          where: {
-            role: 'student',
-            organizationId: tpo.organizationId
-          }
-        });
-
-        if (studentCount > 0 && hardDelete !== 'true') {
-          return res.status(400).json({
-            error: 'Cannot Delete TPO',
-            message: `This TPO's university has ${studentCount} student(s). Please reassign students or use hard delete.`
-          });
-        }
-      }
+      // There used to be a check here refusing to deactivate any TPO whose
+      // college had students, pointing at a "hard delete" no screen offers.
+      // Deactivating a TPO does not touch the students (they belong to the
+      // organization, not the officer), and replacing an officer who has
+      // left is exactly the case where there are students — so the TPO
+      // could never be removed at all.
 
       if (hardDelete === 'true') {
         await tpo.destroy();

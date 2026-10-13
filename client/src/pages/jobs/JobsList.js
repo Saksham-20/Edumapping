@@ -38,6 +38,7 @@ import {
   UsersIcon
 } from '@heroicons/react/24/outline';
 import { formatJobType, formatSalary } from '../../utils/helpers';
+import { readAllowedBranches, readGraduationYears, readMinCGPA, readNumeric } from '../../utils/eligibility';
 
 const EMPTY_FILTERS = {
   search: '',
@@ -78,6 +79,121 @@ const EXPERIENCE_OPTIONS = [
   { value: '5', label: 'Up to 5 years needed' }
 ];
 
+/**
+ * The moment a drive stops taking applications. `applicationDeadline` is a
+ * plain date and the server closes it at 23:59 IST that day — reading it as
+ * `new Date('2026-10-22')` would be 05:30 IST and call it closed all day.
+ */
+const deadlineCutoff = (deadline) => {
+  if (!deadline) return null;
+  const d = new Date(`${String(deadline).slice(0, 10)}T23:59:59+05:30`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatDeadline = (deadline) =>
+  new Date(`${String(deadline).slice(0, 10)}T12:00:00+05:30`).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+
+/** A value the student has actually filled in — null is "not filled", not 0. */
+const filled = (value) =>
+  value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+
+const sameBranch = (a, b) => {
+  const norm = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const x = norm(a);
+  const y = norm(b);
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
+};
+
+/**
+ * The first reason this student does not meet a job's criteria, or null.
+ *
+ * Mirrors the server's check (utils/eligibility.js) so the board can say
+ * "not eligible" before the student opens the job and taps Apply. The server
+ * remains the judge; this is only the preview. A field the student has not
+ * filled in never counts against them.
+ */
+const firstIneligibility = (criteria, sp) => {
+  if (!criteria || !sp) return null;
+  const minCgpa = readMinCGPA(criteria);
+  if (minCgpa !== undefined && filled(sp.cgpa) && Number(sp.cgpa) < Number(minCgpa)) {
+    return `Needs CGPA ${minCgpa}+ (yours is ${Number(sp.cgpa)})`;
+  }
+  const years = readGraduationYears(criteria).map(Number);
+  if (years.length && filled(sp.graduationYear) && !years.includes(Number(sp.graduationYear))) {
+    return `Open to the ${years.join(', ')} batch${years.length > 1 ? 'es' : ''}`;
+  }
+  const branches = readAllowedBranches(criteria);
+  if (branches.length && sp.branch && !branches.some((b) => sameBranch(b, sp.branch))) {
+    return `Open to ${branches.join(', ')}`;
+  }
+  const maxBacklogs = readNumeric(criteria, 'maxBacklogs', 'max_backlogs');
+  if (maxBacklogs !== undefined && filled(sp.activeBacklogs) && Number(sp.activeBacklogs) > maxBacklogs) {
+    return maxBacklogs === 0 ? 'Needs no active backlogs' : `Allows at most ${maxBacklogs} active backlogs`;
+  }
+  const min10 = readNumeric(criteria, 'minClass10Percentage', 'min_class10_percentage');
+  if (min10 !== undefined && filled(sp.class10Percentage) && Number(sp.class10Percentage) < min10) {
+    return `Needs ${min10}% in Class X`;
+  }
+  const min12 = readNumeric(criteria, 'minClass12Percentage', 'min_class12_percentage');
+  if (min12 !== undefined && (filled(sp.class12Percentage) || filled(sp.diplomaPercentage))) {
+    const best = Math.max(
+      filled(sp.class12Percentage) ? Number(sp.class12Percentage) : -Infinity,
+      filled(sp.diplomaPercentage) ? Number(sp.diplomaPercentage) : -Infinity
+    );
+    if (best < min12) return `Needs ${min12}% in Class XII or diploma`;
+  }
+  const maxGap = readNumeric(criteria, 'maxEducationGapYears', 'max_education_gap_years');
+  if (maxGap !== undefined && filled(sp.educationGapYears) && Number(sp.educationGapYears) > maxGap) {
+    return maxGap === 0 ? 'No gap in education allowed' : `Allows at most ${maxGap} years of gap`;
+  }
+  return null;
+};
+
+/** Annual CTC for a posting, read the way the server's policy check reads it. */
+const jobCtc = (job) => {
+  const v = Math.max(Number(job?.salaryMax) || 0, Number(job?.salaryMin) || 0);
+  return v > 0 && v < 1000 ? v * 100000 : v;
+};
+
+/**
+ * The placement cell's own bar on this student applying, or null — the same
+ * rules as the server's utils/placementPolicy.js (verified profile, offer
+ * cap, dream tiers). Without it a student who had to be verified first saw
+ * "You meet the criteria" on every card and was refused at Apply.
+ */
+const policyBlock = (policy, job, sp, offers) => {
+  if (!policy?.enabled) return null;
+  if (policy.requireVerifiedProfile && sp && sp.verificationStatus !== 'verified') {
+    return 'Get your academic details verified on your profile first';
+  }
+  const exempt =
+    job.jobType === 'internship' || (policy.exemptJobIds || []).map(Number).includes(Number(job.id));
+  const live = (offers || []).filter((o) => o.status === 'offered' || o.status === 'accepted');
+  if (exempt || live.length === 0) return null;
+  if (policy.blockAfterAcceptance && live.some((o) => o.status === 'accepted')) {
+    return 'Closed to you after accepting an offer';
+  }
+  if (policy.maxOffers && live.length >= policy.maxOffers) {
+    return `You already hold ${live.length} offers, the most your college allows`;
+  }
+  const best = Math.max(...live.map((o) => Number(o.ctc) || 0));
+  const tiers = (policy.tiers || [])
+    .map((t) => ({ name: t.name, minCtc: Number(t.minCtc) || 0 }))
+    .filter((t) => t.name)
+    .sort((a, b) => a.minCtc - b.minCtc);
+  if (policy.placedRule === 'higher_tier' && tiers.length > 0) {
+    const idx = (ctc) => tiers.reduce((acc, t, i) => (ctc >= t.minCtc ? i : acc), -1);
+    if (idx(jobCtc(job)) <= idx(best)) return 'You can only apply to a higher tier than the offer you hold';
+  } else if (policy.placedRule === 'ctc_multiplier' && Number(policy.ctcMultiplier) > 0) {
+    if (jobCtc(job) < best * Number(policy.ctcMultiplier)) return 'Pays too little next to the offer you hold';
+  }
+  return null;
+};
+
 const getTimeAgo = (date) => {
   const diffInDays = Math.floor((new Date() - new Date(date)) / (1000 * 60 * 60 * 24));
   if (diffInDays === 0) return 'Today';
@@ -112,6 +228,42 @@ const JobsList = () => {
     experienceRequired: searchParams.get('experienceRequired') || ''
   });
   const [showFilters, setShowFilters] = useState(false);
+  const isStudent = user?.role === 'student';
+  // For a student: their academic profile and the jobs they already applied
+  // to, so each card can say "Applied", "Not eligible" or "Closed" up front
+  // instead of only after they open it and tap Apply.
+  const [studentProfile, setStudentProfile] = useState(null);
+  const [myApplications, setMyApplications] = useState({});
+  const [policy, setPolicy] = useState(null);
+  const [myOffers, setMyOffers] = useState([]);
+
+  useEffect(() => {
+    if (!isStudent) return;
+    let cancelled = false;
+    Promise.allSettled([
+      api.get('/users/profile', { silent: true }),
+      api.get('/applications', { params: { limit: 100 }, silent: true }),
+      api.get('/placement/policy', { silent: true }),
+      api.get('/offers', { params: { limit: 100 }, silent: true })
+    ]).then(([profileRes, appsRes, policyRes, offersRes]) => {
+      if (cancelled) return;
+      if (profileRes.status === 'fulfilled') {
+        setStudentProfile(profileRes.value?.user?.studentProfile || null);
+      }
+      if (appsRes.status === 'fulfilled') {
+        const byJob = {};
+        (appsRes.value?.applications || []).forEach((a) => {
+          byJob[a.jobId] = a;
+        });
+        setMyApplications(byJob);
+      }
+      if (policyRes.status === 'fulfilled') setPolicy(policyRes.value?.policy || null);
+      if (offersRes.status === 'fulfilled') setMyOffers(offersRes.value?.offers || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isStudent]);
 
   const fetchJobs = useCallback(
     async (page = 1) => {
@@ -189,7 +341,7 @@ const JobsList = () => {
         fetchJobs(pagination.currentPage - 1);
       }
     } catch (error) {
-      toast.error('Failed to delete job');
+      // The api interceptor has already shown the server's reason.
     } finally {
       setDeletingJobId(null);
     }
@@ -204,6 +356,16 @@ const JobsList = () => {
 
   const JobCard = ({ job }) => {
     const manageable = canManageJob(job);
+    const cutoff = deadlineCutoff(job.applicationDeadline);
+    const closed = Boolean(cutoff && cutoff < new Date());
+    const daysLeft = cutoff && !closed ? Math.floor((cutoff - new Date()) / 86400000) : null;
+    const application = isStudent ? myApplications[job.id] : null;
+    const applied = application && application.status !== 'withdrawn';
+    const ineligibleReason =
+      isStudent && !applied && !closed
+        ? policyBlock(policy, job, studentProfile, myOffers) ||
+          firstIneligibility(job.eligibilityCriteria, studentProfile)
+        : null;
     return (
       <Card className="flex flex-col">
         <div className="flex items-center gap-2.5">
@@ -241,16 +403,51 @@ const JobsList = () => {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Badge tone="neutral">{formatJobType(job.jobType) || 'Type not set'}</Badge>
           {manageable && job.status && <StatusBadge status={job.status} />}
-          {job.applicationDeadline && (
-            <span className="text-xs font-medium text-saffron-800">
-              Closes {new Date(job.applicationDeadline).toLocaleDateString()}
-            </span>
+          {closed ? (
+            <>
+              <Badge tone="neutral">Closed</Badge>
+              <span className="text-xs text-ink-500">
+                Applications closed {formatDeadline(job.applicationDeadline)}
+              </span>
+            </>
+          ) : (
+            job.applicationDeadline && (
+              <span className="text-xs font-medium text-saffron-800">
+                {daysLeft === 0
+                  ? 'Last day to apply'
+                  : daysLeft !== null && daysLeft < 3
+                  ? `Closes in ${daysLeft + 1} days`
+                  : `Apply by ${formatDeadline(job.applicationDeadline)}`}
+              </span>
+            )
           )}
         </div>
 
+        {isStudent && (applied || application?.status === 'withdrawn' || ineligibleReason || (studentProfile && !closed)) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            {applied ? (
+              <>
+                <span className="font-medium text-ink-700">You applied</span>
+                <StatusBadge status={application.status} />
+              </>
+            ) : application?.status === 'withdrawn' ? (
+              <span className="text-ink-600">
+                You withdrew your application{closed ? '' : ' — you can apply again while the drive is open'}.
+              </span>
+            ) : ineligibleReason ? (
+              <>
+                <Badge tone="warning">Can’t apply</Badge>
+                <span className="text-ink-600">{ineligibleReason}</span>
+              </>
+            ) : (
+              <Badge tone="success">You meet the criteria</Badge>
+            )}
+          </div>
+        )}
+
         <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-ink-950/10 pt-4">
           <Button as={Link} to={`/jobs/${job.id}`} size="sm" variant="secondary">
-            View details
+            {isStudent && !closed && !applied && !ineligibleReason ? 'View and apply' : 'View details'}
           </Button>
           {manageable && (
             <>
@@ -396,16 +593,27 @@ const JobsList = () => {
       ) : (
         <>
           <p aria-live="polite" className="mb-5 text-sm text-ink-600">
-            {pagination.totalJobs ?? jobs.length} jobs found
+            {(() => {
+              const n = pagination.totalJobs ?? jobs.length;
+              return `${n} ${n === 1 ? 'job' : 'jobs'} found`;
+            })()}
             {filters.search && ` for “${filters.search}”`}
           </p>
 
           {jobs.length > 0 ? (
             <>
               <div className={cx('grid gap-5 lg:grid-cols-2')}>
-                {jobs.map((job) => (
-                  <JobCard key={job.id} job={job} />
-                ))}
+                {/* Closed drives sink to the end of the page: a student scanning
+                    for something to apply to should meet the open ones first. */}
+                {[...jobs]
+                  .sort((a, b) => {
+                    const closedA = (deadlineCutoff(a.applicationDeadline) || Infinity) < new Date();
+                    const closedB = (deadlineCutoff(b.applicationDeadline) || Infinity) < new Date();
+                    return Number(closedA) - Number(closedB);
+                  })
+                  .map((job) => (
+                    <JobCard key={job.id} job={job} />
+                  ))}
               </div>
 
               <Pagination

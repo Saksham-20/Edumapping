@@ -44,18 +44,19 @@ const validateRegistration = [
       }
       return Number.isInteger(Number(value)); // Must be a valid integer if provided
     })
-    .withMessage('Organization ID must be a valid integer')
+    .withMessage('Choose your college, school or company from the list')
 ];
 
 // Login: identifier = email OR phone (backward compat: email still accepted)
 const validateLogin = [
   body('identifier').optional().trim(),
   body('email').optional().trim(),
-  body('password').notEmpty(),
+  body('password').notEmpty().withMessage('Enter your password'),
   (req, res, next) => {
     const id = req.body.identifier || req.body.email;
     if (!id || !String(id).trim()) {
-      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'identifier or email is required' }] });
+      const message = 'Enter your email address or phone number';
+      return res.status(400).json({ error: 'Validation Error', message, details: [{ field: 'identifier', message }] });
     }
     req.body._loginId = String(id).trim();
     next();
@@ -106,8 +107,11 @@ const validateLogin = [
  */
 // Tells the signup screens whether to ask for an emailed code. Public and
 // constant per deployment; it reveals only whether SMTP is configured.
+// `emailEnabled` lets the forgot-password screen say up front that no code
+// can be emailed, instead of promising one that never arrives.
 router.get('/config', (req, res) => {
-  res.json({ emailVerificationRequired: authService.emailVerificationRequired() });
+  const emailEnabled = authService.emailVerificationRequired();
+  res.json({ emailVerificationRequired: emailEnabled, emailEnabled });
 });
 
 router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
@@ -178,10 +182,8 @@ router.post('/login', authLimiter, validateLogin, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation Error',
-        details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
-      });
+      const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
+      return res.status(400).json({ error: 'Validation Error', message: details[0].message, details });
     }
 
     const identifier = req.body._loginId;
@@ -310,17 +312,20 @@ router.post('/forgot-password/send-otp', otpSendLimiter, async (req, res, next) 
 router.post('/forgot-password/reset-with-otp', otpVerifyLimiter, async (req, res, next) => {
   try {
     const { email, otp, newPassword } = req.body;
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({
-        error: 'Validation Error',
-        details: [{ msg: 'email, otp and newPassword are required' }]
-      });
+    const missing = [
+      !email && { field: 'email', message: 'Enter your email address' },
+      !otp && { field: 'otp', message: 'Enter the 6-digit code from the email' },
+      !newPassword && { field: 'newPassword', message: 'Enter a new password' }
+    ].filter(Boolean);
+    if (missing.length) {
+      return res.status(400).json({ error: 'Validation Error', message: missing[0].message, details: missing });
     }
     // Same policy as registration and change-password.
     if (String(newPassword).length < 8 || !PASSWORD_POLICY.test(String(newPassword))) {
       return res.status(400).json({
         error: 'Validation Error',
-        details: [{ msg: PASSWORD_POLICY_MESSAGE }]
+        message: PASSWORD_POLICY_MESSAGE,
+        details: [{ field: 'newPassword', message: PASSWORD_POLICY_MESSAGE }]
       });
     }
     const result = await authService.resetPasswordWithOtp(email, otp, newPassword);
@@ -368,7 +373,7 @@ router.post(
     .isLength({ min: 8 })
     .withMessage('Password must be at least 8 characters')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain an uppercase letter, a lowercase letter and a number'),
+    .withMessage('Password needs an uppercase letter, a lowercase letter and a number'),
   body('newPassword')
     .custom((value, { req }) => value !== req.body.currentPassword)
     .withMessage('New password must be different from the current one'),
@@ -376,7 +381,8 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
+        const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
+        return res.status(400).json({ error: 'Validation Error', message: details[0].message, details });
       }
       const { currentPassword, newPassword } = req.body;
       const result = await authService.changePassword(req.user.id, currentPassword, newPassword);

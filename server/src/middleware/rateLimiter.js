@@ -24,7 +24,7 @@ const generalLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 requests per window
   message: {
     error: 'Too Many Requests',
-    message: 'Too many requests from this IP, please try again later',
+    message: 'Too many requests from this network. Wait a few minutes and try again.',
     retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000) / 1000)
   },
   standardHeaders: true,
@@ -32,7 +32,7 @@ const generalLimiter = rateLimit({
   handler: (req, res) => {
     res.status(429).json({
       error: 'Too Many Requests',
-      message: 'Too many requests from this IP, please try again later',
+      message: 'Too many requests from this network. Wait a few minutes and try again.',
       retryAfter: Math.ceil(req.rateLimit.resetTime / 1000)
     });
   }
@@ -44,7 +44,7 @@ const authLimiter = rateLimit({
   max: 5, // 5 attempts per window
   message: {
     error: 'Too Many Login Attempts',
-    message: 'Too many login attempts, please try again later'
+    message: 'Too many sign-in attempts. Wait 15 minutes and try again, or use "Forgot your password?" to reset it.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -58,7 +58,7 @@ const passwordResetLimiter = rateLimit({
   max: 3, // 3 password reset attempts per hour
   message: {
     error: 'Too Many Password Reset Attempts',
-    message: 'Too many password reset attempts, please try again later'
+    message: 'Too many password reset attempts. Wait an hour and try again, or write to support@edumapping.com.'
   },
   skip: skipLocalhostInDev
 });
@@ -69,7 +69,7 @@ const otpSendLimiter = rateLimit({
   max: parseInt(process.env.OTP_RATE_LIMIT_MAX, 10) || 5,
   message: {
     error: 'Too Many OTP Requests',
-    message: 'Too many OTP requests. Please try again later.'
+    message: 'Too many verification codes requested. Wait 15 minutes, then ask for a new code.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -102,7 +102,7 @@ const uploadLimiter = rateLimit({
   max: 20, // 20 file uploads per hour
   message: {
     error: 'Upload Limit Exceeded',
-    message: 'Too many file uploads, please try again later'
+    message: 'Too many uploads in the last hour. Wait a while and try again.'
   },
   skip: skipLocalhostInDev
 });
@@ -113,7 +113,7 @@ const applicationLimiter = rateLimit({
   max: 10, // 10 applications per day
   message: {
     error: 'Application Limit Exceeded',
-    message: 'Too many applications submitted today, please try again tomorrow'
+    message: 'You have sent the most applications allowed in one day. You can apply again tomorrow.'
   },
   skip: skipLocalhostInDev
 });
@@ -124,7 +124,7 @@ const searchLimiter = rateLimit({
   max: 30, // 30 searches per minute
   message: {
     error: 'Search Limit Exceeded',
-    message: 'Too many search requests, please slow down'
+    message: 'Too many searches at once. Wait a moment and try again.'
   },
   skip: skipLocalhostInDev
 });

@@ -26,7 +26,9 @@ const CollegeRegister = () => {
     organizationContactEmail: '',
     organizationContactPhone: '',
     organizationWebsite: '',
-    organizationAddress: ''
+    organizationAddress: '',
+    // Most tier-2/3 engineering campuses are affiliated colleges.
+    organizationType: 'college'
   });
   const [organizations, setOrganizations] = useState([]);
   const [errors, setErrors] = useState({});
@@ -48,11 +50,13 @@ const CollegeRegister = () => {
 
   const fetchOrganizations = async () => {
     try {
-      // Only fetch university (college) organizations
+      // Colleges and universities. This used to keep only type 'university',
+      // so a campus registered as a college (the usual case) never appeared
+      // and its students could not sign up under it.
       const response = await api.get('/organizations?verified=true');
       const approvedOrgs = (response.organizations || []).filter(org =>
         (org.approvalStatus === 'approved' || org.approvalStatus === undefined) &&
-        org.type === 'university'
+        (org.type === 'university' || org.type === 'college')
       );
       setOrganizations(approvedOrgs);
     } catch (error) {
@@ -116,17 +120,20 @@ const CollegeRegister = () => {
     if (formData.role && formData.role !== 'admin') {
       if (formData.role === 'new_university' || formData.role === 'new_company') {
         if (!formData.organizationName.trim()) {
-          newErrors.organizationName = `${formData.role === 'new_university' ? 'University' : 'Company'} name is required`;
+          newErrors.organizationName = 'College or university name is required';
         }
         if (!formData.organizationDomain) {
-          newErrors.organizationDomain = 'Organization email domain is required';
+          newErrors.organizationDomain = 'Email domain is required';
         } else if (!/^(\S+@)?[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(formData.organizationDomain.trim())) {
-          newErrors.organizationDomain = 'Enter a domain such as school.edu';
+          newErrors.organizationDomain = 'Enter a domain such as gecajmer.ac.in';
         }
         if (!formData.organizationContactEmail) {
           newErrors.organizationContactEmail = 'Contact email is required';
         } else if (!isEmail(formData.organizationContactEmail)) {
           newErrors.organizationContactEmail = 'Please enter a valid contact email';
+        }
+        if (formData.organizationContactPhone && !isPhone(formData.organizationContactPhone)) {
+          newErrors.organizationContactPhone = 'Enter a phone number such as 98765 43210';
         }
       } else if (!formData.organizationId) {
         newErrors.organizationId = 'Please select your college';
@@ -159,7 +166,7 @@ const CollegeRegister = () => {
           // First, create the organization
           const orgData = {
             name: formData.organizationName,
-            type: 'university',
+            type: formData.organizationType,
             // Stored bare ("school.edu"); people often type an address instead.
             domain: formData.organizationDomain.trim().replace(/^.*@/, '').toLowerCase(),
             contactEmail: formData.organizationContactEmail,
@@ -187,16 +194,12 @@ const CollegeRegister = () => {
           delete submitData.organizationContactPhone;
           delete submitData.organizationWebsite;
           delete submitData.organizationAddress;
-
-          toast.success('University created successfully. Your account is being created...');
+          delete submitData.organizationType;
         } catch (orgError) {
-          throw asOrgError(orgError, 'Failed to create university');
+          throw asOrgError(orgError, `Could not register your ${formData.organizationType}. Check its details and try again.`);
         }
       } else {
-        // Don't send organizationId for admin role
-        if (formData.role === 'admin') {
-          delete submitData.organizationId;
-        }
+        delete submitData.organizationType;
       }
 
       if (otp) submitData.otp = otp;
@@ -214,19 +217,9 @@ const CollegeRegister = () => {
         return;
       }
 
-      if (response.user) {
-        if (formData.role === 'new_university') {
-          toast.success(
-            'Registration successful! Your university and account are pending admin approval. You will be notified once approved.',
-            { duration: 6000 }
-          );
-        } else if (response.user.role === 'recruiter') {
-          toast.success('Registration successful! Your account is pending approval.');
-        } else {
-          toast.success('Registration successful!');
-        }
-        navigate('/dashboard');
-      }
+      // Only an approved account (a student) gets here, already signed in.
+      toast.success('Account created. Welcome to EduMapping!');
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       setErrors(submitErrors(error));
     } finally {
@@ -234,13 +227,8 @@ const CollegeRegister = () => {
     }
   };
 
-  const getFilteredOrganizations = () => {
-    // Only show university organizations for colleges
-    return organizations.filter(org => org.type === 'university');
-  };
-
   const showNewOrgFields = formData.role === 'new_university';
-  const availableOrgs = getFilteredOrganizations();
+  const availableOrgs = organizations;
 
   if (isLoading) {
     return (
@@ -345,7 +333,7 @@ const CollegeRegister = () => {
             <option value="">Select a role</option>
             <option value="student">Student</option>
             <option value="tpo">TPO / Placement Officer</option>
-            <option value="new_university">Register New College/University</option>
+            <option value="new_university">Register my college or university (for placement officers)</option>
           </Select>
 
           {!showNewOrgFields && formData.role && formData.role !== 'admin' && (
@@ -356,9 +344,9 @@ const CollegeRegister = () => {
               onChange={handleChange}
               error={errors.organizationId}
               help={
-                availableOrgs.length === 0
-                  ? 'No colleges available. Please register a new college.'
-                  : undefined
+                formData.role === 'student'
+                  ? 'Can’t find your college? It may not be on EduMapping yet. Ask your placement officer (TPO) to register it.'
+                  : 'Can’t find your college? Choose “Register my college or university” above.'
               }
             >
               <option value="">Select your college</option>
@@ -376,8 +364,19 @@ const CollegeRegister = () => {
                 College information
               </legend>
 
+              <Select
+                label="Type of institution"
+                name="organizationType"
+                value={formData.organizationType}
+                onChange={handleChange}
+                help="Affiliated and autonomous colleges are colleges."
+              >
+                <option value="college">College</option>
+                <option value="university">University</option>
+              </Select>
+
               <Input
-                label="College/University name"
+                label={formData.organizationType === 'college' ? 'College name' : 'University name'}
                 name="organizationName"
                 type="text"
                 required
@@ -395,7 +394,8 @@ const CollegeRegister = () => {
                 value={formData.organizationDomain}
                 onChange={handleChange}
                 error={errors.organizationDomain}
-                placeholder="e.g. college.edu"
+                help="The part after @ in your college's email addresses."
+                placeholder="e.g. gecajmer.ac.in"
               />
 
               <Input
@@ -415,6 +415,7 @@ const CollegeRegister = () => {
                 type="tel"
                 value={formData.organizationContactPhone}
                 onChange={handleChange}
+                error={errors.organizationContactPhone}
                 help="Optional."
                 placeholder="+919876543210"
               />
@@ -425,6 +426,7 @@ const CollegeRegister = () => {
                 type="url"
                 value={formData.organizationWebsite}
                 onChange={handleChange}
+                error={errors.organizationWebsite}
                 help="Optional."
                 placeholder="https://www.college.edu"
               />
@@ -435,6 +437,7 @@ const CollegeRegister = () => {
                 rows={3}
                 value={formData.organizationAddress}
                 onChange={handleChange}
+                error={errors.organizationAddress}
                 help="Optional."
                 placeholder="College address"
               />

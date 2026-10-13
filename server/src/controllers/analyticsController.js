@@ -2,6 +2,7 @@
 const { User, Application, Job, Organization, StudentProfile } = require('../models');
 const { Op, fn, col, literal } = require('sequelize');
 const logger = require('../utils/logger');
+const { branchLabel } = require('../utils/branches');
 
 const INSTITUTION_TYPES = ['university', 'college', 'school'];
 
@@ -428,11 +429,20 @@ class AnalyticsController {
       const placementRate = totalStudents > 0 ? Math.round((placedStudents / totalStudents) * 100) : 0;
 
       // Format branch-wise placement data
-      const branchWisePlacement = studentsByBranch.map(branch => ({
-        branch: branch.branch,
-        total: parseInt(branch.total),
-        placed: parseInt(branch.placed),
-        rate: branch.total > 0 ? Math.round((branch.placed / branch.total) * 100) : 0
+      // Branches are typed by hand ("CSE", "Computer Science & Engg."), so the
+      // rows are merged under one label before rates are worked out, the same
+      // way the placement report counts them.
+      const byLabel = new Map();
+      studentsByBranch.forEach((row) => {
+        const label = branchLabel(row.branch) || row.branch || 'Not set';
+        const acc = byLabel.get(label) || { branch: label, total: 0, placed: 0 };
+        acc.total += parseInt(row.total, 10) || 0;
+        acc.placed += parseInt(row.placed, 10) || 0;
+        byLabel.set(label, acc);
+      });
+      const branchWisePlacement = [...byLabel.values()].map((b) => ({
+        ...b,
+        rate: b.total > 0 ? Math.round((b.placed / b.total) * 100) : 0
       }));
 
       // Format company analytics

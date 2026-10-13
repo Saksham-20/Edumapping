@@ -116,13 +116,20 @@ const CareerCounselorDashboard = () => {
     }
 
     if (confRes.status === 'fulfilled') {
-      setConferences(confRes.value.conferences || []);
+      // The list also carries sessions open to everyone on EduMapping from
+      // other institutions; only this school's own (and the counsellor's own)
+      // belong under "Counselling sessions".
+      setConferences(
+        (confRes.value.conferences || []).filter(
+          (c) => c.organization?.id === orgId || c.host?.id === user?.id
+        )
+      );
     } else {
       nextErrors.sessions =
         confRes.reason?.response?.status === 503
           ? {
               title: 'Live sessions are not switched on yet',
-              description: 'This server has no LiveKit connection configured.'
+              description: 'Live classes have not been set up on EduMapping yet. Please check back later.'
             }
           : toErrorState(confRes.reason, 'Could not load counselling sessions');
     }
@@ -139,7 +146,7 @@ const CareerCounselorDashboard = () => {
 
     setErrors(nextErrors);
     setLoading(false);
-  }, [orgId]);
+  }, [orgId, user?.id]);
 
   useEffect(() => {
     load();
@@ -281,12 +288,7 @@ const CareerCounselorDashboard = () => {
           <Card key={c.id} className="flex flex-col">
             <div className="flex items-start justify-between gap-3">
               <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
-              <Badge
-                tone={c.status === 'live' ? 'danger' : c.status === 'ended' ? 'neutral' : 'info'}
-                dot
-              >
-                {c.status}
-              </Badge>
+              <StatusBadge status={c.status} />
             </div>
             <p className="mt-1 text-xs text-ink-600">
               {c.host?.id === user?.id
@@ -370,9 +372,15 @@ const CareerCounselorDashboard = () => {
               <Card key={u.id} className="flex items-start gap-3">
                 <Avatar src={u.profilePicture} name={fullName(u)} size="md" />
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-ink-950">
+                  {/* The note below tells counsellors to open a student's
+                      profile, and nothing here linked to one. The server 404s
+                      students from other schools, so this cannot leak. */}
+                  <Link
+                    to={`/users/${u.id}`}
+                    className="block truncate font-semibold text-ink-950 underline-offset-2 hover:underline"
+                  >
                     {fullName(u) || 'Unnamed account'}
-                  </p>
+                  </Link>
                   <p className="truncate text-xs text-ink-500">{u.email}</p>
                   {/* studentProfile is included by the users endpoint and is
                       null for accounts that never completed onboarding, so
@@ -387,7 +395,7 @@ const CareerCounselorDashboard = () => {
                   )}
                   {!u.isActive && (
                     <Badge tone="neutral" className="mt-1.5">
-                      Inactive
+                      {u.approvalStatus === 'pending' ? 'Awaiting approval' : 'Inactive'}
                     </Badge>
                   )}
                 </div>
@@ -396,9 +404,7 @@ const CareerCounselorDashboard = () => {
           </div>
         )}
         <p className="mt-5 text-xs text-ink-500">
-          Names and streams only. A student’s applications and achievements are not yet
-          shown to career counsellors here; open a student’s profile to see what they have
-          shared.
+          Select a student’s name to open their profile and see what they have shared.
         </p>
       </>
     );
@@ -464,7 +470,7 @@ const CareerCounselorDashboard = () => {
         </StatStrip>
       </SectionBlock>
 
-      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+      <Tabs className="mb-6 w-fit max-w-full" value={tab} onChange={setTab} tabs={TABS} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

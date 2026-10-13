@@ -22,8 +22,74 @@ import ParticipantsPanel from '../../components/conference/ParticipantsPanel';
 
 import '@livekit/components-styles';
 
+
+/**
+ * Turns a failed join into words a student can act on. The server's 503 text
+ * is written for whoever runs the server (it names env vars), so it is never
+ * shown as-is; "session full" shares the 503 status and is told apart by its
+ * error code.
+ */
+const describeJoinError = (error) => {
+  const status = error?.status;
+  const code = error?.data?.error;
+  if (status === 503 && code === 'Session Full') {
+    return {
+      title: 'This class is full',
+      message:
+        error?.data?.message ||
+        'The class has reached its participant limit. Try again when someone leaves, or ask your teacher.'
+    };
+  }
+  if (status === 503) {
+    return {
+      title: 'Live classes are not switched on yet',
+      message:
+        'Video sessions cannot start yet because live classes have not been set up on EduMapping. Please check back later, or ask your teacher or placement office when the class will run.'
+    };
+  }
+  if (status === 404) {
+    return {
+      title: 'Class not found',
+      message: 'This live class does not exist or has been deleted. Check the link, or open Live classes to see what is on.'
+    };
+  }
+  if (status === 409) {
+    return {
+      title: 'This class has ended',
+      message: error?.data?.message || 'The session is over. Open Live classes to see upcoming ones.'
+    };
+  }
+  if (status === 403) {
+    return {
+      title: 'You cannot join this class',
+      message: error?.data?.message || 'This class is limited to certain people. Ask the host to add you.'
+    };
+  }
+  return {
+    title: 'Could not join the class',
+    message: 'We could not connect you. Check your internet connection and try again in a moment.'
+  };
+};
+
+/**
+ * The shared API layer already toasts every failure except 401/403, so a
+ * second toast here would double up. Only the ones it stays quiet about get a
+ * message from the room.
+ */
+const toastIfUnreported = (error, fallback) => {
+  if (error?.status === 401 || error?.status === 403) toast.error(error?.message || fallback);
+};
+
 /** Full-screen message used for every non-joined state. */
-const RoomMessage = ({ title, message, actionLabel, onAction, tone = 'neutral' }) => (
+const RoomMessage = ({
+  title,
+  message,
+  actionLabel,
+  onAction,
+  secondaryLabel,
+  onSecondary,
+  tone = 'neutral'
+}) => (
   <div className="flex min-h-screen items-center justify-center bg-ink-950 px-6">
     <div className="w-full max-w-md rounded-3xl border border-white/10 bg-ink-900 p-8 text-center">
       {tone === 'error' && (
@@ -34,7 +100,7 @@ const RoomMessage = ({ title, message, actionLabel, onAction, tone = 'neutral' }
         />
       )}
       <h1 className="mt-4 font-display text-xl font-bold text-white">{title}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-slate-400">{message}</p>
+      <p className="mt-2 break-words text-sm leading-relaxed text-slate-400">{message}</p>
       {actionLabel && (
         <button
           type="button"
@@ -42,6 +108,15 @@ const RoomMessage = ({ title, message, actionLabel, onAction, tone = 'neutral' }
           className="mt-6 inline-flex h-11 cursor-pointer items-center justify-center rounded-full bg-saffron-500 px-6 text-sm font-semibold text-ink-950 transition-colors duration-200 hover:bg-saffron-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950"
         >
           {actionLabel}
+        </button>
+      )}
+      {secondaryLabel && (
+        <button
+          type="button"
+          onClick={onSecondary}
+          className="mt-3 block w-full cursor-pointer text-sm font-semibold text-slate-300 underline-offset-4 hover:text-white hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400"
+        >
+          {secondaryLabel}
         </button>
       )}
     </div>
@@ -141,7 +216,7 @@ const RoomInner = ({ conference, role, identity, onLeave }) => {
       await conferenceService.setHand(conference.id, next);
     } catch (error) {
       setHandRaised(!next);
-      toast.error('Could not update your raised hand.');
+      toastIfUnreported(error, 'Could not update your raised hand.');
     }
   };
 
@@ -152,7 +227,7 @@ const RoomInner = ({ conference, role, identity, onLeave }) => {
       if (successMessage) toast.success(successMessage);
       await refreshRoster();
     } catch (error) {
-      toast.error(error?.message || 'That action failed.');
+      toastIfUnreported(error, 'That action failed.');
     } finally {
       setBusyUserId(null);
     }
@@ -180,7 +255,7 @@ const RoomInner = ({ conference, role, identity, onLeave }) => {
       toast.success('Everyone muted');
       refreshRoster();
     } catch (error) {
-      toast.error('Could not mute everyone.');
+      toastIfUnreported(error, 'Could not mute everyone.');
     }
   };
 
@@ -190,7 +265,7 @@ const RoomInner = ({ conference, role, identity, onLeave }) => {
       toast.success('Session ended');
       onLeave();
     } catch (error) {
-      toast.error('Could not end the session.');
+      toastIfUnreported(error, 'Could not end the session.');
     }
   };
 
@@ -306,18 +381,7 @@ const ConferenceRoom = () => {
         });
       } catch (error) {
         if (cancelled) return;
-        setState({
-          status: 'error',
-          title:
-            error?.status === 503
-              ? 'Live classes are not set up yet'
-              : error?.status === 403
-              ? 'You cannot join this session'
-              : 'Could not join the session',
-          message:
-            error?.message ||
-            'Something went wrong while connecting. Please try again in a moment.'
-        });
+        setState({ status: 'error', ...describeJoinError(error) });
       }
     };
 
@@ -346,8 +410,10 @@ const ConferenceRoom = () => {
         tone="error"
         title={state.title}
         message={state.message}
-        actionLabel="Back to dashboard"
-        onAction={leave}
+        actionLabel="See all live classes"
+        onAction={() => navigate('/conferences')}
+        secondaryLabel="Back to dashboard"
+        onSecondary={leave}
       />
     );
   }

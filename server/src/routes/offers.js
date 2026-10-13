@@ -130,6 +130,12 @@ router.post('/:id(\\d+)/letter',
 router.patch('/:id(\\d+)/letter-verification',
   authenticateToken,
   requireRole('tpo', 'admin'),
+  [
+    body('verified')
+      .optional()
+      .isBoolean({ strict: false })
+      .withMessage('Send verified as true to mark the letter checked, or false to remove the check.')
+  ],
   offerController.verifyLetter
 );
 

@@ -73,7 +73,11 @@ const DataTable = ({
 
   return (
     <div>
-      <Table>
+      {/* `relative` so the visually-hidden (absolutely positioned) header
+          labels are clipped by the table's own horizontal scroller. Without
+          it they escaped to the page and made the whole screen scroll
+          sideways on a phone. */}
+      <Table className="relative">
         <Thead>
           <Tr className="hover:bg-transparent">
             {columns.map((column) => {

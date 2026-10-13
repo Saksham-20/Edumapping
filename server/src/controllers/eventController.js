@@ -38,13 +38,35 @@ const EVENT_FIELDS = [
   'status'
 ];
 
+// Optional columns a form clears by sending "". Stored as NULL, not "", so a
+// cleared meeting link or limit really goes away (and "" never reaches the
+// model's isUrl check or an INTEGER column).
+const NULLABLE_FIELDS = ['location', 'virtualLink', 'maxParticipants', 'registrationDeadline'];
+
 const pickEventFields = (body) => {
   const out = {};
   for (const field of EVENT_FIELDS) {
-    if (body[field] !== undefined) out[field] = body[field];
+    if (body[field] === undefined) continue;
+    out[field] = NULLABLE_FIELDS.includes(field) && body[field] === '' ? null : body[field];
   }
   return out;
 };
+
+/** The house validation shape: a readable `message` plus per-field details. */
+const validationFailed = (res, errors) => {
+  const details = errors.array().map(({ path, msg }) => ({ field: path || 'event', message: msg }));
+  return res.status(400).json({
+    error: 'Validation Error',
+    message: details[0]?.message || 'Some details need fixing.',
+    details
+  });
+};
+
+const fieldError = (res, field, message, status = 400) =>
+  res.status(status).json({ error: 'Validation Error', message, details: [{ field, message }] });
+
+/** Registrations that hold a seat: everyone who signed up and has not cancelled. */
+const SEAT_STATUSES = ['registered', 'attended'];
 
 // Roles that run an organization's events (everyone but students).
 const ORGANIZER_ROLES = ['tpo', 'recruiter', 'principal', 'teacher', 'school_admin', 'career_counselor'];
@@ -127,11 +149,12 @@ class EventController {
   async createEvent(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Validation Error',
-          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
-        });
+      if (!errors.isEmpty()) return validationFailed(res, errors);
+
+      // A brand-new event that already started is almost always a wrong date
+      // (AM/PM, or last year). Five minutes of slack for "starting now".
+      if (new Date(req.body.startTime).getTime() < Date.now() - 5 * 60 * 1000) {
+        return fieldError(res, 'startTime', 'The start time is in the past. Pick a future date and time.');
       }
 
       // Determine organizationId (admins may not be tied to an org)
@@ -139,19 +162,13 @@ class EventController {
       if (req.user.role === 'admin' && !resolvedOrganizationId) {
         resolvedOrganizationId = req.body.organizationId ? parseInt(req.body.organizationId) : null;
         if (!resolvedOrganizationId) {
-          return res.status(400).json({
-            error: 'Validation Error',
-            message: 'organizationId is required for admin'
-          });
+          return fieldError(res, 'organizationId', 'Choose which organization is running this event');
         }
 
         // Validate organization exists (clean 400 instead of FK error)
         const orgExists = await Organization.findByPk(resolvedOrganizationId, { attributes: ['id'] });
         if (!orgExists) {
-          return res.status(400).json({
-            error: 'Validation Error',
-            message: 'Invalid organizationId'
-          });
+          return fieldError(res, 'organizationId', 'That organization no longer exists. Choose another one.');
         }
       }
 
@@ -170,7 +187,7 @@ class EventController {
       if (eduMappingOrgId && eventData.organizationId === eduMappingOrgId && req.user.role !== 'admin') {
         return res.status(403).json({
           error: 'Access Forbidden',
-          message: 'Only admins can create EduMapping (global) events'
+          message: 'Only EduMapping admins can create events shown to every institution.'
         });
       }
 
@@ -196,15 +213,17 @@ class EventController {
     try {
       const {
         page = 1,
-        limit = 10,
         eventType,
         status,
         organizationId,
         upcoming = false,
+        registered,
         search
       } = req.query;
 
-      const offset = (page - 1) * limit;
+      // Bounded so `?limit=100000` cannot pull the whole table with joins.
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+      const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
       const whereClause = {};
 
       if (eventType) whereClause.eventType = eventType;
@@ -216,8 +235,11 @@ class EventController {
       }
       
       // Handle upcoming filter
+      // "Upcoming" means not over yet. Filtering on startTime hid an event
+      // the moment it began, so a student could not find the workshop that
+      // was running right now to open its meeting link.
       if (upcoming === 'true' || upcoming === true) {
-        whereClause.startTime = { [Op.gte]: new Date() };
+        whereClause.endTime = { [Op.gte]: new Date() };
       }
 
       // Scope to the organizations this user may see (see visibleEventOrgIds).
@@ -261,6 +283,19 @@ class EventController {
         ];
       }
 
+      // "My events": only the ones the caller holds a live registration for.
+      // The tab used to send no filter at all and showed every event.
+      if ((registered === 'true' || registered === true) && req.user) {
+        const mine = await EventRegistration.findAll({
+          where: { userId: req.user.id, status: { [Op.ne]: 'cancelled' } },
+          attributes: ['eventId']
+        });
+        whereClause[Op.and] = [
+          ...(whereClause[Op.and] || []),
+          { id: { [Op.in]: mine.length ? mine.map((r) => r.eventId) : [-1] } }
+        ];
+      }
+
       const { count, rows: events } = await Event.findAndCountAll({
         where: whereClause,
         include: [
@@ -279,8 +314,8 @@ class EventController {
             attributes: ['id', 'status', 'userId']
           }
         ],
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit,
+        offset,
         // Count distinct events, not joined rows. `registrations` is a hasMany,
         // so without this an event with three sign-ups counted three times and
         // the reported total — and therefore the page count — was inflated,
@@ -299,8 +334,12 @@ class EventController {
 
         // Check if current user is registered for this event
         if (req.user) {
-          const userRegistration = event.registrations?.find(reg => reg.userId === req.user.id);
-          eventData.userRegistration = userRegistration;
+          // A cancelled row is not a registration; reporting it made the card
+          // say "Registered" for someone who had cancelled.
+          const userRegistration = event.registrations?.find(
+            (reg) => reg.userId === req.user.id && reg.status !== 'cancelled'
+          );
+          eventData.userRegistration = userRegistration || null;
         }
         
         delete eventData.registrations;
@@ -311,7 +350,7 @@ class EventController {
         message: 'Events retrieved successfully',
         events: eventsWithCounts,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: Math.max(parseInt(page, 10) || 1, 1),
           totalPages: Math.ceil(count / limit),
           totalEvents: count,
           hasMore: offset + events.length < count
@@ -358,7 +397,7 @@ class EventController {
       });
 
       const userRegistration = req.user
-        ? registrations.find((reg) => reg.userId === req.user.id) || null
+        ? registrations.find((reg) => reg.userId === req.user.id && reg.status !== 'cancelled') || null
         : null;
 
       const eventData = event.toJSON();
@@ -394,15 +433,27 @@ class EventController {
       if (event.status !== 'scheduled') {
         return res.status(400).json({
           error: 'Registration Closed',
-          message: 'This event is not accepting registrations'
+          message:
+            event.status === 'cancelled'
+              ? 'This event has been cancelled, so registration is closed.'
+              : 'This event is not taking registrations right now.'
         });
       }
 
-      // Check registration deadline
-      if (event.registrationDeadline && new Date() > new Date(event.registrationDeadline)) {
+      // Check registration deadline. Without one, registration closes when
+      // the event starts — the same rule the event pages show, so the server
+      // no longer accepts a sign-up for an event that is already over.
+      const now = new Date();
+      if (event.registrationDeadline && now > new Date(event.registrationDeadline)) {
         return res.status(400).json({
           error: 'Registration Deadline Passed',
-          message: 'Registration deadline has passed'
+          message: 'Registration for this event has closed.'
+        });
+      }
+      if (!event.registrationDeadline && now >= new Date(event.startTime)) {
+        return res.status(400).json({
+          error: 'Registration Closed',
+          message: 'This event has already started, so registration is closed.'
         });
       }
 
@@ -418,20 +469,20 @@ class EventController {
       if (existingRegistration && existingRegistration.status !== 'cancelled') {
         return res.status(409).json({
           error: 'Already Registered',
-          message: 'You have already registered for this event'
+          message: 'You are already registered for this event.'
         });
       }
 
       // Check max participants
       if (event.maxParticipants) {
         const currentRegistrations = await EventRegistration.count({
-          where: { eventId: id, status: 'registered' }
+          where: { eventId: id, status: { [Op.in]: SEAT_STATUSES } }
         });
 
         if (currentRegistrations >= event.maxParticipants) {
           return res.status(400).json({
             error: 'Event Full',
-            message: 'This event has reached maximum capacity'
+            message: 'This event is full. All seats have been taken.'
           });
         }
       }
@@ -455,6 +506,14 @@ class EventController {
         registration
       });
     } catch (error) {
+      // A double tap sends two requests; the second loses the race on the
+      // (event_id, user_id) unique key. That is "already registered", not a 500.
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return res.status(409).json({
+          error: 'Already Registered',
+          message: 'You are already registered for this event.'
+        });
+      }
       next(error);
     }
   }
@@ -520,9 +579,7 @@ class EventController {
   async markEventAttendance(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
-      }
+      if (!errors.isEmpty()) return validationFailed(res, errors);
 
       const { id } = req.params;
       const { userIds, status } = req.body;
@@ -579,18 +636,31 @@ class EventController {
       if (req.user.role !== 'admin' && event.organizationId !== req.user.organizationId) {
         return res.status(403).json({
           error: 'Access Forbidden',
-          message: 'You can only update events from your organization'
+          message: 'You can only edit events run by your own institution.'
         });
       }
 
       // The route declares validators; nothing read their result, so they
       // were never enforced.
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
-      }
+      if (!errors.isEmpty()) return validationFailed(res, errors);
 
       const updates = pickEventFields(req.body);
+
+      // Lowering the limit below the people already holding seats would show
+      // the event as over-full and silently strand them.
+      if (updates.maxParticipants) {
+        const taken = await EventRegistration.count({
+          where: { eventId: event.id, status: { [Op.in]: SEAT_STATUSES } }
+        });
+        if (updates.maxParticipants < taken) {
+          return fieldError(
+            res,
+            'maxParticipants',
+            `${taken} people are already registered. Set the limit to ${taken} or more, or leave it empty for no limit.`
+          );
+        }
+      }
 
       // Only an admin may move an event between organizations — including into
       // or out of the global EduMapping one, which is visible to everyone.
@@ -600,7 +670,7 @@ class EventController {
           ? await Organization.findByPk(targetOrgId, { attributes: ['id'] })
           : null;
         if (!target) {
-          return res.status(400).json({ error: 'Validation Error', message: 'Invalid organizationId' });
+          return fieldError(res, 'organizationId', 'That organization no longer exists. Choose another one.');
         }
         updates.organizationId = targetOrgId;
       }
@@ -618,6 +688,44 @@ class EventController {
         message: 'Event updated successfully',
         event: updatedEvent
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Delete an event. There was no way to remove one at all — a mistyped event
+   * stayed on every student's list. Only allowed while nobody holds a seat:
+   * deleting would cascade their registrations away without telling them, so
+   * an event people signed up for has to be cancelled instead (it stays
+   * visible, marked cancelled).
+   */
+  async deleteEvent(req, res, next) {
+    try {
+      const event = await Event.findByPk(req.params.id);
+      if (!event || !(await canSeeEvent(req.user, event))) {
+        return res.status(404).json({ error: 'Event Not Found', message: 'Event not found' });
+      }
+      if (req.user.role !== 'admin' && event.organizationId !== req.user.organizationId) {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'You can only delete events run by your own institution.'
+        });
+      }
+
+      const taken = await EventRegistration.count({
+        where: { eventId: event.id, status: { [Op.ne]: 'cancelled' } }
+      });
+      if (taken > 0) {
+        return res.status(409).json({
+          error: 'Event Has Registrations',
+          message: `${taken} ${taken === 1 ? 'person has' : 'people have'} registered for this event. Edit it and set the status to Cancelled instead, so they can see it is not happening.`
+        });
+      }
+
+      await event.destroy();
+      logger.info('Event deleted', { eventId: event.id, by: req.user.id });
+      res.json({ message: 'Event deleted' });
     } catch (error) {
       next(error);
     }

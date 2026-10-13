@@ -3,6 +3,7 @@
 // The placement cell's own tools: the season's policy, the student roster with
 // verification and outcomes, the annual NIRF/NAAC-style report, and the drive
 // calendar every role reads.
+const path = require('path');
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const {
@@ -24,6 +25,8 @@ const fileService = require('../services/fileService');
 const logger = require('../utils/logger');
 const { DEFAULT_POLICY, normaliseTiers, tierFor } = require('../utils/placementPolicy');
 const { syncPlacementStatus } = require('../utils/placementStatus');
+const { importStudents } = require('../utils/studentImport');
+const { branchLabel } = require('../utils/branches');
 const models = require('../models');
 
 const PROGRAMME_ALIASES = {
@@ -44,6 +47,14 @@ const programmeLabel = (course) => {
   if (!raw) return 'Unspecified';
   return PROGRAMME_ALIASES[raw.toLowerCase().replace(/[^a-z]/g, '')] || raw;
 };
+
+const VERIFICATION_STATUSES = ['unverified', 'pending', 'verified', 'rejected'];
+const PLACEMENT_STATUSES = ['unplaced', 'placed', 'higher_studies', 'opted_out', 'deferred'];
+
+// The export is read by people in Excel, not by code: words, not enum values.
+const VERIFICATION_LABELS = { unverified: 'Not submitted', pending: 'Awaiting review', verified: 'Verified', rejected: 'Sent back' };
+const OUTCOME_LABELS = { unplaced: 'Unplaced', placed: 'Placed', higher_studies: 'Higher studies', opted_out: 'Opted out', deferred: 'Deferred' };
+const SANCTION_LABELS = { none: '', blocked: 'Blocked', removed: 'Removed' };
 
 const fail = (res, status, error, message, extra = {}) => res.status(status).json({ error, message, ...extra });
 
@@ -67,6 +78,8 @@ const targetOrgId = (req) => {
   return req.user.organizationId || null;
 };
 
+const displayName = (u) => (u.lastName && u.lastName !== '-' ? `${u.firstName} ${u.lastName}` : u.firstName);
+
 const csvCell = (value) => {
   let v = value === null || value === undefined ? '' : String(value);
   // Spreadsheet formula injection: a cell starting with = + - @ is executed.
@@ -80,6 +93,66 @@ const median = (values) => {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
 };
+
+/**
+ * The roster's filters, shared by the list and the CSV export so "Export CSV"
+ * on a filtered view exports what is on screen, not the whole institution.
+ */
+const rosterWhere = ({ search, branch, graduationYear, verificationStatus, placementStatus }, organizationId) => {
+  const userWhere = { role: 'student', organizationId };
+  const term = String(search || '').trim();
+  if (term) {
+    const like = `%${term}%`;
+    const parts = term.split(/\s+/);
+    userWhere[Op.or] = [
+      { firstName: { [Op.iLike]: like } },
+      { lastName: { [Op.iLike]: like } },
+      { email: { [Op.iLike]: like } },
+      { '$studentProfile.student_id$': { [Op.iLike]: like } },
+      // "Aarav Sharma" — a full name typed into the box matched nobody, since
+      // no single column holds it.
+      ...(parts.length > 1
+        ? [{ [Op.and]: [{ firstName: { [Op.iLike]: `%${parts.slice(0, -1).join(' ')}%` } }, { lastName: { [Op.iLike]: `%${parts[parts.length - 1]}%` } }] }]
+        : [])
+    ];
+  }
+  const profileWhere = {};
+  if (branch) profileWhere.branch = { [Op.iLike]: `%${branch}%` };
+  if (parseInt(graduationYear, 10)) profileWhere.graduationYear = parseInt(graduationYear, 10);
+  if (verificationStatus === 'unverified') {
+    // "Not submitted" includes students with no profile row at all, as the tab
+    // count does; an inner join on the profile left them out of the list.
+    userWhere[Op.and] = [
+      ...(userWhere[Op.and] || []),
+      {
+        [Op.or]: [
+          { '$studentProfile.verification_status$': 'unverified' },
+          { '$studentProfile.id$': null }
+        ]
+      }
+    ];
+  } else if (VERIFICATION_STATUSES.includes(verificationStatus)) {
+    profileWhere.verificationStatus = verificationStatus;
+  }
+  if (PLACEMENT_STATUSES.includes(placementStatus)) profileWhere.placementStatus = placementStatus;
+  return { userWhere, profileWhere, hasProfileFilter: Object.keys(profileWhere).length > 0 };
+};
+
+/**
+ * Tab counts by verification status. A student with no profile row yet (an
+ * account made before the profile) has not submitted anything either; leaving
+ * them out made "Not submitted" disagree with the list under it.
+ */
+const withoutProfileCounted = (rows, totalStudents) => {
+  const out = rows.reduce((acc, r) => ({ ...acc, [r.verificationStatus]: Number(r.n) }), {});
+  const withProfile = Object.values(out).reduce((a, b) => a + b, 0);
+  out.unverified = (out.unverified || 0) + Math.max(totalStudents - withProfile, 0);
+  return out;
+};
+
+const REQUIRED_FOR_VERIFICATION = ['studentId', 'branch', 'graduationYear', 'cgpa'];
+const missingForVerification = (profile) =>
+  REQUIRED_FOR_VERIFICATION.filter((k) => profile[k] === null || profile[k] === undefined || profile[k] === '');
 
 const LOCKED_LABELS = {
   course: 'Course',
@@ -115,12 +188,23 @@ class PlacementController {
       const organizationId = targetOrgId(req);
       if (!organizationId) return fail(res, 400, 'Validation Error', 'organizationId is required');
       const b = req.body;
-      const tiers = normaliseTiers(b.tiers);
+      const invalid = (field, message) => fail(res, 400, 'Validation Error', message, { details: [{ field, message }] });
+      // normaliseTiers drops unnamed tiers. Doing that silently turned "I left
+      // a name blank" into "the higher-tier rule needs at least two tiers".
+      const rawTiers = Array.isArray(b.tiers) ? b.tiers : [];
+      const unnamed = rawTiers.findIndex((t) => !String(t?.name || '').trim());
+      if (unnamed >= 0) return invalid('tiers', `Tier ${unnamed + 1} has no name. Name it (e.g. "Dream") or remove it.`);
+      const tiers = normaliseTiers(rawTiers);
+      const names = tiers.map((t) => t.name.toLowerCase());
+      const dupName = names.find((n, i) => names.indexOf(n) !== i);
+      if (dupName) return invalid('tiers', `Two tiers are called "${tiers.find((t) => t.name.toLowerCase() === dupName).name}". Give each tier its own name.`);
+      const dupCtc = tiers.find((t, i) => i > 0 && t.minCtc === tiers[i - 1].minCtc);
+      if (dupCtc) return invalid('tiers', `Two tiers start at the same CTC (₹${dupCtc.minCtc / 100000} LPA). Each tier needs a higher starting CTC than the one before.`);
       if (b.placedRule === 'higher_tier' && b.enabled && tiers.length < 2) {
-        return fail(res, 400, 'Validation Error', 'The higher-tier rule needs at least two tiers.');
+        return invalid('tiers', 'The higher-tier rule needs at least two tiers. Add another tier or pick a different rule.');
       }
       if (b.placedRule === 'ctc_multiplier' && !(Number(b.ctcMultiplier) >= 1)) {
-        return fail(res, 400, 'Validation Error', 'Set a CTC multiplier of at least 1 for the multiplier rule.');
+        return invalid('ctcMultiplier', 'Set a CTC multiple of at least 1 (for example 1.5) for the multiple rule.');
       }
       const data = {
         enabled: Boolean(b.enabled),
@@ -161,22 +245,10 @@ class PlacementController {
       const lim = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 200);
       const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * lim;
 
-      const userWhere = { role: 'student', organizationId };
-      if (search) {
-        const term = `%${search.trim()}%`;
-        userWhere[Op.or] = [
-          { firstName: { [Op.iLike]: term } },
-          { lastName: { [Op.iLike]: term } },
-          { email: { [Op.iLike]: term } },
-          { '$studentProfile.student_id$': { [Op.iLike]: term } }
-        ];
-      }
-      const profileWhere = {};
-      if (branch) profileWhere.branch = { [Op.iLike]: `%${branch}%` };
-      if (graduationYear) profileWhere.graduationYear = parseInt(graduationYear, 10);
-      if (verificationStatus) profileWhere.verificationStatus = verificationStatus;
-      if (placementStatus) profileWhere.placementStatus = placementStatus;
-      const hasProfileFilter = Object.keys(profileWhere).length > 0;
+      const { userWhere, profileWhere, hasProfileFilter } = rosterWhere(
+        { search, branch, graduationYear, verificationStatus, placementStatus },
+        organizationId
+      );
 
       const order =
         sort === 'cgpa'
@@ -233,6 +305,8 @@ class PlacementController {
         raw: true
       });
 
+      const totalStudents = await User.count({ where: { organizationId, role: 'student' } });
+
       res.json({
         message: 'Students retrieved',
         students: rows.map((u) => {
@@ -259,7 +333,9 @@ class PlacementController {
             verificationNotes: p?.verificationNotes || null,
             verificationRequestedAt: p?.verificationRequestedAt || null,
             hasMarksheet: Boolean(p?.marksheetUrl),
-            marksheetUrl: p?.marksheetUrl || null,
+            // Older rows held the server's absolute disk path; only the file
+            // name is ever sent out.
+            marksheetUrl: p?.marksheetUrl ? `/uploads/${String(p.marksheetUrl).split(/[\\/]/).pop()}` : null,
             hasResume: Boolean(p?.resumeUrl),
             hasProfile: Boolean(p),
             applications: apps.get(u.id) || 0,
@@ -267,7 +343,7 @@ class PlacementController {
             bestOfferCtc: held.length ? Math.max(...held.map((o) => Number(o.ctc) || 0)) : null
           };
         }),
-        verificationSummary: summary.reduce((acc, r) => ({ ...acc, [r.verificationStatus]: Number(r.n) }), {}),
+        verificationSummary: withoutProfileCounted(summary, totalStudents),
         pagination: {
           currentPage: Math.floor(offset / lim) + 1,
           totalPages: Math.ceil(count / lim),
@@ -302,6 +378,20 @@ class PlacementController {
       }
       if (!student.studentProfile) {
         return fail(res, 400, 'Profile Incomplete', 'This student has not filled in a profile yet.');
+      }
+      // Verifying locks the record. Locking one with no CGPA or roll number
+      // left the student unable to add them and the cell with nothing checked.
+      if (action === 'verify') {
+        const missing = missingForVerification(student.studentProfile);
+        if (missing.length) {
+          return fail(
+            res,
+            400,
+            'Profile Incomplete',
+            `${student.firstName}'s record has no ${missing.map((k) => LOCKED_LABELS[k]).join(', ')} yet. Ask them to fill it in, or add it from their profile, before verifying.`,
+            { missing }
+          );
+        }
       }
       const status = { verify: 'verified', reject: 'rejected', unlock: 'unverified' }[action];
       await student.studentProfile.update({
@@ -339,18 +429,33 @@ class PlacementController {
         },
         attributes: ['id']
       });
-      const scoped = students.map((s) => s.id);
-      const [count] = await StudentProfile.update(
-        { verificationStatus: 'verified', verifiedBy: req.user.id, verifiedAt: new Date(), verificationNotes: null },
-        { where: { userId: { [Op.in]: scoped } } }
-      );
-      await Promise.allSettled(
-        scoped.map((id) =>
-          notificationService.createNotification(id, 'Profile verification', 'Your placement cell verified your academic details. They are now locked.', 'system_alert', { link: '/profile' })
-        )
-      );
-      audit(req, 'student_verification_bulk', 'organization', req.user.organizationId, { userIds: scoped });
-      res.json({ message: `${count} profile(s) verified`, verified: count });
+      const profiles = await StudentProfile.findAll({
+        where: { userId: { [Op.in]: students.map((s) => s.id) } }
+      });
+      // Only records that are complete and not already verified: re-verifying
+      // re-stamped the verifier and re-notified the student, and an empty
+      // record would be locked before the student could fill it in.
+      const ready = profiles.filter((p) => p.verificationStatus !== 'verified' && missingForVerification(p).length === 0);
+      const readyIds = ready.map((p) => p.userId);
+      const alreadyVerified = profiles.filter((p) => p.verificationStatus === 'verified').length;
+      const incomplete = ids.length - readyIds.length - alreadyVerified;
+      let count = 0;
+      if (readyIds.length) {
+        [count] = await StudentProfile.update(
+          { verificationStatus: 'verified', verifiedBy: req.user.id, verifiedAt: new Date(), verificationNotes: null },
+          { where: { userId: { [Op.in]: readyIds } } }
+        );
+        await Promise.allSettled(
+          readyIds.map((id) =>
+            notificationService.createNotification(id, 'Profile verification', 'Your placement cell verified your academic details. They are now locked.', 'system_alert', { link: '/profile' })
+          )
+        );
+        audit(req, 'student_verification_bulk', 'organization', req.user.organizationId, { userIds: readyIds });
+      }
+      const parts = [`${count} record${count === 1 ? '' : 's'} verified`];
+      if (alreadyVerified) parts.push(`${alreadyVerified} already verified`);
+      if (incomplete > 0) parts.push(`${incomplete} skipped — no profile or missing roll number, branch, batch or CGPA`);
+      res.json({ message: `${parts.join('. ')}.`, verified: count, alreadyVerified, skipped: Math.max(incomplete, 0) });
     } catch (error) {
       next(error);
     }
@@ -388,23 +493,71 @@ class PlacementController {
     }
   }
 
-  /** GET /api/placement/students/export — the roster as CSV. */
+  /**
+   * POST /api/placement/students/import — multipart `file` (.xlsx/.xls/.csv).
+   * Always into the caller's own institution for a TPO; an admin names one.
+   */
+  async importStudents(req, res, next) {
+    try {
+      if (!req.file?.buffer) {
+        return fail(res, 400, 'Validation Error', 'Choose an Excel (.xlsx) or CSV file to import.');
+      }
+      const organizationId = targetOrgId(req);
+      if (!organizationId) return fail(res, 400, 'Validation Error', 'Choose the institution to import into.');
+      const org = await Organization.findByPk(organizationId, { attributes: ['id', 'type'] });
+      if (!org || !['university', 'college', 'school'].includes(org.type)) {
+        return fail(res, 400, 'Validation Error', 'Students can only be imported into a university, college or school.');
+      }
+
+      const { status, body } = await importStudents(models, {
+        buffer: req.file.buffer,
+        originalname: req.file.originalname,
+        organizationId,
+        actorId: req.user.id
+      });
+      if (status === 200) {
+        // Emails only — never the temporary passwords.
+        audit(req, 'students_bulk_imported', 'organization', organizationId, {
+          total: body.summary.total,
+          created: body.created.map((c) => c.email),
+          skipped: body.summary.skipped,
+          errors: body.summary.errors
+        });
+        // The response carries one-time passwords; nothing may cache it.
+        res.setHeader('Cache-Control', 'no-store');
+      }
+      res.status(status).json(body);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** GET /api/placement/students/export — the roster as CSV, honouring the roster's filters. */
   async exportStudents(req, res, next) {
     try {
       const organizationId = targetOrgId(req);
       if (!organizationId) return fail(res, 400, 'Validation Error', 'organizationId is required');
+      const { userWhere, profileWhere, hasProfileFilter } = rosterWhere(req.query, organizationId);
       const users = await User.findAll({
-        where: { role: 'student', organizationId },
+        where: userWhere,
         attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
-        include: [{ model: StudentProfile, as: 'studentProfile' }],
-        order: [['firstName', 'ASC']]
+        include: [
+          {
+            model: StudentProfile,
+            as: 'studentProfile',
+            required: hasProfileFilter,
+            where: hasProfileFilter ? profileWhere : undefined
+          }
+        ],
+        order: [['firstName', 'ASC'], ['lastName', 'ASC']],
+        subQuery: false
       });
       const header = ['Roll number', 'Name', 'Email', 'Phone', 'Course', 'Branch', 'Batch', 'CGPA', 'Active backlogs', 'Class X %', 'Class XII %', 'Verification', 'Placement status', 'Sanction'];
       const lines = [header.join(',')];
       users.forEach((u) => {
         const p = u.studentProfile || {};
         lines.push(
-          [p.studentId, `${u.firstName} ${u.lastName}`, u.email, u.phone, p.course, p.branch, p.graduationYear, p.cgpa, p.activeBacklogs, p.class10Percentage, p.class12Percentage, p.verificationStatus || 'unverified', p.placementStatus || 'unplaced', p.placementSanction || 'none']
+          [p.studentId, displayName(u), u.email, u.phone, p.course, p.branch, p.graduationYear, p.cgpa, p.activeBacklogs, p.class10Percentage, p.class12Percentage, VERIFICATION_LABELS[p.verificationStatus || 'unverified'], OUTCOME_LABELS[p.placementStatus || 'unplaced'], SANCTION_LABELS[p.placementSanction || 'none'] ?? p.placementSanction]
             .map(csvCell)
             .join(',')
         );
@@ -427,9 +580,7 @@ class PlacementController {
       if (profile.verificationStatus === 'verified') {
         return fail(res, 409, 'Already Verified', 'Your academic details are already verified.');
       }
-      const missing = ['studentId', 'branch', 'graduationYear', 'cgpa'].filter(
-        (k) => profile[k] === null || profile[k] === undefined || profile[k] === ''
-      );
+      const missing = missingForVerification(profile);
       if (missing.length) {
         return fail(res, 400, 'Profile Incomplete', `Fill in ${missing.map((k) => LOCKED_LABELS[k] || k).join(', ')} first.`, { missing });
       }
@@ -471,10 +622,19 @@ class PlacementController {
       }
       const fileName = `marksheet_${req.user.id}_${Date.now()}.pdf`;
       const filePath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
+      // Store the /uploads path, never the absolute path on the server's disk:
+      // that went to every TPO's browser in the roster and disclosed the host's
+      // directory layout (the same fix userController made for photos).
+      const local = process.env.STORAGE_TYPE !== 'minio';
+      const stored = local ? `/uploads/${path.basename(filePath)}` : filePath;
       const previous = profile.marksheetUrl;
-      await profile.update({ marksheetUrl: filePath });
-      if (previous) fileService.deleteFile(previous).catch(() => {});
-      res.json({ message: 'Marksheets uploaded', marksheetUrl: filePath });
+      await profile.update({ marksheetUrl: stored });
+      if (previous) {
+        fileService
+          .deleteFile(local ? path.join(fileService.UPLOADS_DIR, path.basename(previous)) : previous)
+          .catch(() => {});
+      }
+      res.json({ message: 'Marksheets uploaded', marksheetUrl: stored });
     } catch (error) {
       next(error);
     }
@@ -519,7 +679,7 @@ class PlacementController {
 
       // Imported batches spell the same programme several ways ("B.Tech", "BTech",
       // "Bachelor of Technology"), which would split one programme across rows.
-      const groupKey = (p) => `${programmeLabel(p.course)} — ${(p.branch || '').trim() || 'Unspecified'}`;
+      const groupKey = (p) => `${programmeLabel(p.course)} — ${branchLabel(p.branch)}`;
       const groups = new Map();
       const blank = () => ({ students: 0, placed: 0, higherStudies: 0, optedOut: 0, deferred: 0, unplaced: 0, ctcs: [], offers: 0, ppos: 0, verifiedLetters: 0 });
       const total = blank();
@@ -597,13 +757,14 @@ class PlacementController {
         byProgramme: [...groups.entries()].map(([k, g]) => finish(k, g)).sort((a, b) => b.students - a.students),
         recruiters: [...recruiters.values()].sort((a, b) => b.offers - a.offers),
         tiers: tierCounts,
-        students: profiles.map((p) => {
+        students: profiles
+          .map((p) => {
           const o = best.get(p.userId);
           return {
             rollNumber: p.studentId,
-            name: `${p.user.firstName} ${p.user.lastName}`,
+            name: displayName(p.user),
             programme: programmeLabel(p.course),
-            branch: p.branch,
+            branch: branchLabel(p.branch),
             batch: p.graduationYear,
             outcome: o ? 'placed' : p.placementStatus,
             company: o?.organization?.name || null,
@@ -612,7 +773,14 @@ class PlacementController {
             ppo: o ? Boolean(o.isPPO) : null,
             offerLetterVerified: o ? Boolean(o.letterVerified) : null
           };
-        })
+          })
+          // The order a cell reads it in: by programme, branch, then roll number.
+          .sort(
+            (a, b) =>
+              a.programme.localeCompare(b.programme) ||
+              a.branch.localeCompare(b.branch) ||
+              String(a.rollNumber || '').localeCompare(String(b.rollNumber || ''), 'en', { numeric: true })
+          )
       };
 
       if (req.query.format === 'xlsx') {
@@ -635,7 +803,17 @@ class PlacementController {
           PPOs: r.ppos,
           'Offer letters verified': r.offerLettersVerified
         }));
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
+        // Title rows first: a sheet pasted into a NAAC/NIRF file has to say
+        // whose numbers they are and for which batch.
+        const summarySheet = XLSX.utils.aoa_to_sheet([
+          [`${data.institution || 'Institution'} — placement report`],
+          [`Batch: ${graduationYear || 'All batches'}`],
+          [`Generated ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' })}. Placement % = placed ÷ (students − opted out). CTC in lakh per annum; each student counted once, at their best live offer.`],
+          []
+        ]);
+        XLSX.utils.sheet_add_json(summarySheet, summaryRows, { origin: 'A5' });
+        summarySheet['!cols'] = [{ wch: 48 }, ...Object.keys(summaryRows[0] || {}).slice(1).map(() => ({ wch: 14 }))];
+        XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
         XLSX.utils.book_append_sheet(
           wb,
           XLSX.utils.json_to_sheet(
@@ -645,7 +823,7 @@ class PlacementController {
               Programme: s.programme,
               Branch: s.branch,
               Batch: s.batch,
-              Outcome: s.outcome,
+              Outcome: OUTCOME_LABELS[s.outcome] || s.outcome,
               Company: s.company,
               Role: s.role,
               'CTC (LPA)': lakh(s.ctc),
@@ -757,7 +935,8 @@ class PlacementController {
           start: r.dataValues.slotAt || r.scheduledAt,
           end: r.endsAt,
           location: r.mode === 'online' ? 'Online' : r.venue,
-          link: role === 'student' ? '/applications' : `/jobs/${r.jobId}`
+          // The drive page links the student straight to their own application.
+          link: `/jobs/${r.jobId}`
         })
       );
 

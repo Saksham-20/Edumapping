@@ -7,7 +7,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import api from '../services/api';
+import api, { describeApiError, fieldErrorsFrom } from '../services/api';
+import { PasswordField } from './auth/authKit';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Button,
@@ -15,7 +16,6 @@ import {
   CardHeader,
   DetailRow,
   Divider,
-  Input,
   PageHeader,
   PageShell,
   SectionBlock,
@@ -25,6 +25,12 @@ import { KeyIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 /** Mirrors the server's rule in routes/auth.js so the UI fails fast and local. */
 const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
+const STATUS_LABELS = {
+  approved: 'Approved',
+  pending: 'Waiting for approval',
+  rejected: 'Not approved'
+};
 
 const Settings = () => {
   const { user } = useAuth();
@@ -66,12 +72,16 @@ const Settings = () => {
       toast.success('Password changed');
       setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
-      // The API's own message is the useful one here ("Current password is
-      // incorrect"), and the axios interceptor has already toasted it — so
-      // surface it against the field rather than toasting a second time.
-      const message =
-        err?.response?.data?.message || err?.response?.data?.error || 'Could not change password';
-      setErrors({ currentPassword: message });
+      // Each reason goes under the field it is about. Everything used to land
+      // under "Current password", so a too-weak new password read as if the
+      // current one were wrong. A wrong current password has no field in the
+      // response (it is not a validation failure), so it is placed there.
+      const fields = fieldErrorsFrom(err);
+      setErrors(
+        Object.keys(fields).length
+          ? fields
+          : { currentPassword: describeApiError(err) || 'Could not change your password. Try again.' }
+      );
     } finally {
       setSaving(false);
     }
@@ -109,7 +119,7 @@ const Settings = () => {
             <DetailRow label="Organization">{user?.organization?.name}</DetailRow>
             <DetailRow label="Status">
               <Badge tone={user?.approvalStatus === 'approved' ? 'success' : 'warning'} dot>
-                {user?.approvalStatus || 'unknown'}
+                {STATUS_LABELS[user?.approvalStatus] || 'Unknown'}
               </Badge>
             </DetailRow>
           </dl>
@@ -136,18 +146,16 @@ const Settings = () => {
               readOnly
               hidden
             />
-            <Input
+            <PasswordField
               label="Current password"
-              type="password"
               autoComplete="current-password"
               required
               value={form.currentPassword}
               onChange={setField('currentPassword')}
               error={errors.currentPassword}
             />
-            <Input
+            <PasswordField
               label="New password"
-              type="password"
               autoComplete="new-password"
               required
               value={form.newPassword}
@@ -155,9 +163,8 @@ const Settings = () => {
               error={errors.newPassword}
               help="At least 8 characters, with an uppercase letter, a lowercase letter and a number."
             />
-            <Input
+            <PasswordField
               label="Confirm new password"
-              type="password"
               autoComplete="new-password"
               required
               value={form.confirmPassword}

@@ -69,7 +69,7 @@ module.exports = (sequelize, DataTypes) => {
             return;
           }
           if (!/^[+]?[1-9]\d{0,15}$/.test(value)) {
-            throw new Error('Phone number format is invalid');
+            throw new Error('Enter a phone number such as 98765 43210 or +91 98765 43210');
           }
         }
       }

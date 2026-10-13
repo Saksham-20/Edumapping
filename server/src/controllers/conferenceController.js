@@ -19,10 +19,22 @@ const HOST_ROLES = ['tpo', 'admin', 'teacher', 'principal', 'school_admin', 'car
 const notConfigured = (res) =>
   res.status(503).json({
     error: 'Conferencing Unavailable',
+    // `message` reaches students and teachers, so it stays in plain words;
+    // the operator-facing reason (which env var is missing) goes in `detail`.
     message:
-      'Live classes are not configured on this server. Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET.',
+      'Live classes are not switched on yet, so this session cannot start. Please check back later.',
     detail: livekit.configurationError()
   });
+
+/** The house validation shape: a readable `message` plus per-field details. */
+const validationFailed = (res, errors) => {
+  const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
+  return res.status(400).json({
+    error: 'Validation Error',
+    message: details[0]?.message || 'Some details need fixing.',
+    details
+  });
+};
 
 /** Short, URL-safe, unguessable room name. */
 const generateRoomName = () => `room-${crypto.randomBytes(9).toString('base64url')}`;
@@ -146,9 +158,7 @@ class ConferenceController {
   async createConference(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
-      }
+      if (!errors.isEmpty()) return validationFailed(res, errors);
 
       if (!HOST_ROLES.includes(req.user.role)) {
         return res.status(403).json({
@@ -167,6 +177,31 @@ class ConferenceController {
         maxParticipants,
         settings = {}
       } = req.body;
+
+      // Combinations the room could never honour. Each used to save fine and
+      // then lock everyone out at join time with no hint why.
+      const problems = [];
+      if (access === 'organization' && !req.user.organizationId) {
+        problems.push({
+          field: 'access',
+          message:
+            'Your account is not linked to an institution, so "Anyone in my organization" would let nobody in. Choose "Anyone with the link" instead.'
+        });
+      }
+      if (access === 'registered' && !eventId) {
+        problems.push({
+          field: 'access',
+          message: 'Link an event before limiting the class to registered students.'
+        });
+      }
+      if (scheduledStart && scheduledEnd && new Date(scheduledEnd) <= new Date(scheduledStart)) {
+        problems.push({ field: 'scheduledEnd', message: 'The class must end after it starts' });
+      }
+      if (problems.length) {
+        return res
+          .status(400)
+          .json({ error: 'Validation Error', message: problems[0].message, details: problems });
+      }
 
       const conference = await Conference.create({
         roomName: generateRoomName(),
@@ -236,7 +271,10 @@ class ConferenceController {
 
       res.json({
         message: 'Conferences retrieved successfully',
-        conferences: conferences.map((c) => publicConference(c))
+        conferences: conferences.map((c) => publicConference(c)),
+        // Lets the list warn up front that rooms cannot open yet, instead of
+        // every "Open room" click ending on an error screen.
+        liveAvailable: livekit.isConfigured()
       });
     } catch (error) {
       next(error);
@@ -649,7 +687,9 @@ class ConferenceController {
       const { conference, error } = await requireModerator(req.params.id, req.user);
       if (error) return res.status(error.status).json({ error: 'Forbidden', message: error.message });
 
-      const s = req.body?.settings || {};
+      // Accept both `{ settings: {...} }` and the flat object the client
+      // service sends; only reading `.settings` silently ignored every change.
+      const s = req.body?.settings || req.body || {};
       const patch = {};
       ['allowAttendeeVideo', 'allowAttendeeScreenShare', 'allowAttendeeAudio', 'muteOnEntry', 'allowChat']
         .forEach((key) => {

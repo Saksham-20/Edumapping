@@ -5,7 +5,7 @@
 // bulk status changes). Filtering and search are both server-side, so the page
 // never has to hold more than one page of rows.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -33,7 +33,8 @@ import {
   BanknotesIcon,
   BuildingOfficeIcon,
   ClipboardDocumentListIcon,
-  UserIcon
+  UserIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { formatJobType } from '../../utils/helpers';
 
@@ -68,6 +69,10 @@ const ROW_STATUS_OPTIONS = [
   { value: 'rejected', label: 'Rejected' }
 ];
 
+// Bulk selection by checkbox cannot select: the server refuses it there,
+// because a selection is made by raising an offer. Pasting a shortlist can.
+const CHECKBOX_BULK_OPTIONS_EXCLUDE = ['selected'];
+
 const BULK_ACTION_OPTIONS = [
   { value: '', label: 'Bulk actions…' },
   { value: 'screening', label: 'Move to screening' },
@@ -84,7 +89,14 @@ const Applications = () => {
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({});
-  const [filters, setFilters] = useState({ status: '', jobId: '', search: '' });
+  const [searchParams, setSearchParams] = useSearchParams();
+  // `?jobId=` arrives from a job's "Shortlist and update" link; the page used
+  // to ignore it and show every drive's applicants.
+  const [filters, setFilters] = useState(() => ({
+    status: searchParams.get('status') || '',
+    jobId: /^\d+$/.test(searchParams.get('jobId') || '') ? searchParams.get('jobId') : '',
+    search: ''
+  }));
   // The search box updates on every keystroke; `filters.search` only catches up
   // after the debounce, and only that one drives the request.
   const [searchDraft, setSearchDraft] = useState('');
@@ -109,6 +121,9 @@ const Applications = () => {
   const [offerCtc, setOfferCtc] = useState('');
   const [offerPPO, setOfferPPO] = useState(false);
   const [offerBusy, setOfferBusy] = useState(false);
+  // The application a student is about to withdraw, held for confirmation.
+  const [withdrawing, setWithdrawing] = useState(null);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -189,7 +204,8 @@ const Applications = () => {
         setApplications(response.applications || []);
         setPagination(response.pagination || {});
       } catch (error) {
-        toast.error('Failed to load applications');
+        // The api interceptor has already said why; a second toast here only
+        // repeated it less precisely.
         setApplications([]);
         setPagination({});
       } finally {
@@ -226,7 +242,7 @@ const Applications = () => {
       );
       toast.success('Application status updated successfully');
     } catch (error) {
-      toast.error('Failed to update application status');
+      // Toasted by the api interceptor with the server's reason.
     }
   };
 
@@ -237,42 +253,59 @@ const Applications = () => {
     }
 
     try {
-      await api.patch('/applications/bulk/update', {
+      const res = await api.patch('/applications/bulk/update', {
         applicationIds: selectedApplications,
         status: newStatus
       });
 
-      setApplications((prev) =>
-        prev.map((app) =>
-          selectedApplications.includes(app.id) ? { ...app, status: newStatus } : app
-        )
-      );
-
-      toast.success(`${selectedApplications.length} applications updated successfully`);
+      // Reload rather than assume: the server skips withdrawn applications
+      // and any outside the caller's scope, and says how many it changed.
+      toast.success(res?.message || 'Applications updated');
+      fetchApplications(pagination.currentPage || 1);
       setSelectedApplications([]);
     } catch (error) {
-      toast.error('Failed to update applications');
+      // Toasted by the api interceptor with the server's reason.
     }
   };
 
-  const handleWithdrawApplication = async (applicationId) => {
-    if (!window.confirm('Are you sure you want to withdraw this application?')) return;
-
+  const handleWithdrawApplication = async () => {
+    const applicationId = withdrawing?.id;
+    if (!applicationId) return;
+    setWithdrawBusy(true);
     try {
       await api.patch(`/applications/${applicationId}/withdraw`);
       setApplications((prev) =>
         prev.map((app) => (app.id === applicationId ? { ...app, status: 'withdrawn' } : app))
       );
-      toast.success('Application withdrawn successfully');
+      toast.success('Application withdrawn');
+      setWithdrawing(null);
     } catch (error) {
-      toast.error('Failed to withdraw application');
+      // The interceptor showed the server's reason (already withdrawn, or a
+      // result already given). Refresh so the card shows the real state.
+      setWithdrawing(null);
+      fetchApplications(pagination.currentPage || 1);
+    } finally {
+      setWithdrawBusy(false);
     }
   };
+
+  // Keep the drive filter in the URL so a filtered view survives a reload
+  // and the back button.
+  useEffect(() => {
+    const current = searchParams.get('jobId') || '';
+    if (current === filters.jobId) return;
+    const next = new URLSearchParams(searchParams);
+    if (filters.jobId) next.set('jobId', filters.jobId);
+    else next.delete('jobId');
+    setSearchParams(next, { replace: true });
+  }, [filters.jobId, searchParams, setSearchParams]);
 
   const clearFilters = () => {
     setSearchDraft('');
     setFilters({ status: '', jobId: '', search: '' });
   };
+
+  const filteredJob = filters.jobId ? jobs.find((j) => String(j.id) === String(filters.jobId)) : null;
 
   const hasActiveFilters = Object.values(filters).some((value) => value !== '');
 
@@ -410,13 +443,18 @@ const Applications = () => {
                 </Button>
               )}
 
-              {isStudent && ['applied', 'screening'].includes(application.status) && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleWithdrawApplication(application.id)}
-                >
+              {/* The server lets a student withdraw at any stage before a
+                  result; hiding the button once shortlisted left a student
+                  who had taken another job no way out of the next round. */}
+              {isStudent && ['applied', 'screening', 'shortlisted', 'interviewed'].includes(application.status) && (
+                <Button size="sm" variant="ghost" onClick={() => setWithdrawing(application)}>
                   Withdraw
+                </Button>
+              )}
+
+              {isStudent && application.status === 'selected' && (
+                <Button as={Link} to="/offers" size="sm" variant="saffron" icon={BanknotesIcon}>
+                  See your offer
                 </Button>
               )}
             </div>
@@ -464,10 +502,30 @@ const Applications = () => {
               </Button>
             )}
           </div>
-          <p className="text-sm text-ink-600 sm:ml-auto sm:pb-2.5" aria-live="polite">
-            {pagination.totalItems ?? applications.length} applications
+          <p className="whitespace-nowrap text-sm text-ink-600 sm:ml-auto sm:pb-2.5" aria-live="polite">
+            {(() => {
+              const n = pagination.totalItems ?? applications.length;
+              return `${n} ${n === 1 ? 'application' : 'applications'}`;
+            })()}
           </p>
         </div>
+
+        {!isStudent && filters.jobId && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-ink-600">Showing applicants for</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-ink-950/15 bg-bone-100 px-2.5 py-0.5 font-medium text-ink-800">
+              {filteredJob?.title || `job #${filters.jobId}`}
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, jobId: '' }))}
+                aria-label="Show applicants for every job"
+                className="rounded-full text-ink-500 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+              >
+                <XMarkIcon aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          </div>
+        )}
 
         {showFilters && (
           <div className="mt-5 grid grid-cols-1 gap-4 border-t border-ink-950/10 pt-5 md:grid-cols-3">
@@ -503,7 +561,7 @@ const Applications = () => {
             </Button>
             <span className="text-sm text-ink-500">
               {filters.jobId
-                ? 'Paste the roll numbers or emails the recruiter sent back.'
+                ? 'Paste a list of roll numbers or emails to move them all at once.'
                 : 'Pick a single job above to paste a shortlist into it.'}
             </span>
           </div>
@@ -521,7 +579,7 @@ const Applications = () => {
               onChange={(e) => {
                 if (e.target.value) handleBulkStatusUpdate(e.target.value);
               }}
-              options={BULK_ACTION_OPTIONS}
+              options={BULK_ACTION_OPTIONS.filter((o) => !CHECKBOX_BULK_OPTIONS_EXCLUDE.includes(o.value))}
             />
             <Button
               variant="ghost"
@@ -657,6 +715,35 @@ const Applications = () => {
             </div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(withdrawing)}
+        onClose={() => setWithdrawing(null)}
+        size="sm"
+        title="Withdraw this application?"
+        description={
+          withdrawing
+            ? `${withdrawing.job?.title || 'This job'}${
+                withdrawing.job?.organization?.name ? ` at ${withdrawing.job.organization.name}` : ''
+              }.`
+            : ''
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setWithdrawing(null)}>
+              Keep it
+            </Button>
+            <Button variant="danger" loading={withdrawBusy} onClick={handleWithdrawApplication}>
+              Withdraw
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-700">
+          The company will no longer consider you for this job. You can apply again only while the
+          drive is still open.
+        </p>
       </Modal>
 
       <Modal

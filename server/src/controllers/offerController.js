@@ -17,6 +17,37 @@ const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { syncPlacementStatus } = require('../utils/placementStatus');
 
+const path = require('path');
+
+/**
+ * The offer letter's stored path as the API should show it.
+ *
+ * Letters used to be saved with the absolute path fileService returns, so
+ * every offer response carried "/Users/…/server/uploads/…" — the host's
+ * directory layout. New letters are stored as `/uploads/<name>` (an object
+ * name under MinIO); older rows are rewritten the same way on the way out.
+ * The protected file route resolves either form by file name.
+ */
+const letterPath = (stored) => {
+  if (!stored || typeof stored !== 'string') return stored;
+  if (stored.startsWith('/uploads/') || stored.startsWith('uploads/')) return stored;
+  return `/uploads/${path.basename(stored)}`;
+};
+
+/** Absolute local path for a stored letter, for deleting a replaced one. */
+const letterDiskPath = (stored) =>
+  process.env.STORAGE_TYPE === 'minio'
+    ? stored
+    : path.join(require('../services/fileService').UPLOADS_DIR, path.basename(stored));
+
+/** An offer as JSON with a browser-safe letter path. */
+const present = (offer) => {
+  if (!offer) return offer;
+  const data = typeof offer.toJSON === 'function' ? offer.toJSON() : { ...offer };
+  if (data.offerLetterUrl) data.offerLetterUrl = letterPath(data.offerLetterUrl);
+  return data;
+};
+
 // Placement status has one definition, shared with the application flow.
 const syncPlacementFromOffers = (studentId) => syncPlacementStatus(studentId, models);
 
@@ -114,7 +145,7 @@ class OfferController {
         ]
       });
 
-      res.status(201).json({ message: 'Offer raised successfully', offer: full });
+      res.status(201).json({ message: 'Offer raised successfully', offer: present(full) });
 
       notificationService
         .createNotification(
@@ -191,7 +222,7 @@ class OfferController {
 
       res.json({
         message: 'Offers retrieved successfully',
-        offers: rows,
+        offers: rows.map(present),
         pagination: {
           currentPage: parseInt(page, 10),
           totalPages: Math.ceil(count / limitNum),
@@ -244,7 +275,7 @@ class OfferController {
 
       res.json({
         message: action === 'accept' ? 'Offer accepted' : 'Offer declined',
-        offer
+        offer: present(offer)
       });
 
       AuditLog.create({
@@ -302,7 +333,7 @@ class OfferController {
       // a revoked offer must not keep propping up a placement rate.
       await syncPlacementFromOffers(offer.studentId);
 
-      res.json({ message: 'Offer revoked', offer });
+      res.json({ message: 'Offer revoked', offer: present(offer) });
 
       notificationService
         .createNotification(
@@ -360,10 +391,11 @@ class OfferController {
       }
       const fileService = require('../services/fileService');
       const fileName = `offerletter_${offer.id}_${Date.now()}.pdf`;
-      const filePath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
+      const savedPath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
+      const filePath = process.env.STORAGE_TYPE === 'minio' ? savedPath : letterPath(savedPath);
       const previous = offer.offerLetterUrl;
       await offer.update({ offerLetterUrl: filePath, letterVerified: false, letterVerifiedBy: null, letterVerifiedAt: null });
-      if (previous) fileService.deleteFile(previous).catch(() => {});
+      if (previous) fileService.deleteFile(letterDiskPath(previous)).catch(() => {});
 
       AuditLog.create({
         userId: req.user.id,
@@ -375,7 +407,7 @@ class OfferController {
         userAgent: req.get('user-agent')
       }).catch((err) => logger.error('Audit log failed', err));
 
-      res.json({ message: 'Offer letter uploaded', offer });
+      res.json({ message: 'Offer letter uploaded', offer: present(offer) });
     } catch (error) {
       next(error);
     }
@@ -391,7 +423,17 @@ class OfferController {
       if (!offer.offerLetterUrl) {
         return res.status(400).json({ error: 'No Letter', message: 'No offer letter has been uploaded yet' });
       }
-      const verified = req.body.verified !== false;
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: errors.array()[0].msg,
+          details: errors.array().map(({ path: field, msg }) => ({ field, message: msg }))
+        });
+      }
+      // Absent means "verify" (the original contract); anything sent must be
+      // a real boolean — "yes" or "no" used to count as true.
+      const verified = req.body.verified === undefined ? true : [true, 'true', 1, '1'].includes(req.body.verified);
       await offer.update({
         letterVerified: verified,
         letterVerifiedBy: verified ? req.user.id : null,
@@ -405,7 +447,7 @@ class OfferController {
         ipAddress: req.ip,
         userAgent: req.get('user-agent')
       }).catch((err) => logger.error('Audit log failed', err));
-      res.json({ message: verified ? 'Offer letter verified' : 'Verification removed', offer });
+      res.json({ message: verified ? 'Offer letter verified' : 'Verification removed', offer: present(offer) });
     } catch (error) {
       next(error);
     }

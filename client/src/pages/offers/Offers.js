@@ -50,6 +50,50 @@ const formatCtc = (value, currency = 'INR') => {
   return `₹${grouped}${lakhs >= 1 ? ` · ${Number(lakhs.toFixed(2))} LPA` : ''}`;
 };
 
+/** Tier names whose floor this CTC clears, highest last. */
+const tierFor = (ctc, tiers) => {
+  const list = (Array.isArray(tiers) ? tiers : [])
+    .filter((t) => t && t.name)
+    .map((t) => ({ name: t.name, minCtc: Number(t.minCtc) || 0 }))
+    .sort((a, b) => a.minCtc - b.minCtc);
+  let found = null;
+  list.forEach((t) => {
+    if (Number(ctc) >= t.minCtc) found = t;
+  });
+  return { tier: found, next: found ? list[list.indexOf(found) + 1] : list[0] };
+};
+
+/**
+ * What accepting this offer will change for the student, in their placement
+ * cell's own rules. Accepting is final, and a student who learns afterwards
+ * that it closed every other drive has no way back.
+ */
+const acceptConsequences = (offer, policy) => {
+  const lines = [];
+  if (!policy?.enabled) return lines;
+  if (policy.blockAfterAcceptance) {
+    lines.push('Your placement cell closes further job applications once you accept an offer. Internships are not affected.');
+  }
+  if (policy.placedRule === 'higher_tier' && Array.isArray(policy.tiers) && policy.tiers.length > 1) {
+    const { tier, next } = tierFor(offer.ctc, policy.tiers);
+    if (tier && next) {
+      lines.push(
+        `This is a ${tier.name} offer. While you hold it you can only apply to ${next.name} roles (from ${formatCtc(next.minCtc)}) or higher.`
+      );
+    } else if (tier) {
+      lines.push(`This is a ${tier.name} offer, the highest tier your placement cell uses.`);
+    }
+  } else if (policy.placedRule === 'ctc_multiplier' && Number(policy.ctcMultiplier) > 0 && offer.ctc) {
+    lines.push(
+      `While you hold it you can only apply to roles paying at least ${formatCtc(Number(offer.ctc) * Number(policy.ctcMultiplier))}.`
+    );
+  }
+  if (policy.maxOffers) {
+    lines.push(`Your placement cell allows at most ${policy.maxOffers} offer${policy.maxOffers === 1 ? '' : 's'} per student.`);
+  }
+  return lines;
+};
+
 const Offers = () => {
   const { user } = useAuth();
   const isStudent = user?.role === 'student';
@@ -61,6 +105,9 @@ const Offers = () => {
   const [busyId, setBusyId] = useState(null);
   const [revoking, setRevoking] = useState(null);
   const [reason, setReason] = useState('');
+  // The answer the student is about to give, held until they confirm it.
+  const [confirming, setConfirming] = useState(null);
+  const [policy, setPolicy] = useState(null);
   const isCell = user?.role === 'tpo' || user?.role === 'admin';
 
   // The signed offer letter: uploaded by the student or the company, checked
@@ -103,14 +150,20 @@ const Offers = () => {
     setLoading(true);
     setError(null);
     try {
-      const [list, statsBody] = await Promise.all([
+      const [list, statsBody, policyBody] = await Promise.all([
         api.get('/offers', { params: { limit: 100 }, silent: true }),
         isStudent
           ? Promise.resolve(null)
-          : api.get('/offers/stats', { silent: true }).catch(() => null)
+          : api.get('/offers/stats', { silent: true }).catch(() => null),
+        // The student's own institution's rules, to explain what accepting
+        // does. Optional: without it the confirmation is just less specific.
+        isStudent
+          ? api.get('/placement/policy', { silent: true }).catch(() => null)
+          : Promise.resolve(null)
       ]);
       setOffers(list.offers || []);
       setStats(statsBody?.stats || null);
+      setPolicy(policyBody?.policy || null);
     } catch (err) {
       setError(err?.message || 'Could not load offers.');
     } finally {
@@ -127,9 +180,16 @@ const Offers = () => {
     try {
       await api.patch(`/offers/${offer.id}/respond`, { action }, { silent: true });
       toast.success(action === 'accept' ? 'Offer accepted' : 'Offer declined');
+      setConfirming(null);
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Could not record your response');
+      toast.error(err.response?.data?.message || 'Could not record your answer. Check your connection and try again.');
+      // Already answered elsewhere (another tab, a second tap): show the
+      // current state instead of leaving stale buttons on screen.
+      if (err.status === 409) {
+        setConfirming(null);
+        load();
+      }
     } finally {
       setBusyId(null);
     }
@@ -274,6 +334,14 @@ const Offers = () => {
                         )}
                       </div>
                     )}
+                    {isStudent && offer.applicationId && (
+                      <Link
+                        to={`/applications/${offer.applicationId}`}
+                        className="mt-2 inline-block text-xs font-semibold text-ink-950 hover:underline"
+                      >
+                        View application →
+                      </Link>
+                    )}
                     {offer.status === 'revoked' && offer.revokedReason && (
                       <p className="mt-1 text-sm text-ink-700">
                         Withdrawn: {offer.revokedReason}
@@ -282,23 +350,25 @@ const Offers = () => {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {/* Full width under the details on a phone: `shrink-0` kept
+                    this row at its natural width, which ran off a 390px screen. */}
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                   <StatusBadge status={offer.status} />
                   {isStudent && offer.status === 'offered' && (
                     <>
                       <Button
                         size="sm"
                         variant="success"
-                        loading={busyId === offer.id}
-                        onClick={() => respond(offer, 'accept')}
+                        disabled={busyId === offer.id}
+                        onClick={() => setConfirming({ offer, action: 'accept' })}
                       >
                         Accept
                       </Button>
                       <Button
                         size="sm"
                         variant="secondary"
-                        loading={busyId === offer.id}
-                        onClick={() => respond(offer, 'decline')}
+                        disabled={busyId === offer.id}
+                        onClick={() => setConfirming({ offer, action: 'decline' })}
                       >
                         Decline
                       </Button>
@@ -356,6 +426,57 @@ const Offers = () => {
           </div>
         </Card>
       )}
+
+      <Modal
+        open={Boolean(confirming)}
+        onClose={() => setConfirming(null)}
+        size="sm"
+        title={confirming?.action === 'accept' ? 'Accept this offer?' : 'Decline this offer?'}
+        description={
+          confirming
+            ? `${confirming.offer.roleTitle || confirming.offer.job?.title} at ${
+                confirming.offer.organization?.name || 'the company'
+              }, ${formatCtc(confirming.offer.ctc, confirming.offer.currency)}.`
+            : ''
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirming(null)}>
+              Not yet
+            </Button>
+            <Button
+              variant={confirming?.action === 'accept' ? 'success' : 'danger'}
+              loading={busyId === confirming?.offer.id}
+              onClick={() => respond(confirming.offer, confirming.action)}
+            >
+              {confirming?.action === 'accept' ? 'Yes, accept' : 'Yes, decline'}
+            </Button>
+          </>
+        }
+      >
+        {confirming && (
+          <div className="space-y-3 text-sm text-ink-700">
+            <p>
+              {confirming.action === 'accept'
+                ? 'Your answer is final. The company and your placement cell see it straight away, and you will be counted as placed.'
+                : 'Your answer is final. The company sees it straight away, and the offer cannot be brought back from here.'}
+            </p>
+            {confirming.action === 'accept' && acceptConsequences(confirming.offer, policy).length > 0 && (
+              <ul className="list-disc space-y-1 pl-5">
+                {acceptConsequences(confirming.offer, policy).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {confirming.action === 'accept' && live.some((o) => o.status === 'accepted') && (
+              <p className="rounded-xl border border-saffron-500/40 bg-saffron-50 p-3 text-saffron-900">
+                You have already accepted another offer. Check with your placement cell before
+                accepting a second one.
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={Boolean(revoking)}

@@ -36,7 +36,7 @@ const PendingApproval = () => {
         <h2 className="font-display text-base font-bold text-ink-950">What happens next?</h2>
         <p className="mt-1.5 text-sm text-ink-600">
           {institution
-            ? 'The EduMapping team checks every new institution before it goes live, usually within one working day. Once it is approved you can sign in, import your students and post your first drive.'
+            ? 'The EduMapping team checks every new institution before it goes live, usually within one working day. After that you can import your students and post your first drive.'
             : 'Your account is reviewed before you can sign in, usually within one working day.'}{' '}
           {email ? (
             <>
@@ -49,25 +49,28 @@ const PendingApproval = () => {
         </p>
 
         <h2 className="mt-6 font-display text-base font-bold text-ink-950">While you wait</h2>
+        {/* Things a person can actually do while signed out. The list used to
+            say "ensure your profile information is accurate", which nobody
+            can do before their account is approved. */}
         <ul className="mt-2 space-y-1.5 text-sm text-ink-600">
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-saffron-600">
-              —
-            </span>
-            Ensure all your profile information is accurate
-          </li>
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-saffron-600">
-              —
-            </span>
-            Prepare your resume and documents
-          </li>
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-saffron-600">
-              —
-            </span>
-            Keep the email and password you registered with to hand
-          </li>
+          {(institution
+            ? [
+                'Get your student list ready: name, roll number, branch, year and email or phone. You can import it in one go once approved.',
+                'Keep the email and password you registered with to hand.',
+                'If you have not heard from us in two working days, contact support below.'
+              ]
+            : [
+                'Keep the email and password you registered with to hand.',
+                'If you have not heard from us in two working days, contact support below.'
+              ]
+          ).map((line) => (
+            <li key={line} className="flex gap-2">
+              <span aria-hidden="true" className="text-saffron-600">
+                —
+              </span>
+              {line}
+            </li>
+          ))}
         </ul>
 
         <Divider className="my-5" />

@@ -69,12 +69,20 @@ const ACTION_GROUPS = [
       ['placement_sanction_changed', 'Placement sanction changed'],
       ['placement_policy_updated', 'Placement policy updated'],
       ['students_bulk_imported', 'Students imported'],
+      ['student_verification_verify', 'Student record verified'],
+      ['student_verification_bulk', 'Student records verified in bulk'],
+      ['student_verification_reject', 'Student record sent back'],
+      ['student_verification_unlock', 'Student record unlocked'],
+      ['student_outcome_set', 'Student outcome recorded'],
       ['offer_raised', 'Offer raised'],
       ['offer_revoked', 'Offer revoked'],
       ['offer_accepted', 'Offer accepted'],
       ['offer_declined', 'Offer declined'],
       ['offer_letter_verified', 'Offer letter verified'],
       ['round_created', 'Selection round created'],
+      ['round_updated', 'Selection round changed'],
+      ['round_deleted', 'Selection round deleted'],
+      ['round_participants_added', 'Students added to a round'],
       ['round_results_recorded', 'Round results recorded']
     ]
   }
@@ -234,7 +242,13 @@ const AuditLog = () => {
                     </span>
                   </Td>
                   <Td className="whitespace-nowrap text-xs text-ink-500">
-                    {e.entityType ? `${String(e.entityType).replace(/_/g, ' ')}${e.entityId ? ` #${e.entityId}` : ''}` : '—'}
+                    {e.entityName ? (
+                      <span className="text-ink-800">{e.entityName}</span>
+                    ) : e.entityType ? (
+                      `${String(e.entityType).replace(/_/g, ' ')}${e.entityId ? ` #${e.entityId}` : ''}`
+                    ) : (
+                      '—'
+                    )}
                   </Td>
                 </Tr>
               ))}

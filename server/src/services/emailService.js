@@ -2,6 +2,12 @@
 const nodemailer = require('nodemailer');
 const logger = require('../utils/logger');
 
+// Names, job titles, descriptions and feedback are typed by users. Dropped
+// into the HTML raw, a recruiter could put markup or a phishing link into an
+// email that arrives from our own address.
+const esc = (v) =>
+  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 class EmailService {
   constructor() {
     this.transporter = nodemailer.createTransport({
@@ -94,7 +100,7 @@ class EmailService {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #2563eb;">Welcome to EduMapping!</h1>
-        <p>Hi ${user.firstName},</p>
+        <p>Hi ${esc(user.firstName)},</p>
         <p>Welcome to EduMapping, your gateway to amazing career opportunities!</p>
         <p>Your account has been successfully created. You can now:</p>
         <ul>
@@ -142,18 +148,18 @@ class EmailService {
 
   async sendOtpEmail(to, otp, purpose) {
     const subject = purpose === 'forgot_password'
-      ? 'Your password reset OTP - EduMapping'
-      : 'Your verification OTP - EduMapping';
+      ? 'Your EduMapping password reset code'
+      : 'Your EduMapping verification code';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #2563eb;">${purpose === 'forgot_password' ? 'Password Reset' : 'Verify your email'}</h1>
-        <p>Your OTP is: <strong style="font-size: 24px; letter-spacing: 4px;">${otp}</strong></p>
+        <p>Your code is: <strong style="font-size: 24px; letter-spacing: 4px;">${otp}</strong></p>
         <p>This code expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes. Do not share it.</p>
-        <p>If you didn't request this, please ignore this email.</p>
+        <p>If you didn't ask for this code, you can ignore this email. Your password has not been changed.</p>
         <p>Best regards,<br>The EduMapping Team</p>
       </div>
     `;
-    const text = `Your OTP: ${otp}. Expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.`;
+    const text = `Your EduMapping code: ${otp}. Expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.`;
     return this.sendEmail(to, subject, html, text);
   }
 
@@ -173,11 +179,11 @@ class EmailService {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #2563eb;">Application Status Update</h1>
-        <p>Hi ${user.firstName},</p>
-        <p>Your application for <strong>${job.title}</strong> at <strong>${company.name}</strong> has been updated.</p>
+        <p>Hi ${esc(user.firstName)},</p>
+        <p>Your application for <strong>${esc(job.title)}</strong> at <strong>${esc(company.name)}</strong> has been updated.</p>
         <p><strong>Status:</strong> ${newStatus.toUpperCase()}</p>
         <p>${statusMessages[newStatus] || 'Your application status has been updated.'}</p>
-        ${application.feedback ? `<p><strong>Feedback:</strong> ${application.feedback}</p>` : ''}
+        ${application.feedback ? `<p><strong>Feedback:</strong> ${esc(application.feedback)}</p>` : ''}
         <a href="${process.env.FRONTEND_URL}/applications" 
            style="background-color: #2563eb; color: white; padding: 12px 24px; 
                   text-decoration: none; border-radius: 6px; display: inline-block;">
@@ -197,13 +203,13 @@ class EmailService {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #2563eb;">New Job Opportunity!</h1>
-        <p>Hi ${user.firstName},</p>
+        <p>Hi ${esc(user.firstName)},</p>
         <p>A new job that matches your profile has been posted:</p>
         <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
-          <h2 style="margin: 0 0 8px 0; color: #1f2937;">${job.title}</h2>
-          <p style="margin: 0 0 8px 0; color: #6b7280;">${company.name}</p>
-          <p style="margin: 0 0 8px 0;">${job.location}</p>
-          <p style="margin: 0;">${job.description.substring(0, 200)}...</p>
+          <h2 style="margin: 0 0 8px 0; color: #1f2937;">${esc(job.title)}</h2>
+          <p style="margin: 0 0 8px 0; color: #6b7280;">${esc(company.name)}</p>
+          <p style="margin: 0 0 8px 0;">${esc(job.location)}</p>
+          <p style="margin: 0;">${esc(String(job.description || '').substring(0, 200))}...</p>
         </div>
         <a href="${process.env.FRONTEND_URL}/jobs/${job.id}" 
            style="background-color: #2563eb; color: white; padding: 12px 24px; 
@@ -219,21 +225,24 @@ class EmailService {
   }
 
   async sendEventReminder(user, event) {
-    const eventDate = new Date(event.startTime).toLocaleDateString();
-    const eventTime = new Date(event.startTime).toLocaleTimeString();
+    // In India time whatever the server's clock says: the VPS runs on UTC, so
+    // a 10:00 event was announced as 4:30 in the morning.
+    const when = new Date(event.startTime);
+    const eventDate = when.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' });
+    const eventTime = when.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
 
     const subject = `Event Reminder: ${event.title}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #2563eb;">Event Reminder</h1>
-        <p>Hi ${user.firstName},</p>
+        <p>Hi ${esc(user.firstName)},</p>
         <p>This is a reminder for the upcoming event you registered for:</p>
         <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
-          <h2 style="margin: 0 0 8px 0; color: #1f2937;">${event.title}</h2>
+          <h2 style="margin: 0 0 8px 0; color: #1f2937;">${esc(event.title)}</h2>
           <p style="margin: 0 0 8px 0;"><strong>Date:</strong> ${eventDate}</p>
           <p style="margin: 0 0 8px 0;"><strong>Time:</strong> ${eventTime}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Location:</strong> ${event.location}</p>
-          ${event.virtualLink ? `<p style="margin: 0 0 8px 0;"><strong>Virtual Link:</strong> <a href="${event.virtualLink}">Join Event</a></p>` : ''}
+          <p style="margin: 0 0 8px 0;"><strong>Location:</strong> ${esc(event.location)}</p>
+          ${event.virtualLink ? `<p style="margin: 0 0 8px 0;"><strong>Virtual Link:</strong> <a href="${esc(event.virtualLink)}">Join Event</a></p>` : ''}
         </div>
         <p>Don't forget to attend!</p>
         <a href="${process.env.FRONTEND_URL}/events/${event.id}" 

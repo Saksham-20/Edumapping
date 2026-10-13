@@ -26,7 +26,10 @@ const Register = () => {
     organizationContactEmail: '',
     organizationContactPhone: '',
     organizationWebsite: '',
-    organizationAddress: ''
+    organizationAddress: '',
+    // A new campus is a college or a university; most tier-2/3 engineering
+    // campuses are affiliated colleges, so that is the default.
+    organizationType: 'college'
   });
   const [organizations, setOrganizations] = useState([]);
   const [errors, setErrors] = useState({});
@@ -64,7 +67,11 @@ const Register = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: value,
+      // A college picked as a student is not a valid company for a recruiter.
+      // Keeping it made the dropdown read "Select a company" while the form
+      // still submitted the college, and the server refused the signup.
+      ...(name === 'role' ? { organizationId: '' } : {})
     }));
     // Clear error when user starts typing
     if (errors[name]) {
@@ -119,7 +126,7 @@ const Register = () => {
       if (formData.role === 'new_university' || formData.role === 'new_company') {
         // Validate organization creation fields
         if (!formData.organizationName?.trim()) {
-          newErrors.organizationName = `${formData.role === 'new_university' ? 'University' : 'Company'} name is required`;
+          newErrors.organizationName = `${formData.role === 'new_university' ? 'College or university' : 'Company'} name is required`;
         }
         if (!formData.organizationDomain) {
           newErrors.organizationDomain = 'Email domain is required';
@@ -131,8 +138,9 @@ const Register = () => {
         } else if (!isEmail(formData.organizationContactEmail)) {
           newErrors.organizationContactEmail = 'Please enter a valid contact email';
         }
-        if (formData.organizationWebsite && !/^https?:\/\/.+/.test(formData.organizationWebsite)) {
-          newErrors.organizationWebsite = 'Please enter a valid website URL (starting with http:// or https://)';
+        // The server adds https:// when it is missing, so "gecajmer.ac.in" is fine.
+        if (formData.organizationWebsite && !/^(https?:\/\/)?[^\s.]+\.[^\s]+$/i.test(formData.organizationWebsite.trim())) {
+          newErrors.organizationWebsite = 'Enter a website such as gecajmer.ac.in';
         }
       } else if (!formData.organizationId) {
         newErrors.organizationId = 'Please select an organization';
@@ -165,7 +173,7 @@ const Register = () => {
           // First, create the organization
           const orgData = {
             name: formData.organizationName,
-            type: formData.role === 'new_university' ? 'university' : 'company',
+            type: formData.role === 'new_university' ? formData.organizationType : 'company',
             // Stored bare ("school.edu"); people often type an address instead.
             domain: formData.organizationDomain.trim().replace(/^.*@/, '').toLowerCase(),
             contactEmail: formData.organizationContactEmail,
@@ -193,12 +201,12 @@ const Register = () => {
           delete submitData.organizationContactPhone;
           delete submitData.organizationWebsite;
           delete submitData.organizationAddress;
-
-          toast.success(`${formData.role === 'new_university' ? 'University' : 'Company'} created successfully. Your account is being created...`);
+          delete submitData.organizationType;
         } catch (orgError) {
-          throw asOrgError(orgError, `Failed to create ${formData.role === 'new_university' ? 'university' : 'company'}`);
+          throw asOrgError(orgError, `Could not register your ${newOrgNoun}. Check its details and try again.`);
         }
       } else {
+        delete submitData.organizationType;
         // Don't send organizationId for admin role
         if (formData.role === 'admin') {
           delete submitData.organizationId;
@@ -220,40 +228,11 @@ const Register = () => {
         return;
       }
 
-      // Where to land afterwards. Registration signs the user straight in — the
-      // service stores the returned tokens — so sending them to '/' dropped a
-      // freshly authenticated user back onto the marketing landing page, which
-      // is what both branches below used to do. The college and school
-      // registration screens already go to /dashboard; this now matches them,
-      // and ProtectedRoute redirects to /pending-approval on its own if the
-      // account is not approved.
-      const land = () => navigate('/dashboard', { replace: true });
-
-      // Check if user needs approval
-      if (response.user.approvalStatus === 'pending') {
-        // Show appropriate message based on registration type
-        if (formData.role === 'new_university' || formData.role === 'new_company') {
-          toast.success(
-            `Registration successful! Your ${formData.role === 'new_university' ? 'university' : 'company'} and account are pending admin approval. You will be notified once approved.`,
-            { duration: 6000 }
-          );
-        } else if (response.user.role === 'recruiter') {
-          navigate('/pending-approval', { replace: true });
-          return;
-        } else {
-          toast.success('Registration successful! Your account is pending approval. Redirecting...');
-        }
-        land();
-      } else {
-        // User is auto-approved, redirect to dashboard
-        if (formData.role === 'new_university' || formData.role === 'new_company') {
-          toast.success(
-            `Registration successful! Your ${formData.role === 'new_university' ? 'university' : 'company'} has been created.`,
-            { duration: 5000 }
-          );
-        }
-        land();
-      }
+      // Only an approved account (a student) gets here: it is signed in by
+      // now, so it goes straight to its dashboard. Everyone else returned to
+      // /pending-approval above.
+      toast.success('Account created. Welcome to EduMapping!');
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       setErrors(submitErrors(error));
     } finally {
@@ -263,19 +242,32 @@ const Register = () => {
 
   const getFilteredOrganizations = () => {
     if (formData.role === 'student' || formData.role === 'tpo') {
-      // Students and TPOs can only belong to university organizations
-      return organizations.filter(org => org.type === 'university');
+      // Colleges and universities both. Filtering on 'university' alone hid
+      // every campus registered as a college, which is most of them.
+      // (School students sign up on /register/school.)
+      return organizations.filter(org => org.type === 'university' || org.type === 'college');
     } else if (formData.role === 'recruiter') {
-      // Recruiters can only belong to company organizations
-      return organizations.filter(org => org.type === 'company');
+      // Companies only, minus the platform's own "EduMapping" organization
+      // (migration 30): it holds platform-wide events, and a recruiter
+      // signing up under it would be attaching themselves to the platform.
+      return organizations.filter(org => org.type === 'company' && org.name !== 'EduMapping');
     }
     return organizations;
   };
 
   const isNewOrg = formData.role === 'new_university' || formData.role === 'new_company';
   const isUniversitySide = formData.role === 'student' || formData.role === 'tpo';
-  const newOrgNoun = formData.role === 'new_university' ? 'university' : 'company';
+  const newOrgNoun = formData.role === 'new_university' ? formData.organizationType : 'company';
   const availableOrgs = getFilteredOrganizations();
+  // A student who cannot find their campus must not be steered to "register
+  // my college": that path makes them its placement officer. They are sent
+  // to their TPO instead.
+  const orgPickerHelp =
+    formData.role === 'student'
+      ? availableOrgs.length === 0
+        ? 'No colleges are open for sign-up yet. Ask your placement officer (TPO) to register your college on EduMapping.'
+        : 'Can’t find your college? It may not be on EduMapping yet. Ask your placement officer (TPO) to register it.'
+      : `Can’t find yours? Choose "Register my ${isUniversitySide ? 'college or university' : 'company'}" in the list above.`;
 
   return (
     <AuthShell width="max-w-lg">
@@ -365,26 +357,22 @@ const Register = () => {
             <option value="tpo">Training &amp; Placement Officer (TPO)</option>
             <option value="recruiter">Recruiter</option>
             <optgroup label="Register New Organization">
-              <option value="new_university">Register as New University</option>
-              <option value="new_company">Register as New Company</option>
+              <option value="new_university">Register my college or university</option>
+              <option value="new_company">Register my company</option>
             </optgroup>
           </Select>
 
           {formData.role && formData.role !== 'admin' && !isNewOrg && (
             <Select
-              label={isUniversitySide ? 'University' : 'Company'}
+              label={isUniversitySide ? 'College or university' : 'Company'}
               name="organizationId"
               value={formData.organizationId}
               onChange={handleChange}
               error={errors.organizationId}
-              help={
-                availableOrgs.length === 0
-                  ? `No approved ${isUniversitySide ? 'universities' : 'companies'} are available. Please contact an administrator.`
-                  : undefined
-              }
+              help={orgPickerHelp}
             >
               <option value="">
-                Select {isUniversitySide ? 'a university' : 'a company'}
+                Select {isUniversitySide ? 'your college' : 'your company'}
               </option>
               {availableOrgs.length > 0 ? (
                 availableOrgs.map((org) => (
@@ -394,7 +382,7 @@ const Register = () => {
                 ))
               ) : (
                 <option value="" disabled>
-                  No {isUniversitySide ? 'universities' : 'companies'} available
+                  No {isUniversitySide ? 'colleges' : 'companies'} available
                 </option>
               )}
             </Select>
@@ -403,16 +391,29 @@ const Register = () => {
           {isNewOrg && (
             <fieldset className="space-y-4 rounded-2xl border border-ink-950/15 bg-bone-100 p-4">
               <legend className="px-1 font-display text-sm font-bold text-ink-950">
-                {formData.role === 'new_university' ? 'University' : 'Company'} details
+                {formData.role === 'new_university' ? 'Institution' : 'Company'} details
               </legend>
 
               <p className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-3 py-2.5 text-sm text-saffron-900">
-                Your {newOrgNoun} will be created with <strong>pending</strong> approval status. An
-                admin will review and approve it before it becomes active.
+                The EduMapping team checks every new {newOrgNoun} before it goes live, usually
+                within one working day. You can sign in once it is approved.
               </p>
 
+              {formData.role === 'new_university' && (
+                <Select
+                  label="Type of institution"
+                  name="organizationType"
+                  value={formData.organizationType}
+                  onChange={handleChange}
+                  help="Affiliated and autonomous colleges are colleges."
+                >
+                  <option value="college">College</option>
+                  <option value="university">University</option>
+                </Select>
+              )}
+
               <Input
-                label={`${formData.role === 'new_university' ? 'University' : 'Company'} name`}
+                label={`${formData.role === 'new_university' ? (formData.organizationType === 'college' ? 'College' : 'University') : 'Company'} name`}
                 name="organizationName"
                 type="text"
                 required
@@ -430,8 +431,8 @@ const Register = () => {
                 value={formData.organizationDomain}
                 onChange={handleChange}
                 error={errors.organizationDomain}
-                help={`This will be used to verify your ${newOrgNoun} domain.`}
-                placeholder={formData.role === 'new_university' ? 'e.g. university.edu' : 'e.g. company.com'}
+                help={`The part after @ in your ${newOrgNoun}'s email addresses.`}
+                placeholder={formData.role === 'new_university' ? 'e.g. gecajmer.ac.in' : 'e.g. company.com'}
               />
 
               <Input

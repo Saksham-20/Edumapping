@@ -52,10 +52,10 @@ export const AuthProvider = ({ children }) => {
     }
   }, []); // Remove dependencies to prevent infinite loops
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = async (attempt = 1) => {
     try {
       const tokens = authService.getTokens();
-      
+
       if (tokens && tokens.accessToken) {
         const user = await authService.getCurrentUser();
         dispatch({
@@ -66,9 +66,18 @@ export const AuthProvider = ({ children }) => {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
-      // Clear any corrupted tokens
-      authService.clearTokens();
+      const status = error?.status || error?.response?.status;
+      // Only a refusal of the session itself ends it. A network blip, or the
+      // 503 the API answers with for the few seconds after a restart while it
+      // reconnects to the database, used to wipe the tokens too, so every
+      // deploy signed everybody out. Those are retried a few times instead,
+      // and the tokens are kept so a reload later still works.
+      const sessionRefused = status === 401 || status === 403;
+      if (!sessionRefused && attempt < 3) {
+        setTimeout(() => checkAuthStatus(attempt + 1), attempt * 2000);
+        return;
+      }
+      if (sessionRefused) authService.clearTokens();
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
@@ -83,10 +92,12 @@ export const AuthProvider = ({ children }) => {
         payload: response
       });
       
-      toast.success('Login successful!');
+      toast.success('Signed in');
       return response;
     } catch (error) {
-      toast.error(error.message || 'Login failed');
+      // No toast here: the sign-in form shows the reason under its heading,
+      // and the API layer already toasts anything other than 401/403. Toasting
+      // again put the same sentence on screen two or three times.
       throw error;
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });

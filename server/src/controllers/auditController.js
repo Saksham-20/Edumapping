@@ -29,18 +29,64 @@ const ACTION_LABELS = {
   organization_approved: 'Approved a company',
   organization_rejected: 'Rejected a company',
   recruiter_approved: 'Approved a recruiter',
-  recruiter_rejected: 'Rejected a recruiter'
+  recruiter_rejected: 'Rejected a recruiter',
+  recruiter_profile_access: "Opened a student's profile",
+  recruiter_file_access: "Opened a student's document",
+  user_approved: 'Approved an account',
+  user_rejected: 'Rejected an account',
+  student_verification_verify: 'Verified a student record',
+  student_verification_reject: 'Sent a student record back',
+  student_verification_unlock: 'Unlocked a student record',
+  student_verification_bulk: 'Verified student records in bulk',
+  student_outcome_set: "Recorded a student's outcome",
+  students_bulk_imported: 'Imported students',
+  placement_policy_updated: 'Updated the placement policy',
+  announcement_sent: 'Sent an announcement',
+  round_created: 'Scheduled a selection round',
+  round_updated: 'Changed a selection round',
+  round_deleted: 'Deleted a selection round',
+  round_participants_added: 'Added students to a round',
+  round_results_recorded: 'Recorded round results'
+};
+
+// Every way a recruiter can be shown a student, and how to tell which student.
+// The TPO view and the student's own "who saw me" view used to read only the
+// first two, so a recruiter opening a full profile or a marksheet was recorded
+// and then shown to nobody.
+const ACCESS_ACTIONS = ['recruiter_candidate_access', 'recruiter_student_list_access', 'recruiter_profile_access', 'recruiter_file_access'];
+const disclosedStudentIds = (entry) => {
+  if (entry.action === 'recruiter_profile_access') return entry.entityId ? [Number(entry.entityId)] : [];
+  if (entry.action === 'recruiter_file_access') return entry.newValues?.ownerId ? [Number(entry.newValues.ownerId)] : [];
+  return Array.isArray(entry.newValues?.studentIds) ? entry.newValues.studentIds.map(Number) : [];
+};
+const ACCESS_DESCRIPTIONS = {
+  recruiter_candidate_access: 'Your profile appeared in a recruiter candidate search',
+  recruiter_student_list_access: 'Your profile appeared in a recruiter candidate search',
+  recruiter_profile_access: 'A recruiter opened your full profile',
+  recruiter_file_access: 'A recruiter opened one of your documents'
 };
 
 const describe = (action) =>
   ACTION_LABELS[action] || String(action).replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
-const shape = (row) => ({
+/**
+ * Names for the people a page of entries is about. "user #78" told a placement
+ * officer nothing; the name and roll number are what they recognise.
+ */
+const entityNames = async (rows) => {
+  const ids = [...new Set(rows.filter((r) => r.entityType === 'user' && r.entityId).map((r) => Number(r.entityId)))];
+  if (!ids.length) return new Map();
+  const users = await User.findAll({ where: { id: { [Op.in]: ids } }, attributes: ['id', 'firstName', 'lastName'] });
+  return new Map(users.map((u) => [u.id, [u.firstName, u.lastName === '-' ? '' : u.lastName].filter(Boolean).join(' ')]));
+};
+
+const shape = (row, names = new Map()) => ({
   id: row.id,
   action: row.action,
   description: describe(row.action),
   entityType: row.entityType,
   entityId: row.entityId,
+  entityName: row.entityType === 'user' ? names.get(Number(row.entityId)) || null : null,
   at: row.createdAt,
   by: row.user
     ? {
@@ -89,9 +135,10 @@ class AuditController {
           distinct: true
         });
 
+        const adminNames = await entityNames(rows);
         return res.json({
           message: 'Audit log retrieved successfully',
-          entries: rows.map(shape),
+          entries: rows.map((r) => shape(r, adminNames)),
           pagination: {
             currentPage: parseInt(page, 10),
             totalPages: Math.ceil(count / limitNum),
@@ -137,7 +184,7 @@ class AuditController {
         AuditLog.findAll({
           where: {
             ...where,
-            action: { [Op.in]: ['recruiter_candidate_access', 'recruiter_student_list_access'] }
+            action: action ? (ACCESS_ACTIONS.includes(action) ? action : '__none__') : { [Op.in]: ACCESS_ACTIONS }
           },
           include: [{ ...actor, required: false }],
           order: [['createdAt', 'DESC']],
@@ -149,17 +196,17 @@ class AuditController {
       const merged = [...ownStaffEntries];
       for (const entry of accessEntries) {
         if (seen.has(entry.id)) continue;
-        const disclosed = entry.newValues?.studentIds;
-        if (Array.isArray(disclosed) && disclosed.some((id) => studentIds.has(id))) {
+        if (disclosedStudentIds(entry).some((id) => studentIds.has(id))) {
           merged.push(entry);
         }
       }
       merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       const paged = merged.slice(offset, offset + limitNum);
+      const names = await entityNames(paged);
       res.json({
         message: 'Audit log retrieved successfully',
-        entries: paged.map(shape),
+        entries: paged.map((r) => shape(r, names)),
         pagination: {
           currentPage: parseInt(page, 10),
           totalPages: Math.ceil(merged.length / limitNum),
@@ -194,7 +241,7 @@ class AuditController {
 
       const rows = await AuditLog.findAll({
         where: {
-          action: { [Op.in]: ['recruiter_candidate_access', 'recruiter_student_list_access'] },
+          action: { [Op.in]: ACCESS_ACTIONS },
           createdAt: { [Op.gte]: since }
         },
         include: [
@@ -210,10 +257,7 @@ class AuditController {
       });
 
       const mine = rows
-        .filter((row) => {
-          const ids = row.newValues?.studentIds;
-          return Array.isArray(ids) && ids.includes(req.user.id);
-        })
+        .filter((row) => disclosedStudentIds(row).includes(req.user.id))
         .slice(0, limitNum)
         .map((row) => ({
           id: row.id,
@@ -222,7 +266,7 @@ class AuditController {
           // is owed a truthful record of which organisations saw them, and
           // naming a specific employee invites retaliation in both directions.
           organization: row.user?.organization?.name || 'A recruiter',
-          description: 'Your profile appeared in a recruiter candidate search'
+          description: ACCESS_DESCRIPTIONS[row.action] || 'A recruiter saw your profile'
         }));
 
       res.json({

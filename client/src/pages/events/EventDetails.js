@@ -12,6 +12,9 @@ import {
   Card,
   DetailRow,
   Divider,
+  EmptyState,
+  ErrorState,
+  Modal,
   PageHeader,
   PageShell,
   PageLoader,
@@ -23,7 +26,8 @@ import {
   PencilSquareIcon,
   ShareIcon,
   LinkIcon,
-  CheckIcon
+  CheckIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
 
 /** Event type → badge tone. Mirrors the table on the events list. */
@@ -40,16 +44,16 @@ const formatEventTime = (startTime, endTime) => {
   if (!startTime || !endTime) return { dateStr: '', timeStr: '' };
   const start = new Date(startTime);
   const end = new Date(endTime);
-  const dateStr = start.toLocaleDateString('en-US', {
+  const dateStr = start.toLocaleDateString('en-IN', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric'
   });
-  const timeStr = `${start.toLocaleTimeString('en-US', {
-    hour: '2-digit',
+  const timeStr = `${start.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
     minute: '2-digit'
-  })} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+  })} – ${end.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
   return { dateStr, timeStr };
 };
 
@@ -61,20 +65,28 @@ const EventDetails = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistered, setIsRegistered] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  // 'missing' (404) or 'failed' (network/server). The page used to toast
+  // "Event not found" and bounce to the list for both, so a dropped
+  // connection on a phone read as a deleted event.
+  const [loadError, setLoadError] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  const fetchEvent = useCallback(async () => {
+  const fetchEvent = useCallback(async ({ quiet = false } = {}) => {
     try {
-      setIsLoading(true);
+      // A refresh after registering keeps the page on screen instead of
+      // flashing the loader.
+      if (!quiet) setIsLoading(true);
+      setLoadError(null);
       const response = await api.get(`/events/${id}`, { silent: true });
       setEvent(response.event || null);
       setIsRegistered(Boolean(response.event?.userRegistration));
     } catch (error) {
-      toast.error('Event not found');
-      navigate('/events');
+      setLoadError(error?.status === 404 ? 'missing' : 'failed');
     } finally {
       setIsLoading(false);
     }
-  }, [id, navigate]);
+  }, [id]);
 
   useEffect(() => {
     if (id) fetchEvent();
@@ -83,20 +95,23 @@ const EventDetails = () => {
   const isEventFull = () =>
     Boolean(event?.maxParticipants && (event.registrationCount || 0) >= event.maxParticipants);
 
+  // Same rule as the server: published events only, until the deadline or
+  // (without one) the start.
   const isRegistrationOpen = () => {
     if (!event) return false;
+    if (event.status && event.status !== 'scheduled') return false;
     if (event.registrationDeadline) return new Date() <= new Date(event.registrationDeadline);
     return new Date() < new Date(event.startTime);
   };
-
-  const canEdit =
-    user && user.role !== 'student' && event?.organizationId === (user.organizationId || event?.organizationId);
 
   // Who runs this event and may take its register: an admin, or non-student
   // staff of the organizing organization (TPO, school staff, the recruiter
   // whose company is hosting). Mirrors the server's own check on
   // /events/:id/registrations — which, unlike `canEdit` above, does not let
   // an admin-less account with no organization through.
+  // Editing and deleting follow the same rule. The old `canEdit` let any
+  // non-student without an organization through and showed them a button the
+  // server then refused.
   const canManageAttendance = Boolean(
     user &&
       event &&
@@ -104,8 +119,25 @@ const EventDetails = () => {
         (user.role !== 'student' && user.organizationId && event.organizationId === user.organizationId))
   );
 
+  const canEdit = canManageAttendance;
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await api.delete(`/events/${event.id}`, { silent: true });
+      toast.success('Event deleted');
+      navigate('/events');
+    } catch (error) {
+      // 409 carries the useful instruction (cancel instead of delete).
+      toast.error(error?.message || 'Could not delete the event. Try again.');
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleRegister = async (register = true) => {
-    if (!event?.id) return;
+    if (!event?.id || actionLoading) return;
     try {
       setActionLoading(true);
       if (register) {
@@ -119,9 +151,13 @@ const EventDetails = () => {
         setIsRegistered(false);
         toast.success('Registration cancelled');
       }
-      fetchEvent();
+      fetchEvent({ quiet: true });
     } catch (error) {
-      toast.error(error?.message || (register ? 'Failed to register' : 'Failed to cancel registration'));
+      toast.error(
+        error?.message ||
+          (register ? 'Could not register. Try again.' : 'Could not cancel your registration. Try again.')
+      );
+      fetchEvent({ quiet: true });
     } finally {
       setActionLoading(false);
     }
@@ -145,6 +181,34 @@ const EventDetails = () => {
     if (!ok) toast.error('Invalid meeting link');
   };
 
+  if (!isLoading && loadError === 'missing') {
+    return (
+      <PageShell width="narrow">
+        <EmptyState
+          title="Event not found"
+          description="It may have been deleted, or it belongs to an institution you are not part of."
+          action={
+            <Button variant="secondary" onClick={() => navigate('/events')}>
+              See all events
+            </Button>
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  if (!isLoading && loadError === 'failed') {
+    return (
+      <PageShell width="narrow">
+        <ErrorState
+          title="Could not load this event"
+          description="Check your internet connection and try again."
+          onRetry={() => fetchEvent()}
+        />
+      </PageShell>
+    );
+  }
+
   if (isLoading || !event) {
     return (
       <PageShell width="narrow">
@@ -157,6 +221,19 @@ const EventDetails = () => {
   const full = isEventFull();
   const registrationOpen = isRegistrationOpen();
   const canRegister = user?.role === 'student' && registrationOpen && !full;
+  const ended = Boolean(event.endTime) && new Date(event.endTime) < new Date();
+  const cancelled = event.status === 'cancelled';
+  // Why a student cannot register, in words, instead of a missing button.
+  const closedReason =
+    user?.role === 'student' && !isRegistered && !canRegister
+      ? cancelled
+        ? 'This event has been cancelled.'
+        : ended
+        ? 'This event is over.'
+        : full && registrationOpen
+        ? 'This event is full. All seats have been taken.'
+        : 'Registration for this event has closed.'
+      : null;
   const isGlobal = (event.organization?.name || '').toLowerCase() === 'edumapping';
 
   return (
@@ -170,13 +247,18 @@ const EventDetails = () => {
         title={event.title}
         actions={
           canEdit && (
-            <Button
-              variant="secondary"
-              icon={PencilSquareIcon}
-              onClick={() => navigate(`/events/${event.id}/edit`)}
-            >
-              Edit event
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                icon={PencilSquareIcon}
+                onClick={() => navigate(`/events/${event.id}/edit`)}
+              >
+                Edit event
+              </Button>
+              <Button variant="secondary" icon={TrashIcon} onClick={() => setConfirmDelete(true)}>
+                Delete
+              </Button>
+            </>
           )
         }
       />
@@ -220,8 +302,14 @@ const EventDetails = () => {
             </span>
           </DetailRow>
           {event.registrationDeadline && (
-            <DetailRow label="Closes">
-              {new Date(event.registrationDeadline).toLocaleDateString()}
+            <DetailRow label="Registration closes">
+              {new Date(event.registrationDeadline).toLocaleString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit'
+              })}
             </DetailRow>
           )}
           {event.contactEmail && (
@@ -246,6 +334,8 @@ const EventDetails = () => {
           </>
         )}
 
+        {closedReason && <p className="mt-6 text-sm font-medium text-ink-700">{closedReason}</p>}
+
         <div className="mt-6 flex flex-wrap gap-2 border-t border-ink-950/10 pt-5">
           {canRegister && (
             <Button
@@ -261,7 +351,7 @@ const EventDetails = () => {
               Cancel registration
             </Button>
           )}
-          {event.virtualLink && (
+          {event.virtualLink && !ended && !cancelled && (
             <Button variant="saffron" icon={LinkIcon} onClick={handleJoinMeeting}>
               Join meeting
             </Button>
@@ -273,6 +363,32 @@ const EventDetails = () => {
       </Card>
 
       {canManageAttendance && <AttendeesPanel event={event} />}
+
+      <Modal
+        open={confirmDelete}
+        onClose={() => !deleting && setConfirmDelete(false)}
+        title="Delete this event?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+              Keep event
+            </Button>
+            {event.registrationCount ? (
+              <Button onClick={() => navigate(`/events/${event.id}/edit`)}>Edit and cancel instead</Button>
+            ) : (
+              <Button variant="danger" loading={deleting} onClick={handleDelete}>
+                Delete event
+              </Button>
+            )}
+          </>
+        }
+      >
+        <p className="text-sm leading-relaxed text-ink-700">
+          {event.registrationCount
+            ? `${event.registrationCount} ${event.registrationCount === 1 ? 'person has' : 'people have'} registered. You cannot delete an event people signed up for. Edit it and set the status to Cancelled instead, so they can see it is not happening.`
+            : 'It will be removed for everyone. This cannot be undone.'}
+        </p>
+      </Modal>
     </PageShell>
   );
 };

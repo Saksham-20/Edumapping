@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import api from '../../services/api';
+import api, { fieldErrorsFrom } from '../../services/api';
 import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
 import { calculateProfileCompletion } from '../../utils/helpers';
@@ -86,6 +86,101 @@ const LOCKED_ACADEMIC_FIELDS = [
   'percentage'
 ];
 
+/** Plain labels for profile fields, for error messages and the locked list. */
+const FIELD_LABELS = {
+  firstName: 'First name',
+  lastName: 'Last name',
+  phone: 'Phone',
+  studentId: 'Roll number',
+  dateOfBirth: 'Date of birth',
+  course: 'Course',
+  branch: 'Branch',
+  yearOfStudy: 'Year of study',
+  graduationYear: 'Graduation year',
+  cgpa: 'CGPA',
+  activeBacklogs: 'Active backlogs',
+  totalBacklogs: 'Total backlogs',
+  class10Percentage: 'Class X %',
+  class12Percentage: 'Class XII %',
+  diplomaPercentage: 'Diploma %',
+  educationGapYears: 'Gap in education',
+  percentage: 'Percentage',
+  linkedinUrl: 'LinkedIn URL',
+  githubUrl: 'GitHub URL',
+  portfolioUrl: 'Portfolio URL'
+};
+
+const PERSONAL_FIELDS = ['firstName', 'lastName', 'phone', 'dateOfBirth', 'gender', 'address', 'bio', 'linkedinUrl', 'githubUrl', 'portfolioUrl'];
+
+/** "8,5" is how a comma-decimal keyboard types 8.5. */
+const toNumber = (value) => Number(String(value).trim().replace(',', '.'));
+
+/** Add https:// to a bare "linkedin.com/in/…" so the saved link actually opens. */
+const normaliseUrl = (value) => {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+};
+
+/**
+ * Check the form before it is sent, field by field, in words a student can
+ * act on. The server's own answers were "Invalid value" and "cgpa is not
+ * valid", and some bad input was accepted silently — "8,5" saved as a CGPA
+ * of 8, and an impossible graduation year went through.
+ */
+const validateProfile = (data, isStudent) => {
+  const errors = {};
+  if (!String(data.firstName || '').trim()) errors.firstName = 'Enter your first name.';
+  if (!String(data.lastName || '').trim()) errors.lastName = 'Enter your last name.';
+  const phone = String(data.phone || '').trim();
+  if (phone) {
+    const digits = phone.replace(/[\s()-]/g, '');
+    if (!/^\+?\d{10,15}$/.test(digits) && !/^0\d{10}$/.test(digits)) {
+      errors.phone = 'Enter a 10-digit mobile number, like 98765 43210 or +91 98765 43210.';
+    }
+  }
+  if (!isStudent) return errors;
+
+  const number = (field, { min, max, integer, message }) => {
+    const raw = data[field];
+    if (raw === '' || raw === null || raw === undefined) return;
+    const n = toNumber(raw);
+    if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
+      errors[field] = message;
+    }
+  };
+  number('cgpa', { min: 0, max: 10, message: 'Enter your CGPA out of 10, like 8.5.' });
+  number('class10Percentage', { min: 0, max: 100, message: 'Enter a percentage between 0 and 100, like 86.4.' });
+  number('class12Percentage', { min: 0, max: 100, message: 'Enter a percentage between 0 and 100, like 78.2.' });
+  number('diplomaPercentage', { min: 0, max: 100, message: 'Enter a percentage between 0 and 100.' });
+  number('activeBacklogs', { min: 0, max: 100, integer: true, message: 'Enter a whole number, 0 if you have none.' });
+  number('educationGapYears', { min: 0, max: 20, integer: true, message: 'Enter the gap in whole years, 0 if none.' });
+  const thisYear = new Date().getFullYear();
+  number('graduationYear', {
+    min: thisYear - 10,
+    max: thisYear + 6,
+    integer: true,
+    message: `Enter the year you finish your course, between ${thisYear - 10} and ${thisYear + 6}.`
+  });
+  if (data.dateOfBirth) {
+    const dob = new Date(data.dateOfBirth);
+    if (Number.isNaN(dob.getTime()) || dob > new Date() || dob.getFullYear() < 1950) {
+      errors.dateOfBirth = 'Pick your date of birth from the calendar.';
+    }
+  }
+  ['linkedinUrl', 'githubUrl', 'portfolioUrl'].forEach((field) => {
+    const v = normaliseUrl(data[field]);
+    if (!v) return;
+    try {
+      const host = new URL(v).hostname;
+      if (!host.includes('.')) throw new Error('no host');
+    } catch {
+      errors[field] = 'Enter a web address, like linkedin.com/in/your-name.';
+    }
+  });
+  return errors;
+};
+
 /** True for a resume stored on our own server rather than an external link. */
 const isStoredFile = (url) => typeof url === 'string' && (url.includes('/uploads/') || !/^https?:\/\//i.test(url));
 
@@ -103,7 +198,12 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState('personal');
   // Fields the server refused with 423 Locked on the last save.
   const [lockedFieldsHit, setLockedFieldsHit] = useState([]);
-  const isViewingOtherUser = id && id !== user?.id; // Check if viewing another user's profile
+  // Per-field messages from the last save attempt (client check or server).
+  const [errors, setErrors] = useState({});
+  const [deletingAchievement, setDeletingAchievement] = useState(null);
+  // The route param is a string and `user.id` a number; compared strictly,
+  // a student opening their own /users/:id link counted as "someone else".
+  const isViewingOtherUser = Boolean(id) && String(id) !== String(user?.id);
   const [formData, setFormData] = useState({
     // Personal Info
     firstName: '',
@@ -195,6 +295,15 @@ const Profile = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    // Clear a field's message as soon as it is being fixed.
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: undefined }));
+  };
+
+  /** Open the tab holding the first field that needs fixing. */
+  const showFirstError = (fieldErrors) => {
+    const first = Object.keys(fieldErrors).find((k) => fieldErrors[k]);
+    if (!first) return;
+    setActiveTab(PERSONAL_FIELDS.includes(first) ? 'personal' : 'academic');
   };
 
   const handleAddSkill = () => {
@@ -213,6 +322,15 @@ const Profile = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
+    const clientErrors = validateProfile(formData, user.role === 'student');
+    if (Object.keys(clientErrors).length > 0) {
+      setErrors(clientErrors);
+      showFirstError(clientErrors);
+      toast.error('Some details need fixing. Check the highlighted fields.');
+      return;
+    }
+    setErrors({});
     try {
       setIsSaving(true);
       const { firstName, lastName, phone, ...profileData } = formData;
@@ -230,7 +348,21 @@ const Profile = () => {
           // holds "8.5" where the database holds "8.50", and resending it
           // could be read as an edit.
           if (academicLocked && LOCKED_ACADEMIC_FIELDS.includes(key)) continue;
-          updateData[key] = value === '' ? null : value;
+          if (value === '' || value === null) {
+            updateData[key] = null;
+          } else if (['linkedinUrl', 'githubUrl', 'portfolioUrl'].includes(key)) {
+            updateData[key] = normaliseUrl(value);
+          } else if (
+            ['cgpa', 'class10Percentage', 'class12Percentage', 'diplomaPercentage'].includes(key)
+          ) {
+            updateData[key] = toNumber(value);
+          } else if (key === 'studentId') {
+            // Roll numbers are compared case-insensitively by the cell's
+            // shortlist paste; stored as typed, minus stray spaces.
+            updateData[key] = String(value).trim();
+          } else {
+            updateData[key] = value;
+          }
         }
       }
 
@@ -249,7 +381,26 @@ const Profile = () => {
         setLockedFieldsHit(error.data?.lockedFields || []);
         setActiveTab('academic');
       }
-      // Every other failure was already toasted by the api interceptor.
+      // A validation answer: put each message under its own field. The
+      // server's wording is often just "Invalid value", so fall back to
+      // naming the field.
+      const serverErrors = fieldErrorsFrom(error);
+      (error.data?.details || []).forEach((d) => {
+        const field = d?.field || d?.path;
+        if (field && !serverErrors[field]) {
+          serverErrors[field] = `Check your ${(FIELD_LABELS[field] || field).toLowerCase()}.`;
+        }
+      });
+      Object.keys(serverErrors).forEach((field) => {
+        if (/is not valid$|^Invalid value$/.test(serverErrors[field])) {
+          serverErrors[field] = `Check your ${(FIELD_LABELS[field] || field).toLowerCase()}.`;
+        }
+      });
+      if (Object.keys(serverErrors).length) {
+        setErrors(serverErrors);
+        showFirstError(serverErrors);
+      }
+      // The api interceptor has already toasted the overall message.
     } finally {
       setIsSaving(false);
     }
@@ -280,8 +431,8 @@ const Profile = () => {
       setProfile((prev) => ({ ...prev, profilePicture: picture }));
       updateUser({ ...user, profilePicture: picture });
     } catch (error) {
+      // The api interceptor has already shown why (too large, wrong type).
       toast.dismiss(loadingToast);
-      toast.error('Failed to upload profile picture');
     }
   };
 
@@ -337,30 +488,25 @@ const Profile = () => {
       setShowAchievementModal(false);
       toast.success('Achievement added successfully');
     } catch (error) {
-      // The axios interceptor rejects with `{ message, status, data }`.
-      const details = error?.data?.details;
-      if (details) {
-        const errorMessages = details
-          .map((detail) => `${detail.path || detail.param}: ${detail.msg}`)
-          .join(', ');
-        toast.error(`Validation error: ${errorMessages}`);
-      } else if (error?.message) {
-        toast.error(error.message);
-      } else {
-        toast.error('Failed to add achievement');
-      }
+      // The api interceptor has already shown the server's reason; this used
+      // to add a second toast reading "Validation error: undefined: undefined"
+      // because the details are `{ field, message }`, not `{ path, msg }`.
     } finally {
       setAddingAchievement(false);
     }
   };
 
-  const handleDeleteAchievement = async (achievementId) => {
+  const handleDeleteAchievement = async () => {
+    const achievementId = deletingAchievement?.id;
+    if (!achievementId) return;
     try {
       await api.delete(`/achievements/${achievementId}`);
       setAchievements((prev) => prev.filter((a) => a.id !== achievementId));
-      toast.success('Achievement deleted successfully');
+      toast.success('Achievement deleted');
     } catch (error) {
-      toast.error('Failed to delete achievement');
+      // Toasted by the api interceptor.
+    } finally {
+      setDeletingAchievement(null);
     }
   };
 
@@ -391,12 +537,12 @@ const Profile = () => {
   useEffect(() => {
     // Fetched only when the tab is opened: most visits never ask this, and it
     // reads a broad slice of the audit table.
-    if (activeTab !== 'privacy' || dataAccess) return;
+    if (activeTab !== 'privacy' || dataAccess || isViewingOtherUser) return;
     api
       .get('/audit/my-data', { silent: true })
       .then((res) => setDataAccess(res.entries || []))
       .catch(() => setDataAccess([]));
-  }, [activeTab, dataAccess]);
+  }, [activeTab, dataAccess, isViewingOtherUser]);
 
 
   const tabs = useMemo(
@@ -407,11 +553,15 @@ const Profile = () => {
             { value: 'academic', label: 'Academic', icon: AcademicCapIcon },
             { value: 'achievements', label: 'Achievements', icon: TrophyIcon, count: achievements.length },
             { value: 'resume', label: 'Resume', icon: DocumentTextIcon },
-            { value: 'privacy', label: 'Who saw my profile', icon: ShieldCheckIcon }
+            // The student's own access log. Staff viewing a student got this
+            // tab too, labelled "my profile", showing their own audit data.
+            ...(isViewingOtherUser
+              ? []
+              : [{ value: 'privacy', label: 'Who saw my profile', icon: ShieldCheckIcon }])
           ]
         : [])
     ],
-    [isStudentProfile, achievements.length]
+    [isStudentProfile, isViewingOtherUser, achievements.length]
   );
 
   if (isLoading) {
@@ -444,7 +594,10 @@ const Profile = () => {
             <Button
               variant={isEditing ? 'secondary' : 'primary'}
               icon={isEditing ? XMarkIcon : PencilIcon}
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                setIsEditing(!isEditing);
+                setErrors({});
+              }}
             >
               {isEditing ? 'Cancel editing' : 'Edit profile'}
             </Button>
@@ -521,19 +674,24 @@ const Profile = () => {
       <Tabs className="mb-6 w-fit max-w-full" tabs={tabs} value={activeTab} onChange={setActiveTab} />
 
       {isEditing && !isViewingOtherUser ? (
-        <form onSubmit={handleSubmit}>
+        // noValidate: the browser's own bubble ("Value must be less than
+        // or equal to 10") only fires for the tab on screen and says nothing
+        // a student can act on; validateProfile checks every tab in words.
+        <form onSubmit={handleSubmit} noValidate>
           {activeTab === 'personal' && (
             <Card className="space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
                 <Input
                   label="First name"
                   name="firstName"
+                  error={errors.firstName}
                   value={formData.firstName}
                   onChange={handleInputChange}
                 />
                 <Input
                   label="Last name"
                   name="lastName"
+                  error={errors.lastName}
                   value={formData.lastName}
                   onChange={handleInputChange}
                 />
@@ -542,6 +700,7 @@ const Profile = () => {
                 label="Email"
                 type="email"
                 name="email"
+                error={errors.email}
                 value={formData.email}
                 disabled
                 help="Your sign-in email cannot be changed here."
@@ -550,6 +709,10 @@ const Profile = () => {
                 label="Phone"
                 type="tel"
                 name="phone"
+                error={errors.phone}
+                inputMode="tel"
+                placeholder="98765 43210"
+                help="Your 10-digit mobile number. Recruiters and your placement cell use it to reach you."
                 value={formData.phone}
                 onChange={handleInputChange}
               />
@@ -561,12 +724,14 @@ const Profile = () => {
                       label="Date of birth"
                       type="date"
                       name="dateOfBirth"
+                      error={errors.dateOfBirth}
                       value={formData.dateOfBirth}
                       onChange={handleInputChange}
                     />
                     <Select
                       label="Gender"
                       name="gender"
+                      error={errors.gender}
                       value={formData.gender}
                       onChange={handleInputChange}
                       options={[
@@ -581,6 +746,7 @@ const Profile = () => {
                     label="Address"
                     rows={3}
                     name="address"
+                    error={errors.address}
                     value={formData.address}
                     onChange={handleInputChange}
                   />
@@ -588,6 +754,7 @@ const Profile = () => {
                     label="Bio"
                     rows={4}
                     name="bio"
+                    error={errors.bio}
                     value={formData.bio}
                     onChange={handleInputChange}
                     placeholder="Tell us about yourself…"
@@ -598,6 +765,7 @@ const Profile = () => {
                     label="LinkedIn URL"
                     type="url"
                     name="linkedinUrl"
+                    error={errors.linkedinUrl}
                     value={formData.linkedinUrl}
                     onChange={handleInputChange}
                     placeholder="https://linkedin.com/in/yourprofile"
@@ -606,6 +774,7 @@ const Profile = () => {
                     label="GitHub URL"
                     type="url"
                     name="githubUrl"
+                    error={errors.githubUrl}
                     value={formData.githubUrl}
                     onChange={handleInputChange}
                     placeholder="https://github.com/yourusername"
@@ -614,6 +783,7 @@ const Profile = () => {
                     label="Portfolio URL"
                     type="url"
                     name="portfolioUrl"
+                    error={errors.portfolioUrl}
                     value={formData.portfolioUrl}
                     onChange={handleInputChange}
                     placeholder="https://yourportfolio.com"
@@ -636,12 +806,17 @@ const Profile = () => {
               )}
               {lockedFieldsHit.length > 0 && (
                 <p role="alert" className="rounded-xl border border-saffron-600/40 bg-saffron-50 px-4 py-3 text-sm text-ink-800">
-                  These fields are locked and were not saved: {lockedFieldsHit.join(', ')}.
+                  Nothing was saved, because these are locked after verification:{' '}
+                  {lockedFieldsHit.map((f) => FIELD_LABELS[f] || f).join(', ')}. Change them back, or
+                  ask your placement cell to unlock your profile.
                 </p>
               )}
               <Input
-                label="Student ID"
+                label="Roll number"
                 name="studentId"
+                placeholder="e.g. 22CSE031"
+                help="As printed on your college ID card. Companies shortlist by it."
+                error={errors.studentId}
                 disabled={academicLocked}
                 value={formData.studentId}
                 onChange={handleInputChange}
@@ -650,6 +825,7 @@ const Profile = () => {
                 <Input
                   label="Course"
                   name="course"
+                  error={errors.course}
                   disabled={academicLocked}
                   value={formData.course}
                   onChange={handleInputChange}
@@ -658,6 +834,7 @@ const Profile = () => {
                 <Input
                   label="Branch / specialization"
                   name="branch"
+                  error={errors.branch}
                   disabled={academicLocked}
                   value={formData.branch}
                   onChange={handleInputChange}
@@ -668,6 +845,7 @@ const Profile = () => {
                 <Select
                   label="Year of study"
                   name="yearOfStudy"
+                  error={errors.yearOfStudy}
                   disabled={academicLocked}
                   value={formData.yearOfStudy}
                   onChange={handleInputChange}
@@ -679,6 +857,7 @@ const Profile = () => {
                   min="2020"
                   max="2030"
                   name="graduationYear"
+                  error={errors.graduationYear}
                   disabled={academicLocked}
                   value={formData.graduationYear}
                   onChange={handleInputChange}
@@ -686,10 +865,13 @@ const Profile = () => {
                 <Input
                   label="CGPA"
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   min="0"
                   max="10"
+                  placeholder="e.g. 8.5"
                   name="cgpa"
+                  error={errors.cgpa}
                   disabled={academicLocked}
                   value={formData.cgpa}
                   onChange={handleInputChange}
@@ -701,6 +883,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="activeBacklogs"
+                  error={errors.activeBacklogs}
                   disabled={academicLocked}
                   value={formData.activeBacklogs}
                   onChange={handleInputChange}
@@ -712,6 +895,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="class10Percentage"
+                  error={errors.class10Percentage}
                   disabled={academicLocked}
                   value={formData.class10Percentage}
                   onChange={handleInputChange}
@@ -723,6 +907,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="class12Percentage"
+                  error={errors.class12Percentage}
                   disabled={academicLocked}
                   value={formData.class12Percentage}
                   onChange={handleInputChange}
@@ -734,6 +919,7 @@ const Profile = () => {
                   min="0"
                   max="100"
                   name="diplomaPercentage"
+                  error={errors.diplomaPercentage}
                   disabled={academicLocked}
                   value={formData.diplomaPercentage}
                   onChange={handleInputChange}
@@ -745,6 +931,7 @@ const Profile = () => {
                   min="0"
                   max="20"
                   name="educationGapYears"
+                  error={errors.educationGapYears}
                   disabled={academicLocked}
                   value={formData.educationGapYears}
                   onChange={handleInputChange}
@@ -804,7 +991,14 @@ const Profile = () => {
           )}
 
           <div className="mt-6 flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setIsEditing(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setIsEditing(false);
+                setErrors({});
+              }}
+            >
               Cancel
             </Button>
             <Button type="submit" loading={isSaving}>
@@ -879,23 +1073,46 @@ const Profile = () => {
           {activeTab === 'academic' && isStudentProfile && (
             <Card>
               <dl>
-                <DetailRow label="Student ID">
+                <DetailRow label="Roll number">
                   {studentProfile?.studentId || 'Not provided'}
                 </DetailRow>
                 <DetailRow label="Course">{studentProfile?.course || 'Not provided'}</DetailRow>
                 <DetailRow label="Branch">{studentProfile?.branch || 'Not provided'}</DetailRow>
                 <DetailRow label="Year of study">
                   {studentProfile?.yearOfStudy
-                    ? `${studentProfile.yearOfStudy} Year`
+                    ? YEAR_OPTIONS.find((o) => o.value === String(studentProfile.yearOfStudy))?.label ||
+                      `Year ${studentProfile.yearOfStudy}`
                     : 'Not provided'}
                 </DetailRow>
                 <DetailRow label="Graduation year">
                   {studentProfile?.graduationYear || 'Not provided'}
                 </DetailRow>
                 <DetailRow label="CGPA">{studentProfile?.cgpa || 'Not provided'}</DetailRow>
-                <DetailRow label="Percentage">
-                  {studentProfile?.percentage ? `${studentProfile.percentage}%` : 'Not provided'}
+                {/* The fields companies screen on. They are what the placement
+                    cell verifies and locks, so the student has to be able to
+                    see them without opening the edit form. */}
+                <DetailRow label="Active backlogs">
+                  {studentProfile?.activeBacklogs ?? 'Not provided'}
                 </DetailRow>
+                <DetailRow label="Class X">
+                  {studentProfile?.class10Percentage != null ? `${Number(studentProfile.class10Percentage)}%` : 'Not provided'}
+                </DetailRow>
+                <DetailRow label="Class XII">
+                  {studentProfile?.class12Percentage != null ? `${Number(studentProfile.class12Percentage)}%` : 'Not provided'}
+                </DetailRow>
+                {studentProfile?.diplomaPercentage != null && (
+                  <DetailRow label="Diploma">{`${Number(studentProfile.diplomaPercentage)}%`}</DetailRow>
+                )}
+                <DetailRow label="Gap in education">
+                  {studentProfile?.educationGapYears != null
+                    ? studentProfile.educationGapYears === 0
+                      ? 'None'
+                      : `${studentProfile.educationGapYears} year${studentProfile.educationGapYears === 1 ? '' : 's'}`
+                    : 'Not provided'}
+                </DetailRow>
+                {studentProfile?.percentage && (
+                  <DetailRow label="Percentage">{`${studentProfile.percentage}%`}</DetailRow>
+                )}
                 <DetailRow label="Skills">
                   {studentProfile?.skills?.length > 0 ? (
                     <ul className="flex flex-wrap gap-2">
@@ -979,7 +1196,7 @@ const Profile = () => {
                               variant="danger"
                               size="sm"
                               label={`Delete ${achievement.title}`}
-                              onClick={() => handleDeleteAchievement(achievement.id)}
+                              onClick={() => setDeletingAchievement(achievement)}
                             />
                           )}
                         </div>
@@ -1012,7 +1229,7 @@ const Profile = () => {
             </>
           )}
 
-          {activeTab === 'privacy' && isStudentProfile && (
+          {activeTab === 'privacy' && isStudentProfile && !isViewingOtherUser && (
             <Card>
               <CardHeader
                 title="Who has seen your profile"
@@ -1127,6 +1344,28 @@ const Profile = () => {
           )}
         </>
       )}
+
+      <Modal
+        open={Boolean(deletingAchievement)}
+        onClose={() => setDeletingAchievement(null)}
+        size="sm"
+        title="Delete this achievement?"
+        description={deletingAchievement?.title}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeletingAchievement(null)}>
+              Keep it
+            </Button>
+            <Button variant="danger" onClick={handleDeleteAchievement}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-700">
+          It disappears from your profile. Regenerate your resume afterwards if it was on it.
+        </p>
+      </Modal>
 
       <Modal
         open={showAchievementModal}

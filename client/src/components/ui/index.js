@@ -785,7 +785,8 @@ export const Table = ({ children, className = '' }) => (
     role="region"
     aria-label="Data table"
     className={cx(
-      'overflow-x-auto rounded-[14px] border border-ink-950/[0.13] bg-[#FFFDF8]',
+      // relative: contains the sr-only header cells, which otherwise widen the page on phones.
+      'relative overflow-x-auto rounded-[14px] border border-ink-950/[0.13] bg-[#FFFDF8]',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600',
       className
     )}
@@ -909,6 +910,12 @@ export const Modal = ({ open, onClose, title, description, children, footer, siz
   const panelRef = useRef(null);
   const restoreRef = useRef(null);
   const titleId = useId();
+  // The latest onClose, read through a ref. Callers pass an inline arrow, a
+  // new function every render; with it in the effect's dependencies the
+  // effect re-ran on every keystroke, pulled focus back to the first button
+  // and dropped what was being typed (a space then "pressed" Close).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -918,7 +925,7 @@ export const Modal = ({ open, onClose, title, description, children, footer, siz
 
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current?.();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -950,7 +957,7 @@ export const Modal = ({ open, onClose, title, description, children, footer, siz
       clearTimeout(t);
       if (restoreRef.current instanceof HTMLElement) restoreRef.current.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

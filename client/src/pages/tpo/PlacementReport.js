@@ -12,6 +12,7 @@ import {
   Card,
   CardHeader,
   EmptyState,
+  ErrorState,
   PageHeader,
   PageShell,
   Select,
@@ -43,6 +44,10 @@ const PlacementReport = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  // A failed load used to fall through to "No students in this batch", which
+  // reads as a fact about the batch rather than a problem to retry.
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -59,12 +64,16 @@ const PlacementReport = () => {
   useEffect(() => {
     if (isAdmin && !orgId) return;
     setLoading(true);
+    setLoadError('');
     placementService
       .getReport({ graduationYear: year || undefined, organizationId: isAdmin ? orgId : undefined })
       .then((res) => setReport(res.report))
-      .catch(() => setReport(null))
+      .catch((err) => {
+        setReport(null);
+        setLoadError(err?.message || 'Could not load the report.');
+      })
       .finally(() => setLoading(false));
-  }, [year, orgId, isAdmin]);
+  }, [year, orgId, isAdmin, attempt]);
 
   const download = async () => {
     setDownloading(true);
@@ -117,6 +126,8 @@ const PlacementReport = () => {
             <SkeletonCard key={i} />
           ))}
         </div>
+      ) : loadError ? (
+        <ErrorState title="Could not load the report" description={loadError} onRetry={() => setAttempt((n) => n + 1)} />
       ) : !s || s.students === 0 ? (
         <EmptyState
           icon={DocumentChartBarIcon}

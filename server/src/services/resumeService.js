@@ -2,12 +2,46 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs').promises;
 const path = require('path');
-const { User, StudentProfile, Achievement, File } = require('../models');
+const { User, StudentProfile, Achievement, File, Organization, Application } = require('../models');
 const fileService = require('./fileService');
 const logger = require('../utils/logger');
 const { httpError } = require('../utils/appError');
 
 class ResumeService {
+  /**
+   * Retire the student's previous resume before a new one is stored.
+   *
+   * Each application keeps the resume URL it was submitted with. Deleting
+   * the old file outright on every regenerate or upload broke the resume
+   * link on every application the student had already sent — the recruiter
+   * opened it and got "file not found". A file an application still points
+   * at is kept; only one nothing refers to is removed.
+   */
+  async retireOldResume(userId, currentResumeUrl) {
+    try {
+      const oldFileRecord = await File.findOne({
+        where: { userId, fileType: 'resume' },
+        order: [['createdAt', 'DESC']]
+      });
+      if (!oldFileRecord) return;
+
+      const inUse = currentResumeUrl
+        ? await Application.count({ where: { studentId: userId, resumeUrl: currentResumeUrl } })
+        : 0;
+      if (inUse > 0) {
+        logger.info('Keeping previous resume: applications still use it', { userId, applications: inUse });
+        return;
+      }
+
+      await fileService.deleteFile(oldFileRecord.filePath);
+      await oldFileRecord.destroy();
+      logger.info('Deleted old resume', { userId });
+    } catch (error) {
+      // Never block a new resume on cleaning up the old one.
+      logger.warn('Error deleting old resume', { userId, error: error.message });
+    }
+  }
+
   async generateResumeFromProfile(userId) {
     // Get user data with all related information
     const user = await User.findByPk(userId, {
@@ -20,7 +54,8 @@ class ResumeService {
           model: Achievement,
           as: 'achievements',
           order: [['issueDate', 'DESC']]
-        }
+        },
+        { model: Organization, as: 'organization', attributes: ['id', 'name'] }
       ]
     });
 
@@ -34,30 +69,7 @@ class ResumeService {
       throw httpError(400, 'Complete your profile first, then generate your resume');
     }
 
-    // Delete old resume if exists
-    if (user.studentProfile.resumeUrl) {
-      try {
-        // Find and delete old file record
-        const oldFileRecord = await File.findOne({
-          where: {
-            userId: user.id,
-            fileType: 'resume'
-          },
-          order: [['createdAt', 'DESC']]
-        });
-
-        if (oldFileRecord) {
-          // Delete the physical file
-          await fileService.deleteFile(oldFileRecord.filePath);
-          // Delete the database record
-          await oldFileRecord.destroy();
-          logger.info('Deleted old resume', { userId: user.id });
-        }
-      } catch (error) {
-        logger.warn('Error deleting old resume', { userId: user.id, error: error.message });
-        // Continue with generation even if deletion fails
-      }
-    }
+    await this.retireOldResume(user.id, user.studentProfile.resumeUrl);
 
     // Generate PDF
     const pdfBuffer = await this.createResumePDF(user);
@@ -137,7 +149,7 @@ class ResumeService {
     }
 
     // Education
-    this.addEducationSection(doc, profile);
+    this.addEducationSection(doc, profile, user.organization?.name);
 
     // Skills
     if (profile.skills && profile.skills.length > 0) {
@@ -206,7 +218,7 @@ class ResumeService {
     doc.moveDown(1.5);
   }
 
-  addEducationSection(doc, profile) {
+  addEducationSection(doc, profile, institution) {
     doc.fontSize(14)
       .font('Helvetica-Bold')
       .text('EDUCATION', 50, doc.y);
@@ -239,6 +251,27 @@ class ResumeService {
         doc.fontSize(11)
           .text(gradeInfo.join(' | '), 50, doc.y);
       }
+    }
+
+    // The college's name, and the school scores Indian recruiters screen on
+    // before anything else. The resume used to leave out where the student
+    // studies altogether.
+    if (institution) {
+      doc.fontSize(11).font('Helvetica').text(institution, 50, doc.y);
+    }
+    const schooling = [];
+    if (profile.class12Percentage !== null && profile.class12Percentage !== undefined) {
+      schooling.push(`Class XII: ${Number(profile.class12Percentage)}%`);
+    }
+    if (profile.diplomaPercentage !== null && profile.diplomaPercentage !== undefined) {
+      schooling.push(`Diploma: ${Number(profile.diplomaPercentage)}%`);
+    }
+    if (profile.class10Percentage !== null && profile.class10Percentage !== undefined) {
+      schooling.push(`Class X: ${Number(profile.class10Percentage)}%`);
+    }
+    if (schooling.length > 0) {
+      doc.moveDown(0.3);
+      doc.fontSize(11).font('Helvetica').text(schooling.join(' | '), 50, doc.y);
     }
 
     doc.moveDown(1.5);
@@ -357,28 +390,15 @@ class ResumeService {
 
   async uploadCustomResume(userId, file) {
     // Validate file type
-    if (!file.mimetype.includes('pdf')) {
-      throw new Error('Only PDF files are allowed for resume upload');
+    if (!file.mimetype.includes('pdf') || file.buffer.slice(0, 4).toString() !== '%PDF') {
+      throw httpError(400, 'Upload your resume as a PDF file');
     }
 
-    // Delete old resume if exists
-    try {
-      const oldFileRecord = await File.findOne({
-        where: {
-          userId,
-          fileType: 'resume'
-        },
-        order: [['createdAt', 'DESC']]
-      });
-
-      if (oldFileRecord) {
-        await fileService.deleteFile(oldFileRecord.filePath);
-        await oldFileRecord.destroy();
-        logger.info('Deleted old resume', { userId });
-      }
-    } catch (error) {
-      logger.warn('Error deleting old resume', { userId, error: error.message });
+    const existing = await StudentProfile.findOne({ where: { userId }, attributes: ['id', 'resumeUrl'] });
+    if (!existing) {
+      throw httpError(400, 'Fill in your profile first, then upload your resume');
     }
+    await this.retireOldResume(userId, existing.resumeUrl);
 
     // Save file
     const fileName = `resume_${userId}_${Date.now()}.pdf`;
@@ -437,7 +457,7 @@ class ResumeService {
     });
 
     if (!user) {
-      throw new Error('User not found');
+      throw httpError(404, 'User not found');
     }
 
     // Find the resume file record if it exists
@@ -459,6 +479,14 @@ class ResumeService {
       // Add file ID and download URL to profile
       profileData.resumeFileId = resumeFile.id;
       profileData.resumeDownloadUrl = `/api/files/${resumeFile.id}/download`;
+      // Whether the file is the generated one or the student's own upload,
+      // and when it was made — so the page can preview the right thing and
+      // say when a generated PDF is older than the profile it came from.
+      profileData.resumeFile = {
+        source: /^resume_\d+_\d+\.pdf$/.test(resumeFile.originalName || '') ? 'generated' : 'uploaded',
+        originalName: resumeFile.originalName,
+        createdAt: resumeFile.createdAt
+      };
     }
 
     return {

@@ -266,7 +266,9 @@ const RecruiterDashboard = () => {
       const value = (i) => (results[i].status === 'fulfilled' ? results[i].value : null);
 
       setData({
-        jobs: value(0)?.jobs || [],
+        // A deleted posting is stored as `cancelled`; it is history, not one of
+        // the recruiter's postings, and was showing at the top of the list.
+        jobs: (value(0)?.jobs || []).filter((j) => j.status !== 'cancelled'),
         applications: value(1)?.applications || [],
         events: value(2)?.events || [],
         jobStats: value(3)?.stats || {},
@@ -299,7 +301,10 @@ const RecruiterDashboard = () => {
     const applicationsOnLoadedJobs = jobs.reduce((sum, job) => sum + toInt(job.applicationCount), 0);
 
     return {
-      totalJobs: byStatus.reduce((sum, row) => sum + toInt(row.count), 0),
+      totalJobs: byStatus
+        .filter((row) => row.status !== 'cancelled')
+        .reduce((sum, row) => sum + toInt(row.count), 0),
+      pendingJobs: toInt(byStatus.find((row) => row.status === 'pending_review')?.count),
       activeJobs: toInt(byStatus.find((row) => row.status === 'active')?.count),
       totalApplications: toInt(jobStats.totalApplications ?? data.totalApplications),
       shortlisted: applications.filter((a) => ['shortlisted', 'interviewed'].includes(a.status)).length,
@@ -363,7 +368,7 @@ const RecruiterDashboard = () => {
         <StatTile
           label="Jobs posted"
           value={stats.totalJobs}
-          hint="All time"
+          hint={stats.pendingJobs > 0 ? `${stats.pendingJobs} waiting for placement-cell approval` : 'All time'}
           icon={BriefcaseIcon}
           to="/jobs"
           loading={loading}
@@ -514,8 +519,10 @@ const RecruiterDashboard = () => {
       {!loading && tab === 'jobs' && (
         <Card padded={false}>
           <div className="px-5 py-4 sm:px-6">
+            {/* Titled for what it holds: the ten newest, not every posting. */}
             <CardHeader
-              title="All job postings"
+              title="Your latest job postings"
+              description="A posting marked Pending review is waiting for the placement cell; students cannot see it yet."
               actions={
                 <Button as={Link} to="/jobs/new" size="sm" icon={PlusIcon}>
                   Post new job
@@ -524,11 +531,18 @@ const RecruiterDashboard = () => {
             />
           </div>
           {data.jobs.length > 0 ? (
-            <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
-              {data.jobs.map((job) => (
-                <JobRow key={job.id} job={job} showOrganization />
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+                {data.jobs.map((job) => (
+                  <JobRow key={job.id} job={job} />
+                ))}
+              </ul>
+              <div className="border-t border-ink-950/10 px-5 py-3 sm:px-6">
+                <Button as={Link} to="/jobs" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                  View all jobs
+                </Button>
+              </div>
+            </>
           ) : (
             <div className="border-t border-ink-950/10 p-5 sm:p-6">
               <NoJobs />
@@ -540,14 +554,21 @@ const RecruiterDashboard = () => {
       {!loading && tab === 'applications' && (
         <Card padded={false}>
           <div className="px-5 py-4 sm:px-6">
-            <CardHeader title="All applications" />
+            <CardHeader title="Latest applications" />
           </div>
           {data.applications.length > 0 ? (
-            <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
-              {data.applications.map((a) => (
-                <ApplicationRow key={a.id} application={a} showOrganization />
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
+                {data.applications.map((a) => (
+                  <ApplicationRow key={a.id} application={a} />
+                ))}
+              </ul>
+              <div className="border-t border-ink-950/10 px-5 py-3 sm:px-6">
+                <Button as={Link} to="/applications" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+                  View all applications
+                </Button>
+              </div>
+            </>
           ) : (
             <div className="border-t border-ink-950/10 p-5 sm:p-6">
               <EmptyState

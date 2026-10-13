@@ -284,7 +284,10 @@ const ApprovalManagement = () => {
         // request-per-organization loop can.
         const body = await approvalService.bulkApproveOrganizations(selected, action, notes, { silent: true });
         const count = body?.updatedCount ?? selected.length;
-        toast.success(`${count} organization${count === 1 ? '' : 's'} ${PAST_TENSE[action]}`);
+        // When part of the selection was already decided by someone else, the
+        // server's message says how many were skipped.
+        if (body?.skipped) toast(body.message, { duration: 6000 });
+        else toast.success(`${count} ${count === 1 ? orgNoun : orgNoun === 'company' ? 'companies' : 'organizations'} ${PAST_TENSE[action]}`);
         setSelected([]);
         await loadOrgs();
       }
@@ -341,6 +344,9 @@ const ApprovalManagement = () => {
     setUserFilters((prev) => ({ ...prev, [name]: e.target.value, page: 1 }));
 
   const orgNoun = isAdmin ? 'organization' : 'company';
+  // A posting sent back with no reason reached the recruiter as just "was not
+  // published", with nothing to fix.
+  const needsReason = confirm?.type === 'posting' && confirm?.action === 'reject';
 
   const confirmTitle = () => {
     if (!confirm) return '';
@@ -839,6 +845,7 @@ const ApprovalManagement = () => {
             <Button
               variant={confirm?.action === 'approve' ? 'success' : 'danger'}
               loading={working}
+              disabled={needsReason && !notes.trim()}
               onClick={runConfirmed}
             >
               {confirm?.type === 'posting'
@@ -858,8 +865,19 @@ const ApprovalManagement = () => {
           maxLength={2000}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder={confirm?.action === 'approve' ? 'Optional' : 'Why is this being declined?'}
-          help="Stored on the record for the audit trail."
+          required={needsReason}
+          placeholder={
+            needsReason
+              ? 'e.g. Add the CTC break-up and the bond terms, then resubmit.'
+              : confirm?.action === 'approve'
+              ? 'Optional'
+              : 'Why is this being declined?'
+          }
+          help={
+            needsReason
+              ? 'Sent to the recruiter with the posting, so they know what to change.'
+              : 'Stored on the record for the audit trail.'
+          }
         />
         {confirm?.scope === 'bulk' && (
           <Badge tone="warning" className="mt-3">

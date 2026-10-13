@@ -58,6 +58,10 @@ const OUTCOME_LABELS = {
   opted_out: 'Opted out'
 };
 
+// Single-name students are imported with "-" as the surname (the column
+// cannot be empty); show just the name.
+const fullName = (s) => (s.lastName && s.lastName !== '-' ? `${s.firstName} ${s.lastName}` : s.firstName);
+
 const currentYear = new Date().getFullYear();
 const BATCHES = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2, currentYear + 3];
 
@@ -72,6 +76,7 @@ const Students = () => {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const filters = useMemo(
     () => ({
@@ -111,6 +116,7 @@ const Students = () => {
     load();
   }, [load]);
 
+  const filtered = Boolean(filters.search || filters.verificationStatus || filters.placementStatus || filters.graduationYear || filters.branch);
   const summary = data.verificationSummary || {};
   const tabs = [
     { value: '', label: 'All students' },
@@ -127,6 +133,12 @@ const Students = () => {
       return next;
     });
   const allOnPage = data.students.length > 0 && data.students.every((s) => selected.has(s.id));
+
+  // A note typed for one student must not reappear on the next one opened.
+  const closeReview = () => {
+    setReview(null);
+    setNotes('');
+  };
 
   const runReview = async () => {
     if (!review) return;
@@ -150,7 +162,10 @@ const Students = () => {
     setBusy(true);
     try {
       const res = await placementService.bulkVerify([...selected]);
-      toast.success(res.message);
+      // The server explains anything it skipped (already verified, record
+      // incomplete); that is not a success to celebrate when nothing changed.
+      if (res.verified > 0) toast.success(res.message, { duration: 6000 });
+      else toast(res.message, { duration: 6000 });
       load();
     } catch {
       // api toasts
@@ -166,6 +181,17 @@ const Students = () => {
       load();
     } catch {
       // api toasts
+    }
+  };
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      await placementService.exportStudents(filters);
+    } catch {
+      // api toasts
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -185,8 +211,8 @@ const Students = () => {
             <Button variant="secondary" icon={ArrowUpTrayIcon} onClick={() => setImportOpen(true)}>
               Import students
             </Button>
-            <Button variant="secondary" icon={ArrowDownTrayIcon} onClick={() => placementService.exportStudents(filters)}>
-              Export CSV
+            <Button variant="secondary" icon={ArrowDownTrayIcon} loading={exporting} onClick={exportCsv}>
+              {filtered ? 'Export filtered CSV' : 'Export CSV'}
             </Button>
           </>
         }
@@ -255,14 +281,26 @@ const Students = () => {
           icon={AcademicCapIcon}
           title="No students match"
           description={
-            filters.search || filters.verificationStatus || filters.placementStatus || filters.graduationYear
-              ? 'Try clearing a filter.'
+            filtered
+              ? 'Nobody in your institution matches these filters.'
               : 'Import your batch from a spreadsheet to get started.'
           }
           action={
-            <Button icon={ArrowUpTrayIcon} onClick={() => setImportOpen(true)}>
-              Import students
-            </Button>
+            filtered ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSearch('');
+                  setSearchParams(new URLSearchParams(), { replace: true });
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : (
+              <Button icon={ArrowUpTrayIcon} onClick={() => setImportOpen(true)}>
+                Import students
+              </Button>
+            )
           }
         />
       ) : (
@@ -303,7 +341,7 @@ const Students = () => {
                   </Td>
                   <Td>
                     <Link to={`/users/${s.id}`} className="font-semibold text-ink-950 hover:underline">
-                      {s.firstName} {s.lastName}
+                      {fullName(s)}
                     </Link>
                     <p className="font-mono text-xs text-ink-500">{s.rollNumber || 'No roll number'}</p>
                   </Td>
@@ -369,10 +407,10 @@ const Students = () => {
                         aria-label={`Record outcome for ${s.firstName}`}
                         value=""
                         onChange={(e) => e.target.value && setOutcome(s, e.target.value)}
-                        className="w-36 !py-1.5 text-xs"
+                        className="w-32 !py-1.5 text-xs"
                         disabled={!s.hasProfile}
                       >
-                        <option value="">Set outcome…</option>
+                        <option value="">Outcome…</option>
                         <option value="higher_studies">Higher studies</option>
                         <option value="opted_out">Opted out</option>
                         <option value="deferred">Deferred</option>
@@ -400,7 +438,7 @@ const Students = () => {
 
       <Modal
         open={Boolean(review)}
-        onClose={() => setReview(null)}
+        onClose={closeReview}
         title={
           review?.action === 'verify'
             ? 'Verify academic record'
@@ -418,7 +456,7 @@ const Students = () => {
         }
         footer={
           <>
-            <Button variant="secondary" onClick={() => setReview(null)}>
+            <Button variant="secondary" onClick={closeReview}>
               Cancel
             </Button>
             <Button

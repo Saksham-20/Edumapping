@@ -111,7 +111,15 @@ api.interceptors.response.use(
     // public landing page handles its own failures and must never throw an
     // error toast at a logged-out visitor who is just reading the page.
     const silentErrors = [401, 403];
-    if (!silentErrors.includes(error.response?.status) && !error.config?.silent) {
+    // The sign-in, registration and password-reset forms print the reason
+    // under the field; a toast on top of that covered the message on a phone.
+    const formOwnsError =
+      error.response?.status >= 400 &&
+      error.response?.status < 500 &&
+      /\/(auth\/(login|register|forgot-password|change-password)|organizations\/register)/.test(
+        error.config?.url || ''
+      );
+    if (!silentErrors.includes(error.response?.status) && !error.config?.silent && !formOwnsError) {
       toast.error(errorMessage);
     }
 

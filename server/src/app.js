@@ -279,15 +279,22 @@ app.use((req, res, next) => {
 
 // Request timeout for API - prevent proxy 502 when backend hangs (e.g. slow DB)
 const API_TIMEOUT_MS = parseInt(process.env.API_TIMEOUT_MS, 10) || 25000;
+// A student import hashes a password and writes a transaction per row; a
+// 500-row sheet on the 1-vCPU server can pass 25 s. If it timed out mid-way the
+// accounts were still created but the one-time passwords never reached the
+// placement cell. Imports get just under nginx's 60 s read timeout instead.
+const IMPORT_TIMEOUT_MS = 55000;
+const isImportRoute = (path) => /\/(students\/import|users\/import)$/.test(path);
 app.use('/api', (req, res, next) => {
+  const limit = isImportRoute(req.path) ? IMPORT_TIMEOUT_MS : API_TIMEOUT_MS;
   const timer = setTimeout(() => {
     if (res.headersSent) return;
-    logger.warn('Request timeout', { method: req.method, path: req.path, timeoutMs: API_TIMEOUT_MS });
+    logger.warn('Request timeout', { method: req.method, path: req.path, timeoutMs: limit });
     res.status(504).json({
       error: 'Gateway Timeout',
       message: 'The request took too long. Please try again.'
     });
-  }, API_TIMEOUT_MS);
+  }, limit);
   res.on('finish', () => clearTimeout(timer));
   next();
 });

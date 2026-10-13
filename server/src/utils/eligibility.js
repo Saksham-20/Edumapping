@@ -19,6 +19,12 @@
  * rejection they cannot act on. The profile screen is where incomplete data is
  * chased, not the apply button.
  */
+// A profile value as a number, or NaN when it is blank. `Number(null)` is 0,
+// so a student who had not filled in CGPA or a percentage was told "your
+// profile shows 0" and blocked, the opposite of what the checks below intend.
+const profileNumber = (value) =>
+  value === null || value === undefined || String(value).trim() === '' ? NaN : Number(value);
+
 const readNumber = (criteria, ...keys) => {
   for (const key of keys) {
     const value = criteria?.[key];
@@ -85,7 +91,7 @@ const checkEligibility = (criteria, studentProfile) => {
 
   const minCgpa = readMinCgpa(criteria);
   if (minCgpa !== null) {
-    const cgpa = Number(studentProfile.cgpa);
+    const cgpa = profileNumber(studentProfile.cgpa);
     // An unset CGPA is not a failure: the student has not filled it in, and
     // blocking on absent data would be indistinguishable from blocking on a
     // low score.
@@ -96,7 +102,7 @@ const checkEligibility = (criteria, studentProfile) => {
 
   const years = readGraduationYears(criteria);
   if (years.length > 0) {
-    const year = Number(studentProfile.graduationYear);
+    const year = profileNumber(studentProfile.graduationYear);
     if (Number.isFinite(year) && !years.includes(year)) {
       reasons.push(`This role is open to the ${years.join(', ')} graduating batch${years.length > 1 ? 'es' : ''}.`);
     }
@@ -113,7 +119,7 @@ const checkEligibility = (criteria, studentProfile) => {
   // Indian job description, and it is expressed as a maximum of zero.
   const maxBacklogs = readNumber(criteria, 'maxBacklogs', 'max_backlogs');
   if (maxBacklogs !== null) {
-    const backlogs = Number(studentProfile.activeBacklogs);
+    const backlogs = profileNumber(studentProfile.activeBacklogs);
     if (Number.isFinite(backlogs) && backlogs > maxBacklogs) {
       reasons.push(
         maxBacklogs === 0
@@ -126,7 +132,7 @@ const checkEligibility = (criteria, studentProfile) => {
   // Class X and Class XII, canonically "60% in 10th and 12th".
   const minClass10 = readNumber(criteria, 'minClass10Percentage', 'min_class10_percentage');
   if (minClass10 !== null) {
-    const pct = Number(studentProfile.class10Percentage);
+    const pct = profileNumber(studentProfile.class10Percentage);
     if (Number.isFinite(pct) && pct < minClass10) {
       reasons.push(`This role requires ${minClass10}% in Class X; your profile shows ${pct}%.`);
     }
@@ -136,8 +142,8 @@ const checkEligibility = (criteria, studentProfile) => {
   // clearing the bar is enough. Failing both is what disqualifies.
   const minClass12 = readNumber(criteria, 'minClass12Percentage', 'min_class12_percentage');
   if (minClass12 !== null) {
-    const twelfth = Number(studentProfile.class12Percentage);
-    const diploma = Number(studentProfile.diplomaPercentage);
+    const twelfth = profileNumber(studentProfile.class12Percentage);
+    const diploma = profileNumber(studentProfile.diplomaPercentage);
     const haveTwelfth = Number.isFinite(twelfth);
     const haveDiploma = Number.isFinite(diploma);
     if (haveTwelfth || haveDiploma) {
@@ -152,7 +158,7 @@ const checkEligibility = (criteria, studentProfile) => {
 
   const maxGap = readNumber(criteria, 'maxEducationGapYears', 'max_education_gap_years');
   if (maxGap !== null) {
-    const gap = Number(studentProfile.educationGapYears);
+    const gap = profileNumber(studentProfile.educationGapYears);
     if (Number.isFinite(gap) && gap > maxGap) {
       reasons.push(
         maxGap === 0

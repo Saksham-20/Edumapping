@@ -1,4 +1,4 @@
-const { User, Organization, RecruiterProfile, Job, AuditLog, sequelize } = require('../models');
+const { User, Organization, RecruiterProfile, RecruiterAllowedOrganization, Job, AuditLog, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
@@ -67,6 +67,31 @@ const audit = (req, action, entityType, entityId, newValues) =>
     ipAddress: req.ip || req.connection?.remoteAddress,
     userAgent: req.get('user-agent')
   }).catch((err) => logger.error('Audit log failed', err));
+
+/**
+ * Postings waiting on this reviewer. The queue itself (GET /jobs/pending-review)
+ * shows a TPO only postings from companies that recruit at their institution;
+ * counting every pending posting on the platform here put "1 waiting" on the
+ * tab over an empty list. Same rule as jobController's reviewableCompanyIds.
+ */
+const pendingJobCount = async (actor) => {
+  if (actor.role === 'admin') return Job.count({ where: { status: 'pending_review' } });
+  if (!actor.organizationId) return 0;
+  const rows = await RecruiterAllowedOrganization.findAll({
+    where: { organizationId: actor.organizationId },
+    attributes: ['id'],
+    include: [{
+      model: RecruiterProfile,
+      as: 'recruiterProfile',
+      attributes: ['id'],
+      required: true,
+      include: [{ model: User, as: 'user', attributes: ['organizationId'], required: true }]
+    }]
+  });
+  const companyIds = [...new Set(rows.map((r) => r.recruiterProfile.user.organizationId).filter(Boolean))];
+  if (companyIds.length === 0) return 0;
+  return Job.count({ where: { status: 'pending_review', organizationId: { [Op.in]: companyIds } } });
+};
 
 class ApprovalController {
   /**
@@ -530,7 +555,11 @@ class ApprovalController {
       );
 
       res.json({
-        message: `${organizations.length} organizations ${PAST_TENSE[action]} successfully`,
+        // Someone else may have decided some of the selection meanwhile; say so
+        // rather than reporting "0 approved successfully".
+        message: `${organizations.length} organization${organizations.length === 1 ? '' : 's'} ${PAST_TENSE[action]}${
+          ids.length > organizations.length ? `. ${ids.length - organizations.length} skipped — already decided or not found` : ''
+        }`,
         updatedCount: organizations.length,
         skipped: ids.length - organizations.length,
         usersUpdated
@@ -573,7 +602,7 @@ class ApprovalController {
           raw: true
         }),
         User.count({ where: { ...userScope, approvalStatus: 'approved', isActive: false } }),
-        Job.count({ where: { status: 'pending_review' } }),
+        pendingJobCount(req.user),
         Organization.findAll({
           where: { ...orgScope, approvalStatus: { [Op.in]: ['approved', 'rejected'] } },
           attributes: ['id', 'name', 'type', 'approvalStatus', 'approvedAt'],

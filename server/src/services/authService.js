@@ -11,6 +11,11 @@ const logger = require('../utils/logger');
 const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10;
 const OTP_LENGTH = 6;
 const MAX_OTP_ATTEMPTS = 5;
+// One message for an unknown account and a wrong password, so the answer does
+// not reveal which emails and phone numbers are registered.
+// Shown for a wrong, used or expired emailed code. Says what to do next.
+const WRONG_CODE_MESSAGE = 'That code is wrong or has expired. Check the latest email from us, or ask for a new code.';
+const INVALID_LOGIN_MESSAGE = 'That email or phone number and password do not match. Check both and try again.';
 // otp row id -> wrong guesses so far. See _recordFailedOtpAttempt.
 const failedOtpAttempts = new Map();
 
@@ -112,11 +117,11 @@ class AuthService {
       order: [['createdAt', 'DESC']]
     });
     if (!row) {
-      throw httpError(400, 'Invalid or expired OTP');
+      throw httpError(400, WRONG_CODE_MESSAGE);
     }
     if (!(await this._verifyOtp(String(otp).trim(), row.otpHash))) {
       await this._recordFailedOtpAttempt(row);
-      throw httpError(400, 'Invalid or expired OTP');
+      throw httpError(400, WRONG_CODE_MESSAGE);
     }
     failedOtpAttempts.delete(row.id);
     return row;
@@ -266,15 +271,15 @@ class AuthService {
       // Check if user exists
       const existingUser = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
       if (existingUser) {
-        throw httpError(409, 'User already exists with this email');
+        throw httpError(409, 'An account with this email already exists. Sign in instead, or use "Forgot your password?" on the sign-in page.');
       }
 
       if (!organizationId) {
-        throw httpError(400, 'Organization is required for this role');
+        throw httpError(400, 'Choose your college, school or company from the list');
       }
       const organization = await Organization.findByPk(organizationId);
       if (!organization) {
-        throw httpError(400, 'Invalid organization');
+        throw httpError(400, 'That institution could not be found. Reload the page and choose it again.');
       }
 
       // Students: university, college, or school. TPOs: university or college. School roles: school only.
@@ -297,7 +302,7 @@ class AuthService {
       // account inside an organization the platform has not vetted.
       if (organization.approvalStatus !== 'approved') {
         if (organization.approvalStatus === 'rejected' || role === 'student') {
-          throw httpError(400, 'This institution is not open for registration yet');
+          throw httpError(400, 'This institution is still waiting for approval, so it is not open for sign-up yet. Ask your placement officer or school when it will be.');
         }
       }
 
@@ -431,36 +436,80 @@ class AuthService {
       return null;
     }
 
-    const digits = trimmed.replace(/[^0-9]/g, '');
-    if (!digits) return null;
-
-    // Numbers are stored with a country code, but people type their own number
-    // without one — "9876543210" matched nothing while "+919876543210" signed
-    // in fine. When the identifier carries no "+", the digits are matched as a
-    // suffix so either spelling works.
-    //
-    // `phone` is not unique, and a suffix can in principle match more than one
-    // account across country codes. Logging somebody into whichever row came
-    // back first would be a serious failure, so an ambiguous match is treated
-    // as no match at all: an exact identifier still works, and nobody is signed
-    // in as the wrong person.
-    const normalized = fn('regexp_replace', col('phone'), '[^0-9]', '', 'g');
-    const where = trimmed.includes('+')
-      ? sequelizeWhere(normalized, digits)
-      : sequelizeWhere(normalized, { [Op.like]: `%${digits}` });
-
-    const matches = await User.findAll({
-      where,
-      include: [{ model: Organization, as: 'organization' }],
-      limit: 2
-    });
+    const matches = await this._findPhoneCandidates(trimmed, 2);
     if (matches.length !== 1) {
       if (matches.length > 1) {
-        logger.warn('Ambiguous phone identifier at login', { matched: matches.length });
+        logger.warn('Ambiguous phone identifier', { matched: matches.length });
       }
       return null;
     }
     return matches[0];
+  }
+
+  /**
+   * Every account whose phone is the number in `identifier`, however either
+   * side is written.
+   *
+   * Indian numbers reach us in at least four spellings: "9876543210",
+   * "098765 43210" (trunk 0), "+91 98765 43210" and "919876543210", and the
+   * row may hold any of them, with or without the +91. Matching only digits
+   * as a suffix meant "+91 98765 43219" and "098765 43219" both failed for
+   * a student whose row says "9876543219". A 10-digit national number is
+   * therefore compared on its last ten digits; anything shorter (the seeded
+   * +1-555 numbers) keeps the exact / suffix rule.
+   *
+   * Several accounts can legitimately share a number: siblings registered on
+   * a parent's phone are common. The caller decides what to do with more
+   * than one match; sign-in uses the password to pick.
+   */
+  async _findPhoneCandidates(identifier, limit = 10) {
+    let digits = String(identifier || '').replace(/[^0-9]/g, '');
+    if (/^0\d{10}$/.test(digits)) digits = digits.slice(1);
+    if (!digits) return [];
+
+    const normalized = fn('regexp_replace', col('phone'), '[^0-9]', '', 'g');
+    let where;
+    if (digits.length >= 10) {
+      where = sequelizeWhere(fn('right', normalized, 10), digits.slice(-10));
+    } else if (identifier.includes('+')) {
+      where = sequelizeWhere(normalized, digits);
+    } else {
+      where = sequelizeWhere(normalized, { [Op.like]: `%${digits}` });
+    }
+
+    return User.findAll({
+      where,
+      include: [{ model: Organization, as: 'organization' }],
+      order: [['id', 'ASC']],
+      limit
+    });
+  }
+
+  /**
+   * The account `identifier` and `password` sign in to, or null.
+   *
+   * For a phone number shared by several accounts the password decides: the
+   * one account whose password matches is the person signing in. If two
+   * accounts on one number share a password too, nobody is signed in, since
+   * picking either would risk opening someone else's record.
+   */
+  async _authenticate(identifier, password) {
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier || '');
+    const candidates = isEmail
+      ? [await this._findUserByIdentifier(identifier)].filter(Boolean)
+      : await this._findPhoneCandidates(identifier);
+
+    const matched = [];
+    for (const candidate of candidates) {
+      if (await this.comparePassword(String(password || ''), candidate.passwordHash)) {
+        matched.push(candidate);
+      }
+    }
+    if (matched.length > 1) {
+      logger.warn('Phone sign-in matched several accounts with the same password', { matched: matched.length });
+      throw httpError(401, 'More than one account uses this phone number. Sign in with your email address instead.');
+    }
+    return matched[0] || null;
   }
 
   async login(identifierOrEmail, password) {
@@ -468,10 +517,13 @@ class AuthService {
     logger.auth('login', null, false, { identifier: identifier ? (identifier.includes('@') ? logger.sanitize.email(identifier) : 'phone') : 'missing' });
     
     try {
-      const user = await this._findUserByIdentifier(identifier);
-      
-      logger.debug('User lookup for login', { 
-        found: !!user, 
+      // The password is checked before anything about the account is
+      // revealed. Answering "pending approval" or "disabled" to a wrong
+      // password told anyone which addresses were registered here.
+      const user = await this._authenticate(identifier, password);
+
+      logger.debug('User lookup for login', {
+        found: !!user,
         userId: user?.id,
         role: user?.role,
         isActive: user?.isActive,
@@ -479,29 +531,21 @@ class AuthService {
       });
 
       if (!user) {
-        throw httpError(401, 'Invalid credentials');
+        throw httpError(401, INVALID_LOGIN_MESSAGE);
       }
 
-      // Check if user is active and approved
       if (!user.isActive) {
         if (user.approvalStatus === 'pending') {
-          throw httpError(403, 'Your account is pending approval. Please wait for TPO/Admin approval before logging in.');
+          throw httpError(403, 'Your account is waiting for approval. You can sign in once it is approved, usually within one working day.');
         } else if (user.approvalStatus === 'rejected') {
-          throw httpError(403, 'Your account has been rejected. Please contact support for more information.');
+          throw httpError(403, 'Your registration was not approved. Write to support@edumapping.com if you think this is a mistake.');
         } else {
-          throw httpError(403, 'Your account has been disabled. Please contact support for more information.');
+          throw httpError(403, 'Your account has been turned off. Ask your placement officer or write to support@edumapping.com to have it turned back on.');
         }
       }
 
-    // Verify password
-    const isValidPassword = await this.comparePassword(password, user.passwordHash);
-    if (!isValidPassword) {
-      throw httpError(401, 'Invalid credentials');
-    }
-
     // An approved person inside an unapproved institution is still inside an
-    // institution nobody has vetted. Checked after the password so the answer
-    // does not tell a stranger which addresses belong to a pending college.
+    // institution nobody has vetted.
     const orgBlock = organizationAccessBlock(user);
     if (orgBlock) {
       throw httpError(403, orgBlock.message);
@@ -651,7 +695,7 @@ class AuthService {
       logger.warn('Bypass code rejected for password reset', {
         email: logger.sanitize.email(normalizedEmail)
       });
-      throw httpError(400, 'Invalid or expired OTP');
+      throw httpError(400, WRONG_CODE_MESSAGE);
     }
 
     const row = await this._consumeOtp(normalizedEmail, 'forgot_password', otp);
@@ -715,9 +759,12 @@ class AuthService {
       throw httpError(404, 'User not found');
     }
 
-    const isValidPassword = await this.comparePassword(currentPassword, user.passwordHash);
+    // 400, not 401: the client treats any 401 as an expired session, so a
+    // mistyped current password set off a token refresh and, if that failed,
+    // signed the person out mid-form.
+    const isValidPassword = await this.comparePassword(String(currentPassword || ''), user.passwordHash);
     if (!isValidPassword) {
-      throw httpError(401, 'Current password is incorrect');
+      throw httpError(400, 'Your current password is not correct');
     }
 
     const passwordHash = await this.hashPassword(newPassword);

@@ -5,7 +5,7 @@
 // without the app header: a brand lockup instead of a PageHeader, and a
 // password field with a reveal toggle — the kit's Input owns its own <input>
 // element, so a trailing adornment has to be composed alongside it.
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { Field, cx } from '../../components/ui';
@@ -91,16 +91,30 @@ export const AuthShell = ({ width = 'max-w-md', children }) => (
  */
 export const AuthBrand = () => null;
 
-/** Submit-level failure banner. Announced: it only appears after a submit. */
-export const FormError = ({ children }) =>
-  children ? (
+/**
+ * Submit-level failure banner. Announced: it only appears after a submit.
+ *
+ * It sits at the top of the form while the submit button is at the bottom, so
+ * on a phone the reason appeared off-screen and the button just seemed to do
+ * nothing. It scrolls itself into view when it appears or changes.
+ */
+export const FormError = ({ children }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (children && ref.current?.scrollIntoView) {
+      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [children]);
+  return children ? (
     <div
+      ref={ref}
       role="alert"
       className="rounded-[10px] border border-vermilion-600/30 bg-vermilion-50 px-4 py-3 text-sm font-medium text-vermilion-800"
     >
       {children}
     </div>
   ) : null;
+};
 
 // Mirrors the kit's own field styling. Duplicated deliberately: the kit does
 // not export its base classes, and a password input has to be rendered here to

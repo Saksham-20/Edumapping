@@ -72,33 +72,51 @@ const TYPE_ICONS = {
 const formatEventTime = (startTime, endTime) => {
   const start = new Date(startTime);
   const end = new Date(endTime);
-  const dateStr = start.toLocaleDateString('en-US', {
+  // en-IN: "Mon, 2 Nov 2026", the day-first order Indian students read.
+  const dateStr = start.toLocaleDateString('en-IN', {
     weekday: 'short',
     year: 'numeric',
     month: 'short',
     day: 'numeric'
   });
-  const timeStr = `${start.toLocaleTimeString('en-US', {
-    hour: '2-digit',
+  const timeStr = `${start.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
     minute: '2-digit'
-  })} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+  })} – ${end.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
   return { dateStr, timeStr };
 };
 
 const isEventFull = (event) =>
   Boolean(event.maxParticipants && (event.registrationCount || 0) >= event.maxParticipants);
 
+/**
+ * Mirrors the server's rule: only published ("scheduled") events take
+ * sign-ups, until the deadline or, without one, until the event starts. The
+ * status used to be ignored, so a cancelled event still showed "Register" and
+ * the tap ended in an error.
+ */
 const isRegistrationOpen = (event) => {
+  if (event.status && event.status !== 'scheduled') return false;
   if (event.registrationDeadline) return new Date() <= new Date(event.registrationDeadline);
   return new Date() < new Date(event.startTime);
 };
 
-const EventCard = ({ event, isStudent, isRegistered, onRegister, onCancel }) => {
+const hasEnded = (event) => Boolean(event.endTime) && new Date(event.endTime) < new Date();
+
+/** The word on a disabled Register button, so a student knows why. */
+const closedLabel = (event) => {
+  if (event.status === 'cancelled') return 'Cancelled';
+  if (hasEnded(event)) return 'Ended';
+  return 'Registration closed';
+};
+
+const EventCard = ({ event, isStudent, isRegistered, busy, onRegister, onCancel }) => {
   const { dateStr, timeStr } = formatEventTime(event.startTime, event.endTime);
   const TypeIcon = TYPE_ICONS[event.eventType] || TYPE_ICONS.other;
   const full = isEventFull(event);
   const open = isRegistrationOpen(event);
   const canRegister = open && !full;
+  const ended = hasEnded(event);
   const isGlobal = (event.organization?.name || '').toLowerCase() === 'edumapping';
 
   const handleShare = async () => {
@@ -187,7 +205,13 @@ const EventCard = ({ event, isStudent, isRegistered, onRegister, onCancel }) => 
             <dt className="sr-only">Registration deadline</dt>
             <ClockIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-saffron-600" />
             <dd className="text-saffron-800">
-              Registration closes {new Date(event.registrationDeadline).toLocaleDateString()}
+              {new Date(event.registrationDeadline) < new Date() ? 'Registration closed' : 'Registration closes'}{' '}
+              {new Date(event.registrationDeadline).toLocaleString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                hour: 'numeric',
+                minute: '2-digit'
+              })}
             </dd>
           </div>
         )}
@@ -210,26 +234,32 @@ const EventCard = ({ event, isStudent, isRegistered, onRegister, onCancel }) => 
 
           {isStudent &&
             (isRegistered ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={XMarkIcon}
-                onClick={() => onCancel(event.id)}
-              >
-                Cancel
-              </Button>
+              // Once registration has closed the seat is final; offering
+              // "Cancel" then would free a seat nobody else can take.
+              open && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={XMarkIcon}
+                  loading={busy}
+                  onClick={() => onCancel(event.id)}
+                >
+                  Cancel registration
+                </Button>
+              )
             ) : (
               <Button
                 size="sm"
-                icon={PlusIcon}
-                disabled={!canRegister}
+                icon={canRegister ? PlusIcon : undefined}
+                disabled={!canRegister || busy}
+                loading={busy}
                 onClick={() => onRegister(event.id)}
               >
-                {full ? 'Full' : !open ? 'Closed' : 'Register'}
+                {!open ? closedLabel(event) : full ? 'Full' : 'Register'}
               </Button>
             ))}
 
-          {event.virtualLink && (
+          {event.virtualLink && !ended && event.status !== 'cancelled' && (
             <Button size="sm" variant="saffron" icon={VideoCameraIcon} onClick={handleJoin}>
               Join
             </Button>
@@ -254,6 +284,8 @@ const Events = () => {
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('upcoming');
   const [registeredEvents, setRegisteredEvents] = useState(new Set());
+  // The event whose register/cancel request is in flight; blocks double taps.
+  const [busyEventId, setBusyEventId] = useState(null);
   // The visible value of the search box. It leads the URL by one debounce
   // interval, so typing stays responsive while the fetch does not fire per key.
   const [searchDraft, setSearchDraft] = useState(search);
@@ -306,6 +338,9 @@ const Events = () => {
         limit: String(PAGE_SIZE)
       });
       if (search) params.set('search', search);
+      // "My events" asks the server for the caller's registrations only. It
+      // used to send no filter, so the tab listed every event.
+      if (filter === 'registered') params.set('registered', 'true');
 
       const response = await api.get(`/events?${params}`, { silent: true });
       const list = response.events || [];
@@ -323,9 +358,11 @@ const Events = () => {
       });
       setRegisteredEvents(registered);
     } catch (err) {
-      // The axios interceptor rejects with a plain `{ message, status, data }`,
-      // not an axios error — there is no `err.response` to read here.
-      setError(err?.message || 'Something went wrong loading events.');
+      setError(
+        err?.status
+          ? err.message
+          : 'Could not reach EduMapping. Check your internet connection and try again.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -336,13 +373,17 @@ const Events = () => {
   }, [fetchEvents]);
 
   const handleEventRegistration = async (eventId, isRegistering = true) => {
+    if (busyEventId) return;
+    setBusyEventId(eventId);
     try {
+      // `silent`: the catch shows the server's own reason ("This event is
+      // full…") once, instead of the interceptor's toast plus a generic one.
       if (isRegistering) {
-        await api.post(`/events/${eventId}/register`);
+        await api.post(`/events/${eventId}/register`, {}, { silent: true });
         setRegisteredEvents((prev) => new Set([...prev, eventId]));
         toast.success('Successfully registered for event!');
       } else {
-        await api.post(`/events/${eventId}/cancel`);
+        await api.post(`/events/${eventId}/cancel`, {}, { silent: true });
         setRegisteredEvents((prev) => {
           const next = new Set(prev);
           next.delete(eventId);
@@ -353,7 +394,14 @@ const Events = () => {
       // Refresh so the registration count on the card is current.
       fetchEvents();
     } catch (err) {
-      toast.error(isRegistering ? 'Failed to register for event' : 'Failed to cancel registration');
+      toast.error(
+        err?.message ||
+          (isRegistering ? 'Could not register. Try again.' : 'Could not cancel your registration. Try again.')
+      );
+      // The card may be stale (full, closed); refresh so it shows why.
+      fetchEvents();
+    } finally {
+      setBusyEventId(null);
     }
   };
 
@@ -376,7 +424,7 @@ const Events = () => {
     : filter === 'upcoming'
     ? 'There are no upcoming events at the moment.'
     : filter === 'registered'
-    ? "You haven't registered for any events yet."
+    ? "You haven't registered for any events yet. Open Upcoming to find one."
     : 'No events match your current filter.';
 
   return (
@@ -458,6 +506,7 @@ const Events = () => {
                 event={event}
                 isStudent={isStudent}
                 isRegistered={registeredEvents.has(event.id)}
+                busy={busyEventId === event.id}
                 onRegister={(id) => handleEventRegistration(id, true)}
                 onCancel={(id) => handleEventRegistration(id, false)}
               />

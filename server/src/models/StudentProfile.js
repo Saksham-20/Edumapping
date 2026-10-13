@@ -36,9 +36,11 @@ module.exports = (sequelize, DataTypes) => {
     yearOfStudy: {
       type: DataTypes.INTEGER,
       field: 'year_of_study',
+      // College students hold their year (1–6); school students hold their
+      // class (up to 12), so a cap of 6 blocked every Class 11/12 student.
       validate: {
-        min: 1,
-        max: 6
+        min: { args: [1], msg: 'Year or class must be at least 1' },
+        max: { args: [12], msg: 'Year or class can be at most 12' }
       }
     },
     graduationYear: {

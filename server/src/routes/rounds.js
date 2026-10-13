@@ -12,15 +12,18 @@ const router = express.Router();
 const staff = [authenticateToken, requireRole('recruiter', 'tpo', 'admin')];
 
 const roundRules = [
-  body('name').optional().isString().trim().isLength({ min: 1, max: 120 }),
-  body('roundType').optional().isIn(['aptitude', 'coding', 'group_discussion', 'technical', 'hr', 'other']),
-  body('scheduledAt').optional({ nullable: true, checkFalsy: true }).isISO8601(),
-  body('endsAt').optional({ nullable: true, checkFalsy: true }).isISO8601(),
-  body('mode').optional().isIn(['on_campus', 'online']),
-  body('venue').optional({ nullable: true }).isString().isLength({ max: 255 }),
-  body('meetingLink').optional({ nullable: true, checkFalsy: true }).isURL({ require_protocol: true }),
-  body('instructions').optional({ nullable: true }).isString().isLength({ max: 4000 }),
-  body('status').optional().isIn(['scheduled', 'in_progress', 'completed', 'cancelled'])
+  body('name').optional().isString().trim().isLength({ min: 1, max: 120 }).withMessage('Give the round a name of up to 120 characters.'),
+  body('roundType').optional().isIn(['aptitude', 'coding', 'group_discussion', 'technical', 'hr', 'other']).withMessage('Choose a round type.'),
+  body('scheduledAt').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('Enter a valid start date and time.'),
+  body('endsAt').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('Enter a valid end date and time.'),
+  body('mode').optional().isIn(['on_campus', 'online']).withMessage('Choose on campus or online.'),
+  body('venue').optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Keep the venue under 255 characters.'),
+  body('meetingLink')
+    .optional({ nullable: true, checkFalsy: true })
+    .isURL({ require_protocol: true })
+    .withMessage('The meeting link must be a full web address starting with https://'),
+  body('instructions').optional({ nullable: true }).isString().isLength({ max: 4000 }).withMessage('Keep instructions under 4,000 characters.'),
+  body('status').optional().isIn(['scheduled', 'in_progress', 'completed', 'cancelled']).withMessage('Unknown round status.')
 ];
 
 /**
@@ -46,7 +49,11 @@ router.get('/mine', authenticateToken, requireRole('student'), roundController.m
  *     security: [{ bearerAuth: [] }]
  */
 router.get('/', ...staff, roundController.listForJob);
-router.post('/', ...staff, [body('jobId').isInt(), body('name').isString().trim().isLength({ min: 1, max: 120 }), ...roundRules], roundController.create);
+router.post('/', ...staff, [
+    body('jobId').isInt().withMessage('Choose the job this round belongs to.'),
+    body('name').isString().trim().isLength({ min: 1, max: 120 }).withMessage('Give the round a name, e.g. "Online aptitude test".'),
+    ...roundRules
+  ], roundController.create);
 router.put('/:id(\\d+)', ...staff, [param('id').isInt(), ...roundRules], roundController.update);
 router.delete('/:id(\\d+)', ...staff, roundController.remove);
 

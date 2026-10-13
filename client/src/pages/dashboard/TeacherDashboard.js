@@ -5,20 +5,16 @@
 //
 //   GET /api/conferences   — live classes, split into "mine" and "my school's"
 //   GET /api/events        — school events, scoped with organizationId
-//   GET /api/assessments   — every published assessment
 //   GET /api/users         — the school's students, scoped by the server
 //
 // The student roster comes from `GET /api/users`, which is pinned server-side
 // to the caller's own organization for school roles, so it can only ever return
 // this teacher's school.
 //
-// One thing a teacher screen would obviously want is deliberately absent rather
-// than faked:
-//
-//   * "Assessments I set". `POST /api/assessments` is
-//     `requireRole('recruiter', 'tpo', 'admin')` — a teacher cannot create one,
-//     and `GET /api/assessments` has no `createdBy` filter. So the panel shows
-//     the published assessments a teacher can reference, and says so.
+// There is no Assessments tab. Teachers cannot create assessments, and the
+// server shows them none (assessments are a stage of a job application, scoped
+// to the employer and the applicants), so the tab could only ever be empty
+// while its copy promised "published ones appear here".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,7 +23,6 @@ import {
   formatEventWhen,
   isUpcomingEvent,
   fullName,
-  listAssessments,
   listConferences,
   listEvents,
   listOrganizationUsers,
@@ -47,11 +42,11 @@ import {
   SkeletonCard,
   StatStrip,
   StatTile,
+  StatusBadge,
   Tabs
 } from '../../components/ui';
 import {
   CalendarIcon,
-  ClipboardDocumentCheckIcon,
   ClockIcon,
   MapPinIcon,
   PlusIcon,
@@ -63,17 +58,16 @@ import {
 const TABS = [
   { value: 'live', label: 'Live classes', icon: VideoCameraIcon },
   { value: 'events', label: 'School events', icon: CalendarIcon },
-  { value: 'assessments', label: 'Assessments', icon: ClipboardDocumentCheckIcon },
   { value: 'students', label: 'My students', icon: UserGroupIcon }
 ];
 
 const ConferenceCard = ({ conference, mine }) => (
   <Card className="flex flex-col">
     <div className="flex items-start justify-between gap-3">
-      <h3 className="font-display text-base font-bold text-ink-950">{conference.title}</h3>
-      <Badge tone={conference.status === 'live' ? 'danger' : 'info'} dot>
-        {conference.status}
-      </Badge>
+      <h3 className="min-w-0 break-words font-display text-base font-bold text-ink-950">
+        {conference.title}
+      </h3>
+      <StatusBadge status={conference.status} />
     </div>
     <p className="mt-1 text-xs text-ink-600">
       {mine
@@ -95,8 +89,13 @@ const ConferenceCard = ({ conference, mine }) => (
         size="sm"
         variant={conference.status === 'live' ? 'saffron' : 'secondary'}
         icon={conference.status === 'live' ? SignalIcon : VideoCameraIcon}
+        disabled={conference.status === 'ended'}
       >
-        {conference.status === 'live' ? 'Join now' : 'Open room'}
+        {conference.status === 'live'
+          ? 'Join now'
+          : conference.status === 'ended'
+            ? 'Ended'
+            : 'Open room'}
       </Button>
     </div>
   </Card>
@@ -149,7 +148,6 @@ const TeacherDashboard = () => {
   const [errors, setErrors] = useState({});
   const [conferences, setConferences] = useState([]);
   const [events, setEvents] = useState([]);
-  const [assessments, setAssessments] = useState([]);
   const [students, setStudents] = useState([]);
   const [studentQuery, setStudentQuery] = useState('');
 
@@ -159,13 +157,12 @@ const TeacherDashboard = () => {
     setLoading(true);
     setErrors({});
 
-    const [confRes, eventsRes, assessRes, studentsRes] = await Promise.allSettled([
+    const [confRes, eventsRes, studentsRes] = await Promise.allSettled([
       listConferences(),
       // Unlike students, a teacher is not special-cased by the events
       // controller, so the organizationId param is honoured and scopes the
       // list to their own school rather than every organization on the server.
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
-      listAssessments(),
       orgId ? listOrganizationUsers(orgId, { role: 'student' }) : Promise.resolve(null)
     ]);
 
@@ -178,8 +175,7 @@ const TeacherDashboard = () => {
         confRes.reason?.response?.status === 503
           ? {
               title: 'Live classes are not switched on yet',
-              description:
-                'This server has no LiveKit connection configured, so sessions cannot run.'
+              description: 'Live classes have not been set up on EduMapping yet. Please check back later.'
             }
           : toErrorState(confRes.reason, 'Could not load live classes');
     }
@@ -192,12 +188,6 @@ const TeacherDashboard = () => {
       );
     } else {
       nextErrors.events = toErrorState(eventsRes.reason, 'Could not load school events');
-    }
-
-    if (assessRes.status === 'fulfilled') {
-      setAssessments((assessRes.value.assessments || []).filter((a) => a.isActive !== false));
-    } else {
-      nextErrors.assessments = toErrorState(assessRes.reason, 'Could not load assessments');
     }
 
     if (studentsRes.status === 'fulfilled') {
@@ -218,16 +208,26 @@ const TeacherDashboard = () => {
     () => conferences.filter((c) => c.host?.id === user?.id),
     [conferences, user?.id]
   );
+  // "Elsewhere in your school" used to be every session the API returned that
+  // the teacher did not host, which included sessions open to all of
+  // EduMapping from other institutions — listed under "your colleagues".
+  // Only this school's own, still-running-or-upcoming sessions belong there.
   const otherConferences = useMemo(
-    () => conferences.filter((c) => c.host?.id !== user?.id),
-    [conferences, user?.id]
+    () =>
+      conferences.filter(
+        (c) => c.host?.id !== user?.id && c.organization?.id === orgId && c.status !== 'ended'
+      ),
+    [conferences, user?.id, orgId]
   );
   const upcomingEvents = useMemo(() => events.filter(isUpcomingEvent), [events]);
-  const liveNow = useMemo(() => conferences.filter((c) => c.status === 'live'), [conferences]);
+  const liveNow = useMemo(
+    () => conferences.filter((c) => c.status === 'live' && c.organization?.id === orgId),
+    [conferences, orgId]
+  );
 
   const livePanel = () => {
     if (errors.live) return <ErrorState {...errors.live} onRetry={load} />;
-    if (!conferences.length) {
+    if (!myConferences.length && !otherConferences.length) {
       return (
         <EmptyState
           icon={VideoCameraIcon}
@@ -303,66 +303,6 @@ const TeacherDashboard = () => {
     );
   };
 
-  const assessmentsPanel = () => {
-    if (errors.assessments) return <ErrorState {...errors.assessments} onRetry={load} />;
-    if (!assessments.length) {
-      return (
-        <EmptyState
-          icon={ClipboardDocumentCheckIcon}
-          title="No assessments published"
-          description="Assessments are authored by recruiters and placement officers; published ones appear here for you to point students at."
-        />
-      );
-    }
-    return (
-      <>
-        <p className="mb-4 rounded-xl border border-ink-950/15 bg-bone-100 px-4 py-3 text-sm text-ink-700">
-          These are every published assessment on the platform. Authoring is
-          restricted to recruiters, placement officers and admins, and the API has
-          no filter for the assessments a single teacher set.
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {assessments.map((a) => (
-            <Card key={a.id}>
-              <div className="flex items-start justify-between gap-3">
-                <h3 className="font-display text-base font-bold text-ink-950">{a.title}</h3>
-                <Badge tone="neutral">{String(a.assessmentType || '').replace(/_/g, ' ')}</Badge>
-              </div>
-              {a.description && (
-                <p className="mt-2 line-clamp-2 text-sm text-ink-600">{a.description}</p>
-              )}
-              <dl className="mt-3 grid grid-cols-3 gap-3 text-xs text-ink-600">
-                <div>
-                  <dt className="text-ink-500">Duration</dt>
-                  <dd className="font-semibold tabular-nums text-ink-900">
-                    {a.duration ? `${a.duration} min` : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-ink-500">Questions</dt>
-                  <dd className="font-semibold tabular-nums text-ink-900">
-                    {(a.questions || []).length}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-ink-500">Total</dt>
-                  <dd className="font-semibold tabular-nums text-ink-900">
-                    {a.totalMarks ?? '—'}
-                  </dd>
-                </div>
-              </dl>
-              {a.creator && (
-                <p className="mt-3 text-xs text-ink-500">
-                  Set by {a.creator.firstName} {a.creator.lastName}
-                </p>
-              )}
-            </Card>
-          ))}
-        </div>
-      </>
-    );
-  };
-
   const visibleStudents = useMemo(() => {
     const q = studentQuery.trim().toLowerCase();
     if (!q) return students;
@@ -402,13 +342,18 @@ const TeacherDashboard = () => {
               <Card key={u.id} className="flex items-center gap-3">
                 <Avatar src={u.profilePicture} name={fullName(u)} size="md" />
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-ink-950">
+                  {/* Staff can open a student at their own school; the server
+                      404s anyone else's, so the link cannot leak across schools. */}
+                  <Link
+                    to={`/users/${u.id}`}
+                    className="block truncate font-semibold text-ink-950 underline-offset-2 hover:underline"
+                  >
                     {fullName(u) || 'Unnamed account'}
-                  </p>
+                  </Link>
                   <p className="truncate text-xs text-ink-500">{u.email}</p>
                   {!u.isActive && (
                     <Badge tone="neutral" className="mt-1.5">
-                      Inactive
+                      {u.approvalStatus === 'pending' ? 'Awaiting approval' : 'Inactive'}
                     </Badge>
                   )}
                 </div>
@@ -423,7 +368,6 @@ const TeacherDashboard = () => {
   const panels = {
     live: livePanel,
     events: eventsPanel,
-    assessments: assessmentsPanel,
     students: studentsPanel
   };
 
@@ -432,7 +376,7 @@ const TeacherDashboard = () => {
       <PageHeader
         eyebrow={user?.organization?.name || 'School'}
         title={`Good to see you, ${user?.firstName || 'teacher'}`}
-        lead="Your live classes, your school's events, and the assessments your students can take."
+        lead="Your live classes, your school's events and your students."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button as={Link} to="/events/new" variant="secondary" icon={PlusIcon}>
@@ -471,16 +415,17 @@ const TeacherDashboard = () => {
             to="/events"
           />
           <StatTile
-            label="Assessments published"
-            value={errors.assessments ? '—' : assessments.length}
-            icon={ClipboardDocumentCheckIcon}
+            label="Students"
+            value={errors.students ? '—' : students.filter((u) => u.isActive).length}
+            icon={UserGroupIcon}
             accent="azure"
             loading={loading}
+            hint="At your school"
           />
         </StatStrip>
       </SectionBlock>
 
-      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+      <Tabs className="mb-6 w-fit max-w-full" value={tab} onChange={setTab} tabs={TABS} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

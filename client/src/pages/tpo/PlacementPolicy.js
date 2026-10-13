@@ -7,7 +7,8 @@
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { PlusIcon, TrashIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
-import { Badge, Button, Card, CardHeader, Checkbox, Input, PageHeader, PageLoader, PageShell, Select, cx } from '../../components/ui';
+import { Link } from 'react-router-dom';
+import { Badge, Button, Card, CardHeader, Checkbox, ErrorState, Input, PageHeader, PageLoader, PageShell, Select, cx } from '../../components/ui';
 import placementService from '../../services/placement';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -31,14 +32,35 @@ const PlacementPolicy = () => {
   const { user } = useAuth();
   const [policy, setPolicy] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  // How many students "verified only" would shut out today, so the cell does
+  // not switch it on and close every drive to most of the batch by surprise.
+  const [unverified, setUnverified] = useState(null);
 
   useEffect(() => {
+    setLoadError('');
     placementService
       .getPolicy()
       .then((res) => setPolicy(res.policy))
-      .catch(() => setPolicy(null));
-  }, []);
+      .catch((err) => setLoadError(err?.message || 'Could not load the placement policy.'));
+    placementService
+      .getStudents({ limit: 1 })
+      .then((res) => {
+        const s = res.verificationSummary || {};
+        setUnverified((s.unverified || 0) + (s.pending || 0) + (s.rejected || 0));
+      })
+      .catch(() => setUnverified(null));
+  }, [attempt]);
 
+  if (loadError && !policy) {
+    return (
+      <PageShell width="narrow">
+        <PageHeader eyebrow={user?.organization?.name || 'Placement cell'} title="Placement policy" />
+        <ErrorState title="Could not load the policy" description={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      </PageShell>
+    );
+  }
   if (!policy) return <PageLoader label="Loading policy" />;
 
   const set = (patch) => setPolicy((p) => ({ ...p, ...patch }));
@@ -232,6 +254,14 @@ const PlacementPolicy = () => {
           checked={policy.requireVerifiedProfile}
           onChange={(e) => set({ requireVerifiedProfile: e.target.checked })}
         />
+        {policy.requireVerifiedProfile && policy.enabled && unverified > 0 && (
+          <p className="rounded-xl border border-saffron-500/40 bg-saffron-50 p-3 text-sm text-saffron-900">
+            {unverified} student{unverified === 1 ? ' is' : 's are'} not verified yet and will not be able to apply to any job.{' '}
+            <Link to="/tpo/students?verificationStatus=pending" className="font-semibold underline">
+              Review records
+            </Link>
+          </p>
+        )}
       </Card>
 
       <div className="flex justify-end">

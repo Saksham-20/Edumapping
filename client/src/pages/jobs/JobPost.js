@@ -8,15 +8,15 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { ACADEMIC_CRITERIA } from '../../utils/eligibility';
 import {
-  ACADEMIC_CRITERIA,
-  parseBranchList,
-  parseYearList,
-  withNumeric,
-  withAllowedBranches,
-  withGraduationYears,
-  withMinCGPA
-} from '../../utils/eligibility';
+  JOB_TYPE_OPTIONS,
+  PayInputs,
+  buildJobPayload,
+  deadlineMin,
+  jobFieldErrors,
+  validateJobForm
+} from '../../components/forms/jobForm';
 import toast from 'react-hot-toast';
 import {
   Button,
@@ -31,12 +31,6 @@ import {
   Textarea
 } from '../../components/ui';
 import { PlusIcon, XMarkIcon, LockClosedIcon } from '@heroicons/react/24/outline';
-
-const JOB_TYPE_OPTIONS = [
-  { value: 'full_time', label: 'Full time' },
-  { value: 'part_time', label: 'Part time' },
-  { value: 'internship', label: 'Internship' }
-];
 
 const BLANK_FORM = {
   title: '',
@@ -130,60 +124,12 @@ const JobPost = () => {
   };
 
   const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.title.trim()) newErrors.title = 'Job title is required';
-    if (!formData.description.trim()) newErrors.description = 'Job description is required';
-    if (!formData.location.trim()) newErrors.location = 'Job location is required';
-
-    if (
-      formData.salaryMin &&
-      formData.salaryMax &&
-      parseInt(formData.salaryMin, 10) > parseInt(formData.salaryMax, 10)
-    ) {
-      newErrors.salaryMax = 'Maximum salary must be greater than or equal to minimum salary';
-    }
-
-    if (formData.minCGPA && (parseFloat(formData.minCGPA) < 0 || parseFloat(formData.minCGPA) > 10)) {
-      newErrors.minCGPA = 'CGPA must be between 0 and 10';
-    }
-    // `parseYearList` returns null when an entry is not a four-digit year, so a
-    // typo is reported rather than quietly dropped from the criteria.
-    if (formData.graduationYears.trim() && parseYearList(formData.graduationYears) === null) {
-      newErrors.graduationYears = 'Enter four-digit years separated by commas, e.g. 2025, 2026';
-    }
-
-    for (const rule of ACADEMIC_CRITERIA) {
-      const raw = formData[rule.field];
-      if (raw === '' || raw === null || raw === undefined) continue;
-      const value = Number(raw);
-      if (!Number.isFinite(value) || value < 0 || value > rule.max) {
-        newErrors[rule.field] = `Enter a value between 0 and ${rule.max}`;
-      } else if (rule.integer && !Number.isInteger(value)) {
-        newErrors[rule.field] = 'Enter a whole number';
-      }
-    }
-
-    if (formData.applicationDeadline && new Date(formData.applicationDeadline) <= new Date()) {
-      newErrors.applicationDeadline = 'Application deadline must be in the future';
-    }
-
-    // The numeric bounds used to be enforced only by the browser's own
-    // validation, via min/max on the inputs. Now that the form carries
-    // noValidate they have to be checked here, or an out-of-range number would
-    // reach the API and come back as a generic toast.
-    const negative = (v) => v !== '' && v !== null && v !== undefined && Number(v) < 0;
-    if (negative(formData.salaryMin)) newErrors.salaryMin = 'Salary cannot be negative';
-    if (negative(formData.salaryMax)) newErrors.salaryMax = 'Salary cannot be negative';
-    if (negative(formData.experienceRequired)) {
-      newErrors.experienceRequired = 'Experience cannot be negative';
-    }
-    if (formData.totalPositions !== '' && Number(formData.totalPositions) < 1) {
-      newErrors.totalPositions = 'There must be at least one opening';
-    }
-
+    const newErrors = validateJobForm(formData);
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    // Point at the first problem: on a phone the error is usually off-screen.
+    const first = Object.keys(newErrors)[0];
+    if (first) document.getElementsByName(first)[0]?.focus();
+    return !first;
   };
 
   const resetForm = () => {
@@ -191,11 +137,18 @@ const JobPost = () => {
     setErrors({});
   };
 
+  // A recruiter's posting goes to the placement cell first (the server turns
+  // "active" into pending_review); a TPO's publishes directly. The checkbox and
+  // the confirmation say which, instead of promising a recruiter "Publish
+  // immediately" and then quietly queueing it.
+  const isRecruiter = user?.role === 'recruiter';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
 
     if (!user || (user.role !== 'recruiter' && user.role !== 'tpo')) {
-      toast.error('You are not authorized to post jobs');
+      toast.error('Only recruiters and placement officers can post jobs');
       return;
     }
 
@@ -204,75 +157,26 @@ const JobPost = () => {
 
     try {
       setLoading(true);
-
-      const cleanedData = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        jobType: formData.jobType,
-        location: formData.location.trim(),
-        requirements: formData.requirements.filter((req) => req.trim() !== '').join('\n'),
-        skillsRequired: formData.skillsRequired.filter((skill) => skill.trim() !== ''),
+      const payload = {
+        ...buildJobPayload(formData),
         status: formData.isActive ? 'active' : 'draft'
       };
+      const response = await api.post('/jobs', payload);
+      const status = response.job?.status;
 
-      // Branch and batch restrictions are enforced by the server but had no
-      // field in this form, so the only rule a recruiter could actually set
-      // was the CGPA floor. All three are built up into one criteria object;
-      // each helper removes its own keys when the field is left empty, so an
-      // unrestricted job still posts with no criteria at all.
-      let criteria = withMinCGPA(null, formData.minCGPA.trim());
-      criteria = withAllowedBranches(criteria, parseBranchList(formData.allowedBranches));
-      criteria = withGraduationYears(criteria, parseYearList(formData.graduationYears) || []);
-      // The academic bars, driven off one table so the form, the payload and
-      // the server's reader cannot drift apart.
-      for (const rule of ACADEMIC_CRITERIA) {
-        criteria = withNumeric(criteria, formData[rule.field], rule.camel, rule.snake);
-      }
-      if (Object.keys(criteria).length > 0) {
-        cleanedData.eligibilityCriteria = criteria;
-      }
-
-      // The validators accept these as absent or valid, but not as an empty
-      // string — so only send the ones that were filled in.
-      if (formData.salaryMin && formData.salaryMin.trim()) {
-        cleanedData.salaryMin = parseInt(formData.salaryMin, 10);
-      }
-      if (formData.salaryMax && formData.salaryMax.trim()) {
-        cleanedData.salaryMax = parseInt(formData.salaryMax, 10);
-      }
-      if (formData.experienceRequired !== undefined && formData.experienceRequired !== '') {
-        cleanedData.experienceRequired = parseInt(formData.experienceRequired, 10);
-      }
-      if (formData.totalPositions && formData.totalPositions > 0) {
-        cleanedData.totalPositions = parseInt(formData.totalPositions, 10);
-      }
-      if (formData.applicationDeadline) {
-        cleanedData.applicationDeadline = formData.applicationDeadline;
-      }
-
-      const response = await api.post('/jobs', cleanedData);
-
-      toast.success('Job posted');
+      toast.success(
+        status === 'pending_review'
+          ? 'Sent to the placement cell. Students will see it once it is approved.'
+          : status === 'draft'
+            ? 'Saved as a draft. Only your organisation can see it.'
+            : 'Job published'
+      );
       resetForm();
       navigate(`/jobs/${response.job.id}`);
     } catch (error) {
-      // The API returns validation failures in several shapes depending on
-      // which layer rejected the payload; surface the most specific one.
-      if (error.data) {
-        if (Array.isArray(error.data.details) && error.data.details.length > 0) {
-          toast.error(error.data.details.map((detail) => detail.message || detail).join(', '));
-        } else if (error.data.message) {
-          toast.error(error.data.message);
-        } else if (error.data.error) {
-          toast.error(error.data.error);
-        } else {
-          toast.error('Failed to post job. Please check the form and try again.');
-        }
-      } else if (error.message) {
-        toast.error(error.message);
-      } else {
-        toast.error('Failed to post job. Please try again.');
-      }
+      // The shared client has already toasted the reason; put each message
+      // under its own field too, so the recruiter can see what to fix.
+      setErrors(jobFieldErrors(error));
     } finally {
       setLoading(false);
     }
@@ -301,7 +205,11 @@ const JobPost = () => {
         breadcrumbs={[{ label: 'Jobs', to: '/jobs' }, { label: 'New posting' }]}
         eyebrow="Hiring"
         title="Post a new job"
-        lead="Fill in the details to create a new job posting."
+        lead={
+          isRecruiter
+            ? 'Students see the posting once the placement cell approves it. Fields marked * are required.'
+            : 'Fields marked * are required.'
+        }
       />
 
       <Card>
@@ -333,26 +241,7 @@ const JobPost = () => {
               error={errors.location}
               placeholder="e.g. Mumbai, India / Remote"
             />
-            <Input
-              label={formData.jobType === 'internship' ? 'Minimum stipend (₹ per month)' : 'Minimum CTC (₹ per year)'}
-              name="salaryMin"
-              type="number"
-              min="0"
-              value={formData.salaryMin}
-              onChange={handleInputChange}
-              placeholder={formData.jobType === 'internship' ? 'e.g. 20000' : 'e.g. 600000 for 6 LPA'}
-              error={errors.salaryMin}
-            />
-            <Input
-              label={formData.jobType === 'internship' ? 'Maximum stipend (₹ per month)' : 'Maximum CTC (₹ per year)'}
-              name="salaryMax"
-              type="number"
-              min="0"
-              value={formData.salaryMax}
-              onChange={handleInputChange}
-              error={errors.salaryMax}
-              placeholder={formData.jobType === 'internship' ? 'e.g. 30000' : 'e.g. 1200000 for 12 LPA'}
-            />
+            <PayInputs formData={formData} errors={errors} onChange={handleInputChange} />
             <Input
               label="Experience required (years)"
               name="experienceRequired"
@@ -360,7 +249,7 @@ const JobPost = () => {
               min="0"
               value={formData.experienceRequired}
               onChange={handleInputChange}
-              placeholder="e.g. 2"
+              placeholder="0 for freshers"
               error={errors.experienceRequired}
             />
             <Input
@@ -421,11 +310,11 @@ const JobPost = () => {
               label="Application deadline"
               name="applicationDeadline"
               type="date"
-              min={new Date().toISOString().split('T')[0]}
+              min={deadlineMin()}
               value={formData.applicationDeadline}
               onChange={handleInputChange}
               error={errors.applicationDeadline}
-              help="Select a future date."
+              help="The last day students can apply. Must be after today."
             />
           </div>
 
@@ -461,8 +350,12 @@ const JobPost = () => {
           />
 
           <Checkbox
-            label="Publish immediately"
-            description="Leave unchecked to save the posting as a draft."
+            label={isRecruiter ? 'Submit to the placement cell for approval' : 'Publish immediately'}
+            description={
+              isRecruiter
+                ? 'Leave unchecked to save a draft that only your organisation can see.'
+                : 'Leave unchecked to save the posting as a draft.'
+            }
             name="isActive"
             checked={formData.isActive}
             onChange={handleInputChange}
@@ -476,7 +369,7 @@ const JobPost = () => {
               Reset
             </Button>
             <Button type="submit" loading={loading}>
-              Post job
+              {!formData.isActive ? 'Save draft' : isRecruiter ? 'Submit for approval' : 'Post job'}
             </Button>
           </div>
         </form>

@@ -111,13 +111,18 @@ const SchoolAdminDashboard = () => {
     }
 
     if (confRes.status === 'fulfilled') {
-      setConferences(confRes.value.conferences || []);
+      // The list also carries sessions open to everyone on EduMapping, hosted
+      // by other institutions. This tab administers the school's own, so only
+      // those are listed and counted.
+      setConferences(
+        (confRes.value.conferences || []).filter((c) => c.organization?.id === orgId)
+      );
     } else {
       nextErrors.live =
         confRes.reason?.response?.status === 503
           ? {
               title: 'Live classes are not switched on yet',
-              description: 'This server has no LiveKit connection configured.'
+              description: 'Live classes have not been set up on EduMapping yet. Please check back later.'
             }
           : toErrorState(confRes.reason, 'Could not load live classes');
     }
@@ -148,8 +153,13 @@ const SchoolAdminDashboard = () => {
     [events]
   );
   const roleCounts = useMemo(() => countByRole(people), [people]);
-  const studentCount = roleCounts.student || 0;
-  const staffCount = people.length - studentCount;
+  // Headcounts are of working accounts only: a sign-up still waiting for
+  // approval is not yet on the staff, and counting it made the number jump
+  // with every unreviewed request.
+  const activePeople = useMemo(() => people.filter((u) => u.isActive), [people]);
+  const pendingCount = people.length - activePeople.length;
+  const studentCount = activePeople.filter((u) => u.role === 'student').length;
+  const staffCount = activePeople.length - studentCount;
 
   // Both lists are filtered locally: each is already loaded whole in one
   // request, so a round trip per keystroke would buy nothing.
@@ -175,6 +185,9 @@ const SchoolAdminDashboard = () => {
     );
   }, [events, search]);
 
+  // Every table below gets `relative` so its visually hidden "Actions" header
+  // (absolutely positioned) is clipped by the table's own scroll box; without
+  // it that header widened the whole page on phones.
   const eventsPanel = () => {
     if (errors.events) return <ErrorState {...errors.events} onRetry={load} />;
     if (!events.length) {
@@ -215,7 +228,7 @@ const SchoolAdminDashboard = () => {
             }
           />
         ) : (
-          <Table>
+          <Table className="relative">
             <Thead>
               <Tr>
                 <Th>Event</Th>
@@ -277,7 +290,7 @@ const SchoolAdminDashboard = () => {
       );
     }
     return (
-      <Table>
+      <Table className="relative">
         <Thead>
           <Tr>
             <Th>Session</Th>
@@ -298,12 +311,7 @@ const SchoolAdminDashboard = () => {
               <Td>{c.host ? `${c.host.firstName} ${c.host.lastName}` : '—'}</Td>
               <Td>{formatEventWhen(c.scheduledStart) || '—'}</Td>
               <Td>
-                <Badge
-                  tone={c.status === 'live' ? 'danger' : c.status === 'ended' ? 'neutral' : 'info'}
-                  dot
-                >
-                  {c.status}
-                </Badge>
+                <StatusBadge status={c.status} />
               </Td>
               <Td>
                 <Button
@@ -384,7 +392,7 @@ const SchoolAdminDashboard = () => {
             }
           />
         ) : (
-          <Table>
+          <Table className="relative">
             <Thead>
               <Tr>
                 <Th>Name</Th>
@@ -400,17 +408,25 @@ const SchoolAdminDashboard = () => {
                     <div className="flex items-center gap-3">
                       <Avatar src={u.profilePicture} name={fullName(u)} size="sm" />
                       <div className="min-w-0">
-                        <span className="block font-semibold text-ink-950">
+                        <Link
+                          to={`/users/${u.id}`}
+                          className="block font-semibold text-ink-950 underline-offset-2 hover:underline"
+                        >
                           {fullName(u) || 'Unnamed account'}
-                        </span>
+                        </Link>
                         <span className="block truncate text-xs text-ink-500">{u.email}</span>
                       </div>
                     </div>
                   </Td>
                   <Td>{SCHOOL_ROLE_LABELS[u.role] || u.role?.replace(/_/g, ' ')}</Td>
                   <Td>
+                    {/* A pending sign-up is also inactive; saying "Inactive"
+                        made a new teacher look switched off rather than
+                        waiting for EduMapping to approve them. */}
                     {u.isActive ? (
                       <StatusBadge status={u.approvalStatus || 'approved'} />
+                    ) : u.approvalStatus === 'pending' || u.approvalStatus === 'rejected' ? (
+                      <StatusBadge status={u.approvalStatus} />
                     ) : (
                       <Badge tone="neutral">Inactive</Badge>
                     )}
@@ -449,11 +465,33 @@ const SchoolAdminDashboard = () => {
       <Card>
         <dl className="divide-y divide-ink-950/10">
           <DetailRow label="Name">{organization.name}</DetailRow>
-          <DetailRow label="Type">{organization.type}</DetailRow>
+          <DetailRow label="Type">
+            {organization.type
+              ? organization.type.charAt(0).toUpperCase() + organization.type.slice(1)
+              : null}
+          </DetailRow>
           <DetailRow label="Verified">
             <StatusBadge status={organization.isVerified ? 'approved' : 'pending'} />
           </DetailRow>
           <DetailRow label="Domain">{organization.domain}</DetailRow>
+          <DetailRow label="Website">
+            {organization.website ? (
+              <a
+                // Saved without a scheme ("dps.edu.in") the link would resolve
+                // as a path on EduMapping and land on a blank page.
+                href={
+                  /^https?:\/\//i.test(organization.website)
+                    ? organization.website
+                    : `https://${organization.website}`
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="text-azure-700 underline underline-offset-2"
+              >
+                {organization.website}
+              </a>
+            ) : null}
+          </DetailRow>
           <DetailRow label="Contact email">{organization.contactEmail}</DetailRow>
           <DetailRow label="Contact phone">{organization.contactPhone}</DetailRow>
           <DetailRow label="Address">{organization.address}</DetailRow>
@@ -477,7 +515,7 @@ const SchoolAdminDashboard = () => {
       <PageHeader
         eyebrow={organization?.name || user?.organization?.name || 'School'}
         title="School administration"
-        lead="The events, live classes and organization record you can manage from this role."
+        lead="Your school's events, live classes, people and school record in one place."
         actions={
           <Button as={Link} to="/events/new" icon={PlusIcon}>
             New event
@@ -500,7 +538,13 @@ const SchoolAdminDashboard = () => {
             icon={UserGroupIcon}
             accent="saffron"
             loading={loading}
-            hint={errors.people ? 'Unavailable' : 'Teaching and leadership'}
+            hint={
+              errors.people
+                ? 'Unavailable'
+                : pendingCount
+                  ? `${pendingCount} more awaiting approval`
+                  : 'Teaching and leadership'
+            }
           />
           <StatTile
             label="Upcoming events"
@@ -522,7 +566,7 @@ const SchoolAdminDashboard = () => {
         </StatStrip>
       </SectionBlock>
 
-      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+      <Tabs className="mb-6 w-fit max-w-full" value={tab} onChange={setTab} tabs={TABS} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

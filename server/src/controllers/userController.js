@@ -2,7 +2,7 @@
 const { User, StudentProfile, RecruiterProfile, Organization, Achievement, Application, Job, File, AuditLog } = require('../models');
 const { validationResult } = require('express-validator');
 const notificationService = require('../services/notificationService');
-const { Op } = require('sequelize');
+const { Op, where: sqlWhere, fn, col } = require('sequelize');
 const recruiterAccessService = require('../services/recruiterAccessService');
 const accessService = require('../services/accessService');
 const path = require('path');
@@ -217,9 +217,12 @@ class UserController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
+        const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
         return res.status(400).json({
           error: 'Validation Error',
-          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
+          // The first problem as a sentence, for callers that show one line.
+          message: details[0].message,
+          details
         });
       }
 
@@ -304,6 +307,16 @@ class UserController {
         user: updatedUser
       });
     } catch (error) {
+      // Model validators (e.g. a URL the route rules let through) as the
+      // house shape rather than the generic handler's text.
+      if (error.name === 'SequelizeValidationError') {
+        const details = (error.errors || []).map((e) => ({ field: e.path, message: e.message }));
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: details[0]?.message || 'Some details need fixing.',
+          details
+        });
+      }
       next(error);
     }
   }
@@ -327,11 +340,24 @@ class UserController {
         city,
         zone
       } = req.query;
-      const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
       const limitNum = Math.min(parseInt(limit, 10) || 10, 100);
+      // From the capped page size: computing it from the raw `limit` skipped
+      // rows whenever a caller asked for more than 100 per page.
+      const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limitNum;
 
       const whereClause = {};
-      if (role) whereClause.role = role;
+      if (role) {
+        // An unknown role reached Postgres as an invalid enum value and came
+        // back as a 500 "database configuration" error.
+        if (!User.rawAttributes.role.values.includes(role)) {
+          return res.status(400).json({
+            error: 'Validation Error',
+            message: `"${role}" is not a role on EduMapping`,
+            details: [{ field: 'role', message: 'Choose one of the listed roles' }]
+          });
+        }
+        whereClause.role = role;
+      }
       if (organizationId) whereClause.organizationId = organizationId;
       if (isActive !== undefined) whereClause.isActive = isActive === 'true';
       // The admin's pending-users queue filters on this; it was ignored, so the
@@ -367,11 +393,18 @@ class UserController {
         }).catch(() => {});
       }
 
-      if (search) {
+      const term = String(search || '').trim();
+      if (term) {
+        // Full names too: people search for "John Doe", which matched neither
+        // the first- nor the last-name column on its own.
         whereClause[Op.or] = [
-          { firstName: { [Op.iLike]: `%${search}%` } },
-          { lastName: { [Op.iLike]: `%${search}%` } },
-          { email: { [Op.iLike]: `%${search}%` } }
+          { firstName: { [Op.iLike]: `%${term}%` } },
+          { lastName: { [Op.iLike]: `%${term}%` } },
+          { email: { [Op.iLike]: `%${term}%` } },
+          sqlWhere(
+            fn('concat', col('User.first_name'), ' ', col('User.last_name')),
+            { [Op.iLike]: `%${term}%` }
+          )
         ];
       }
 
@@ -566,12 +599,40 @@ class UserController {
       const { id } = req.params;
       const { isActive } = req.body;
 
+      // A missing or non-boolean value used to be a silent no-op that still
+      // answered "deactivated".
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Say whether the account should be active (true) or inactive (false)',
+          details: [{ field: 'isActive', message: 'Must be true or false' }]
+        });
+      }
+
       const user = await User.findByPk(id);
       if (!user) {
         return res.status(404).json({
           error: 'User Not Found',
           message: 'User not found'
         });
+      }
+
+      if (!isActive && Number(id) === Number(req.user.id)) {
+        return res.status(400).json({
+          error: 'Invalid Operation',
+          message: 'You cannot deactivate your own account'
+        });
+      }
+      if (!isActive && user.role === 'admin') {
+        const others = await User.count({
+          where: { role: 'admin', isActive: true, id: { [Op.ne]: user.id } }
+        });
+        if (!others) {
+          return res.status(400).json({
+            error: 'Invalid Operation',
+            message: 'This is the only active admin. Make someone else an admin first.'
+          });
+        }
       }
 
       await user.update({ isActive });

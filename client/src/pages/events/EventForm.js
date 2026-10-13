@@ -2,13 +2,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import api from '../../services/api';
+import api, { describeApiError, fieldErrorsFrom } from '../../services/api';
 import toast from 'react-hot-toast';
-import { isValidURL } from '../../utils/helpers';
 import {
   Button,
   Card,
   EmptyState,
+  PageLoader,
   Input,
   PageHeader,
   PageShell,
@@ -27,11 +27,51 @@ const EVENT_TYPES = [
   { value: 'other', label: 'Other' }
 ];
 
+/**
+ * ISO timestamp → the "YYYY-MM-DDTHH:mm" a datetime-local input accepts, in
+ * the viewer's own timezone. Splitting the ISO string on "T" (as this did)
+ * left "…:00.000Z" on the end, which the input rejects, so every field came up
+ * blank on edit; and it would have shown UTC, five and a half hours off in IST.
+ */
+const toLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}`;
+};
+
+/** Adds https:// to a pasted link that has no scheme (meet.google.com/abc). */
+const withScheme = (url) => (url && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? `https://${url}` : url);
+
+const isHttpUrl = (url) => {
+  try {
+    const u = new URL(url);
+    return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.');
+  } catch {
+    return false;
+  }
+};
+
+const STATUS_OPTIONS = [
+  { value: 'scheduled', label: 'Published — students can see it and register' },
+  { value: 'draft', label: 'Draft — only organizers can see it' },
+  { value: 'cancelled', label: 'Cancelled — shown as cancelled, registration closed' },
+  { value: 'completed', label: 'Completed' }
+];
+
 const EventForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [loadingEvent, setLoadingEvent] = useState(Boolean(id));
+  // Set when the loaded event belongs to another institution: the server
+  // would refuse the save, so the form is not offered at all.
+  const [forbidden, setForbidden] = useState(false);
+  const [errors, setErrors] = useState({});
   const [orgOptions, setOrgOptions] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
@@ -43,9 +83,8 @@ const EventForm = () => {
     maxParticipants: '',
     meetingPlatform: 'none',
     virtualLink: '',
+    registrationDeadline: '',
     organizationId: '',
-    contactEmail: '',
-    contactPhone: '',
     status: 'scheduled'
   });
 
@@ -65,45 +104,60 @@ const EventForm = () => {
 
   const fetchOrganizations = useCallback(async () => {
     try {
-      const res = await api.get('/organizations?verified=all&limit=200');
+      const res = await api.get('/organizations?verified=all&limit=200', { silent: true });
       const orgs = res.organizations || [];
       // Put EduMapping first if present (global events)
       const edu = orgs.find((o) => (o.name || '').toLowerCase() === 'edumapping');
       const rest = orgs.filter((o) => (o.name || '').toLowerCase() !== 'edumapping');
       setOrgOptions(edu ? [edu, ...rest] : orgs);
     } catch (e) {
-      // Not fatal; admin can still paste an org id if needed.
-      console.error('Failed to fetch organizations:', e);
+      // Not fatal: the select stays empty and the field error explains it.
+      setErrors((prev) => ({
+        ...prev,
+        organizationId: 'Could not load the list of organizations. Reload the page to try again.'
+      }));
     }
   }, []);
 
   const fetchEvent = useCallback(async () => {
     try {
-      const response = await api.get(`/events/${id}`);
+      const response = await api.get(`/events/${id}`, { silent: true });
       const event = response.event;
+
+      if (
+        user &&
+        user.role !== 'admin' &&
+        (!user.organizationId || user.organizationId !== event.organizationId)
+      ) {
+        setForbidden(true);
+        return;
+      }
 
       setFormData({
         title: event.title || '',
         description: event.description || '',
         eventType: event.eventType || 'campus_drive',
         location: event.location || '',
-        startTime: event.startTime
-          ? event.startTime.split('T')[0] + 'T' + event.startTime.split('T')[1]
-          : '',
-        endTime: event.endTime ? event.endTime.split('T')[0] + 'T' + event.endTime.split('T')[1] : '',
+        startTime: toLocalInput(event.startTime),
+        endTime: toLocalInput(event.endTime),
         maxParticipants: event.maxParticipants || '',
         meetingPlatform: event.virtualLink ? inferMeetingPlatform(event.virtualLink) : 'none',
         virtualLink: event.virtualLink || '',
+        registrationDeadline: toLocalInput(event.registrationDeadline),
         organizationId: event.organizationId || '',
-        contactEmail: event.contactEmail || '',
-        contactPhone: event.contactPhone || '',
         status: event.status || 'draft'
       });
     } catch (error) {
-      toast.error('Failed to load event details');
+      toast.error(
+        error?.status === 404
+          ? 'That event no longer exists.'
+          : 'Could not load the event. Check your connection and try again.'
+      );
       navigate('/events');
+    } finally {
+      setLoadingEvent(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, user]);
 
   useEffect(() => {
     if (isEditing) fetchEvent();
@@ -116,109 +170,94 @@ const EventForm = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    setErrors((prev) => (prev[name] ? { ...prev, [name]: undefined } : prev));
+  };
+
+  /** Client-side checks, one message per field, shown under that field. */
+  const validate = () => {
+    const errs = {};
+    const title = formData.title.trim();
+    if (title.length < 3) errs.title = 'Give the event a title of at least 3 characters';
+    if (!formData.description.trim()) errs.description = 'Describe the event so students know what to expect';
+    if (!formData.startTime) errs.startTime = 'Choose when the event starts';
+    if (!formData.endTime) errs.endTime = 'Choose when the event ends';
+    const start = formData.startTime ? new Date(formData.startTime) : null;
+    const end = formData.endTime ? new Date(formData.endTime) : null;
+    if (start && end && start >= end) errs.endTime = 'The event must end after it starts';
+    if (!isEditing && start && start.getTime() < Date.now() - 5 * 60 * 1000) {
+      errs.startTime = 'This time is in the past. Pick a future date and time.';
+    }
+    if (formData.registrationDeadline && end && new Date(formData.registrationDeadline) > end) {
+      errs.registrationDeadline = 'Registration must close before the event ends';
+    }
+    if (formData.maxParticipants !== '' && formData.maxParticipants != null) {
+      const n = Number(formData.maxParticipants);
+      if (!Number.isInteger(n) || n < 1) errs.maxParticipants = 'Enter a whole number of 1 or more, or leave it empty';
+    }
+    if (user?.role === 'admin' && !String(formData.organizationId || '').trim()) {
+      errs.organizationId = 'Choose which organization is running this event';
+    }
+    const link = formData.virtualLink.trim();
+    if (formData.meetingPlatform !== 'none' && !link) {
+      errs.virtualLink = 'Paste the meeting link, or choose "In-person" above';
+    } else if (link && !isHttpUrl(withScheme(link))) {
+      errs.virtualLink = 'Enter a full meeting link, for example https://meet.google.com/abc-defg-hij';
+    }
+    return errs;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return; // a second tap while saving must not create a twin
 
     if (!user || user.role === 'student') {
-      toast.error('You are not authorized to create events');
+      toast.error('Students cannot create events. Ask your placement office or teacher.');
       return;
     }
 
-    // Frontend validation
-    if (!formData.title.trim()) {
-      toast.error('Event title is required');
-      return;
-    }
-
-    if (!formData.description.trim()) {
-      toast.error('Event description is required');
-      return;
-    }
-
-    if (!formData.startTime) {
-      toast.error('Start time is required');
-      return;
-    }
-
-    if (!formData.endTime) {
-      toast.error('End time is required');
-      return;
-    }
-
-    if (new Date(formData.startTime) >= new Date(formData.endTime)) {
-      toast.error('End time must be after start time');
-      return;
-    }
-
-    if (user.role === 'admin' && (!formData.organizationId || !String(formData.organizationId).trim())) {
-      toast.error('Please select an organization');
-      return;
-    }
-
-    if (formData.meetingPlatform !== 'none' && (!formData.virtualLink || !formData.virtualLink.trim())) {
-      toast.error('Please provide the meeting link');
-      return;
-    }
-
-    if (formData.virtualLink && formData.virtualLink.trim() && !isValidURL(formData.virtualLink.trim())) {
-      toast.error('Please provide a valid meeting link URL');
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length) {
+      toast.error('Some details need fixing. Check the highlighted fields.');
       return;
     }
 
     try {
       setLoading(true);
 
-      // Clean and format the data
       const eventData = {
         title: formData.title.trim(),
         description: formData.description.trim(),
         eventType: formData.eventType,
         startTime: new Date(formData.startTime).toISOString(),
         endTime: new Date(formData.endTime).toISOString(),
-        status: formData.status
-        // server will set organizationId/createdBy from token
+        status: formData.status,
+        // Optional fields are always sent: an empty string tells the server to
+        // clear them. Only sending filled ones meant a link or limit, once
+        // set, could never be removed on edit.
+        location: formData.location.trim(),
+        maxParticipants: formData.maxParticipants === '' ? '' : Number(formData.maxParticipants),
+        virtualLink: formData.meetingPlatform === 'none' ? '' : withScheme(formData.virtualLink.trim()),
+        registrationDeadline: formData.registrationDeadline
+          ? new Date(formData.registrationDeadline).toISOString()
+          : ''
       };
 
       // Admins may not be attached to an organization; send organizationId explicitly
       if (user.role === 'admin') {
-        eventData.organizationId = parseInt(formData.organizationId);
+        eventData.organizationId = parseInt(formData.organizationId, 10);
       }
 
-      // Only add optional fields if they have values
-      if (formData.location && formData.location.trim()) {
-        eventData.location = formData.location.trim();
-      }
-
-      if (formData.maxParticipants && formData.maxParticipants > 0) {
-        eventData.maxParticipants = parseInt(formData.maxParticipants);
-      }
-
-      if (formData.virtualLink && formData.virtualLink.trim()) {
-        eventData.virtualLink = formData.virtualLink.trim();
-      }
-
-      let response;
-      if (isEditing) {
-        response = await api.put(`/events/${id}`, eventData);
-        toast.success('Event updated successfully!');
-      } else {
-        response = await api.post('/events', eventData);
-        toast.success('Event created successfully!');
-      }
-
+      // `silent`: the catch below puts the reason under the field it is about.
+      const response = isEditing
+        ? await api.put(`/events/${id}`, eventData, { silent: true })
+        : await api.post('/events', eventData, { silent: true });
+      toast.success(isEditing ? 'Event updated' : 'Event created');
       navigate(`/events/${response.event.id}`);
     } catch (error) {
-      if (error.data && error.data.details) {
-        // Show specific validation errors
-        const errorMessages = error.data.details.map((detail) => detail.message).join(', ');
-        toast.error(`Validation error: ${errorMessages}`);
-      } else if (error.status === 403) {
-        toast.error('You are not authorized to create events');
-      } else {
-        toast.error('Failed to save event');
-      }
+      const fields = fieldErrorsFrom(error);
+      if (Object.keys(fields).length) setErrors(fields);
+      toast.error(describeApiError(error));
     } finally {
       setLoading(false);
     }
@@ -229,14 +268,39 @@ const EventForm = () => {
       <PageShell width="narrow">
         <EmptyState
           icon={LockClosedIcon}
-          title="Access denied"
-          description="You are not authorized to create events."
+          title="Only organizers can create events"
+          description="Students cannot create events. If you want an event added, ask your placement office or teacher."
           action={
             <Button variant="secondary" onClick={() => navigate('/events')}>
               Back to events
             </Button>
           }
         />
+      </PageShell>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <PageShell width="narrow">
+        <EmptyState
+          icon={LockClosedIcon}
+          title="You cannot edit this event"
+          description="It is run by another institution. Only its own organizers can change it."
+          action={
+            <Button variant="secondary" onClick={() => navigate(`/events/${id}`)}>
+              Back to the event
+            </Button>
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  if (loadingEvent) {
+    return (
+      <PageShell width="narrow">
+        <PageLoader label="Loading event" />
       </PageShell>
     );
   }
@@ -274,6 +338,7 @@ const EventForm = () => {
                 name="organizationId"
                 value={formData.organizationId}
                 onChange={handleInputChange}
+                error={errors.organizationId}
                 help="Choose EduMapping (Global) to create an event visible to every organization and student."
               >
                 <option value="">Select organization</option>
@@ -293,6 +358,7 @@ const EventForm = () => {
               name="title"
               value={formData.title}
               onChange={handleInputChange}
+              error={errors.title}
               placeholder="Campus drive — TechCorp"
             />
 
@@ -313,6 +379,7 @@ const EventForm = () => {
                 name="startTime"
                 value={formData.startTime}
                 onChange={handleInputChange}
+                error={errors.startTime}
               />
               <Input
                 label="End time"
@@ -321,12 +388,14 @@ const EventForm = () => {
                 name="endTime"
                 value={formData.endTime}
                 onChange={handleInputChange}
+                error={errors.endTime}
               />
               <Input
                 label="Location"
                 name="location"
                 value={formData.location}
                 onChange={handleInputChange}
+                error={errors.location}
                 placeholder="Auditorium, Block C"
               />
               <Input
@@ -336,7 +405,27 @@ const EventForm = () => {
                 name="maxParticipants"
                 value={formData.maxParticipants}
                 onChange={handleInputChange}
+                error={errors.maxParticipants}
                 placeholder="No limit if empty"
+              />
+              <Input
+                label="Registration closes"
+                type="datetime-local"
+                name="registrationDeadline"
+                value={formData.registrationDeadline}
+                onChange={handleInputChange}
+                error={errors.registrationDeadline}
+                help="Optional. If empty, registration closes when the event starts."
+              />
+              <Select
+                label="Status"
+                name="status"
+                value={formData.status}
+                onChange={handleInputChange}
+                error={errors.status}
+                options={
+                  isEditing ? STATUS_OPTIONS : STATUS_OPTIONS.filter((o) => ['scheduled', 'draft'].includes(o.value))
+                }
               />
             </div>
 
@@ -347,6 +436,7 @@ const EventForm = () => {
               name="description"
               value={formData.description}
               onChange={handleInputChange}
+              error={errors.description}
               placeholder="Describe the event, the agenda, and what participants can expect…"
             />
           </Card>
@@ -365,6 +455,7 @@ const EventForm = () => {
                   meetingPlatform: nextPlatform,
                   virtualLink: nextPlatform === 'none' ? '' : prev.virtualLink
                 }));
+                setErrors((prev) => ({ ...prev, virtualLink: undefined }));
               }}
               options={[
                 { value: 'none', label: 'In-person / no virtual meeting' },
@@ -380,36 +471,14 @@ const EventForm = () => {
               value={formData.virtualLink}
               onChange={handleInputChange}
               placeholder={linkPlaceholder}
+              error={errors.virtualLink}
               disabled={formData.meetingPlatform === 'none'}
               help={
                 formData.meetingPlatform === 'none'
                   ? 'This event will be treated as in-person (no virtual link).'
-                  : 'Paste the meeting invite link. On Join, users are redirected to the app where possible.'
+                  : 'Paste the meeting invite link. Students see a Join button on the event.'
               }
             />
-          </Card>
-        </SectionBlock>
-
-        <SectionBlock title="Contact">
-          <Card>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Input
-                label="Contact email"
-                type="email"
-                name="contactEmail"
-                value={formData.contactEmail}
-                onChange={handleInputChange}
-                placeholder="contact@example.com"
-              />
-              <Input
-                label="Contact phone"
-                type="tel"
-                name="contactPhone"
-                value={formData.contactPhone}
-                onChange={handleInputChange}
-                placeholder="+91 90000 00000"
-              />
-            </div>
           </Card>
         </SectionBlock>
 

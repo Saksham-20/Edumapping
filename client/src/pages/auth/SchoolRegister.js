@@ -128,6 +128,9 @@ const SchoolRegister = () => {
         } else if (!isEmail(formData.organizationContactEmail)) {
           newErrors.organizationContactEmail = 'Please enter a valid contact email';
         }
+        if (formData.organizationContactPhone && !isPhone(formData.organizationContactPhone)) {
+          newErrors.organizationContactPhone = 'Enter a phone number such as 98765 43210';
+        }
       } else if (!formData.organizationId) {
         newErrors.organizationId = 'Please select your school';
       }
@@ -199,9 +202,8 @@ const SchoolRegister = () => {
           delete submitData.organizationWebsite;
           delete submitData.organizationAddress;
 
-          toast.success('School created successfully. Your account is being created...');
         } catch (orgError) {
-          throw asOrgError(orgError, 'Failed to create school');
+          throw asOrgError(orgError, 'Could not register your school. Check its details and try again.');
         }
       }
 
@@ -220,17 +222,9 @@ const SchoolRegister = () => {
         return;
       }
 
-      if (response.user) {
-        if (formData.role === 'new_school') {
-          toast.success(
-            'Registration successful! Your school and account are pending admin approval. You will be notified once approved.',
-            { duration: 6000 }
-          );
-        } else {
-          toast.success('Registration successful!');
-        }
-        navigate('/dashboard');
-      }
+      // Only an approved account (a student) gets here, already signed in.
+      toast.success('Account created. Welcome to EduMapping!');
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       setErrors(submitErrors(error));
     } finally {
@@ -352,7 +346,7 @@ const SchoolRegister = () => {
             <option value="teacher">Teacher</option>
             <option value="school_admin">School Admin</option>
             <option value="career_counselor">Career Counselor</option>
-            <option value="new_school">Register New School</option>
+            <option value="new_school">Register my school (for school administrators)</option>
           </Select>
 
           {!showNewOrgFields && formData.role && formData.role !== 'admin' && (
@@ -363,9 +357,9 @@ const SchoolRegister = () => {
               onChange={handleChange}
               error={errors.organizationId}
               help={
-                availableOrgs.length === 0
-                  ? 'No schools available. Please register a new school.'
-                  : undefined
+                formData.role === 'student'
+                  ? 'Can’t find your school? It may not be on EduMapping yet. Ask a teacher to have it registered.'
+                  : 'Can’t find your school? Choose “Register my school” above.'
               }
             >
               <option value="">Select your school</option>
@@ -422,6 +416,7 @@ const SchoolRegister = () => {
                 type="tel"
                 value={formData.organizationContactPhone}
                 onChange={handleChange}
+                error={errors.organizationContactPhone}
                 help="Optional."
                 placeholder="+919876543210"
               />
@@ -432,6 +427,7 @@ const SchoolRegister = () => {
                 type="url"
                 value={formData.organizationWebsite}
                 onChange={handleChange}
+                error={errors.organizationWebsite}
                 help="Optional."
                 placeholder="https://www.school.edu"
               />
@@ -442,6 +438,7 @@ const SchoolRegister = () => {
                 rows={3}
                 value={formData.organizationAddress}
                 onChange={handleChange}
+                error={errors.organizationAddress}
                 help="Optional."
                 placeholder="School address"
               />

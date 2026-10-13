@@ -17,7 +17,6 @@
 //   GET /api/users?organizationId=   — the roster, and the headcounts from it
 //   GET /api/events?organizationId=  — the school's own activity
 //   GET /api/conferences             — live teaching happening in the school
-//   GET /api/assessments             — what students can be assessed on
 //   GET /api/organizations/:id       — the school record itself
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -30,7 +29,6 @@ import {
   fullName,
   getOrganization,
   isUpcomingEvent,
-  listAssessments,
   listConferences,
   listEvents,
   listOrganizationUsers,
@@ -73,6 +71,18 @@ const TABS = [
   { value: 'school', label: 'School record', icon: BuildingOffice2Icon }
 ];
 
+/** A website saved without a scheme ("dpsdelhi.edu.in") would otherwise be
+ * treated as a path on EduMapping and open a blank page. */
+const externalUrl = (url) => (/^https?:\/\//i.test(url) ? url : `https://${url}`);
+
+/** Pending sign-ups are inactive too, but "Inactive" reads as "switched off". */
+const accountStateLabel = (u) =>
+  u.approvalStatus === 'pending'
+    ? 'Awaiting approval'
+    : u.approvalStatus === 'rejected'
+      ? 'Not approved'
+      : 'Inactive';
+
 const PrincipalDashboard = () => {
   const { user } = useAuth();
   const orgId = user?.organizationId;
@@ -82,7 +92,6 @@ const PrincipalDashboard = () => {
   const [errors, setErrors] = useState({});
   const [events, setEvents] = useState([]);
   const [conferences, setConferences] = useState([]);
-  const [assessments, setAssessments] = useState([]);
   const [organization, setOrganization] = useState(null);
   const [people, setPeople] = useState([]);
 
@@ -90,10 +99,9 @@ const PrincipalDashboard = () => {
     setLoading(true);
     setErrors({});
 
-    const [eventsRes, confRes, assessRes, orgRes, peopleRes] = await Promise.allSettled([
+    const [eventsRes, confRes, orgRes, peopleRes] = await Promise.allSettled([
       listEvents({ limit: 100, ...(orgId ? { organizationId: orgId } : {}) }),
       listConferences(),
-      listAssessments(),
       orgId ? getOrganization(orgId) : Promise.resolve(null),
       orgId ? listOrganizationUsers(orgId) : Promise.resolve(null)
     ]);
@@ -111,21 +119,20 @@ const PrincipalDashboard = () => {
     }
 
     if (confRes.status === 'fulfilled') {
-      setConferences(confRes.value.conferences || []);
+      // The list also carries sessions open to everyone on EduMapping (hosted by
+      // other institutions or the platform team). This tab is "live teaching in
+      // my school", so only this school's sessions belong in it and its count.
+      setConferences(
+        (confRes.value.conferences || []).filter((c) => c.organization?.id === orgId)
+      );
     } else {
       nextErrors.live =
         confRes.reason?.response?.status === 503
           ? {
               title: 'Live classes are not switched on yet',
-              description: 'This server has no LiveKit connection configured.'
+              description: 'Live classes have not been set up on EduMapping yet. Please check back later.'
             }
           : toErrorState(confRes.reason, 'Could not load live classes');
-    }
-
-    if (assessRes.status === 'fulfilled') {
-      setAssessments((assessRes.value.assessments || []).filter((a) => a.isActive !== false));
-    } else {
-      nextErrors.assessments = toErrorState(assessRes.reason, 'Could not load assessments');
     }
 
     if (orgRes.status === 'fulfilled') {
@@ -159,8 +166,13 @@ const PrincipalDashboard = () => {
   );
   const liveNow = useMemo(() => conferences.filter((c) => c.status === 'live'), [conferences]);
   const roleCounts = useMemo(() => countByRole(people), [people]);
-  const studentCount = roleCounts.student || 0;
-  const staffCount = people.length - studentCount;
+  // Headcounts are of working accounts only: a sign-up still waiting for
+  // approval is not yet on the staff, and counting it made the number jump
+  // with every unreviewed request.
+  const activePeople = useMemo(() => people.filter((u) => u.isActive), [people]);
+  const pendingCount = people.length - activePeople.length;
+  const studentCount = activePeople.filter((u) => u.role === 'student').length;
+  const staffCount = activePeople.length - studentCount;
 
   const eventRow = (e) => (
     <Card key={e.id} className="flex flex-col">
@@ -243,9 +255,7 @@ const PrincipalDashboard = () => {
           <Card key={c.id} className="flex flex-col">
             <div className="flex items-start justify-between gap-3">
               <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
-              <Badge tone={c.status === 'live' ? 'danger' : c.status === 'ended' ? 'neutral' : 'info'} dot>
-                {c.status}
-              </Badge>
+              <StatusBadge status={c.status} />
             </div>
             <p className="mt-1 text-xs text-ink-600">
               {c.host ? `${c.host.firstName} ${c.host.lastName}` : 'Unknown host'}
@@ -286,7 +296,11 @@ const PrincipalDashboard = () => {
       <Card>
         <dl className="divide-y divide-ink-950/10">
           <DetailRow label="Name">{organization.name}</DetailRow>
-          <DetailRow label="Type">{organization.type}</DetailRow>
+          <DetailRow label="Type">
+            {organization.type
+              ? organization.type.charAt(0).toUpperCase() + organization.type.slice(1)
+              : null}
+          </DetailRow>
           <DetailRow label="Verified">
             <StatusBadge status={organization.isVerified ? 'approved' : 'pending'} />
           </DetailRow>
@@ -294,7 +308,7 @@ const PrincipalDashboard = () => {
           <DetailRow label="Website">
             {organization.website ? (
               <a
-                href={organization.website}
+                href={externalUrl(organization.website)}
                 target="_blank"
                 rel="noreferrer"
                 className="text-azure-700 underline underline-offset-2"
@@ -350,7 +364,7 @@ const PrincipalDashboard = () => {
                       <p className="truncate text-xs text-ink-500">{u.email}</p>
                       {!u.isActive && (
                         <Badge tone="neutral" className="mt-1.5">
-                          Inactive
+                          {accountStateLabel(u)}
                         </Badge>
                       )}
                     </div>
@@ -375,7 +389,7 @@ const PrincipalDashboard = () => {
       <PageHeader
         eyebrow={organization?.name || user?.organization?.name || 'School'}
         title={`Principal's overview`}
-        lead="Activity running under your school, counted from the records the API will show you."
+        lead="Your school's events, people and live classes, counted from your school's own records."
         actions={
           <Button as={Link} to="/events/new" icon={PlusIcon}>
             New event
@@ -398,7 +412,13 @@ const PrincipalDashboard = () => {
             icon={UserGroupIcon}
             accent="india"
             loading={loading}
-            hint={errors.people ? 'Unavailable' : 'Teaching and leadership'}
+            hint={
+              errors.people
+                ? 'Unavailable'
+                : pendingCount
+                  ? `${pendingCount} more awaiting approval`
+                  : 'Teaching and leadership'
+            }
           />
           <StatTile
             label="Upcoming events"
@@ -406,7 +426,7 @@ const PrincipalDashboard = () => {
             icon={CalendarIcon}
             accent="saffron"
             loading={loading}
-            hint={errors.activity ? 'Unavailable' : `${totalSignups} sign-ups so far`}
+            hint={errors.activity ? 'Unavailable' : `${totalSignups} sign-ups across all events`}
             to="/events"
           />
           <StatTile
@@ -421,7 +441,7 @@ const PrincipalDashboard = () => {
         </StatStrip>
       </SectionBlock>
 
-      <Tabs className="mb-6 w-fit" value={tab} onChange={setTab} tabs={TABS} />
+      <Tabs className="mb-6 w-fit max-w-full" value={tab} onChange={setTab} tabs={TABS} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -447,9 +467,7 @@ const PrincipalDashboard = () => {
               <p className="mt-1 text-sm text-ink-600">
                 Pass rates, placement percentages and year-on-year trends are not yet available
                 to principals. The headcounts and activity above are counted from your school’s
-                own records; nothing on this page is estimated. {assessments.length} assessment
-                {assessments.length === 1 ? ' is' : 's are'} currently available for your
-                students to take.
+                own records; nothing on this page is estimated.
               </p>
             </div>
           </div>

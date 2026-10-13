@@ -51,6 +51,9 @@ const AnnounceModal = ({ open, onClose, role }) => {
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [organizations, setOrganizations] = useState([]);
+  // Branches the server found on this audience's student profiles. A free-text
+  // box had to match the stored text exactly, so "Mechanical" reached nobody.
+  const [branchOptions, setBranchOptions] = useState([]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +93,11 @@ const AnnounceModal = ({ open, onClose, role }) => {
     const t = setTimeout(() => {
       api
         .post('/notifications/announce/preview', { audience }, { silent: true })
-        .then((body) => !cancelled && setPreview(body))
+        .then((body) => {
+          if (cancelled) return;
+          setPreview(body);
+          if (Array.isArray(body.branches)) setBranchOptions(body.branches);
+        })
         .catch((err) => !cancelled && setPreview({ error: err?.message || 'Could not resolve the audience' }))
         .finally(() => !cancelled && setPreviewing(false));
     }, 350);
@@ -231,7 +238,17 @@ const AnnounceModal = ({ open, onClose, role }) => {
               onChange={set('graduationYear')}
               error={errors.graduationYear}
             />
-            <Input label="Branch" placeholder="Any, e.g. Mechanical" value={form.branch} onChange={set('branch')} />
+            {branchOptions.length > 0 ? (
+              <Select
+                label="Branch"
+                value={form.branch}
+                onChange={set('branch')}
+                options={[{ value: '', label: 'All branches' }, ...branchOptions.map((b) => ({ value: b, label: b }))]}
+                help="Every spelling of the branch on student profiles is included."
+              />
+            ) : (
+              <Input label="Branch" placeholder="Any, e.g. Mechanical Engineering" value={form.branch} onChange={set('branch')} />
+            )}
           </div>
           <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-700" aria-live="polite">
             <UserGroupIcon aria-hidden="true" className="h-4 w-4 text-ink-500" />

@@ -57,7 +57,11 @@ const VerificationCard = ({ profile, onChange }) => {
   const upload = async (file) => {
     if (!file) return;
     if (file.type !== 'application/pdf') {
-      toast.error('Upload your marksheets as a single PDF');
+      toast.error('Upload your marksheets as a single PDF. Scan them into one file first.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('That PDF is over 10 MB. Scan at a lower resolution and try again.');
       return;
     }
     setBusy(true);
@@ -105,6 +109,17 @@ const VerificationCard = ({ profile, onChange }) => {
           )}
           {status === 'rejected' && profile?.verificationNotes && (
             <p className="mt-2 rounded-xl border border-vermilion-600/20 bg-white p-3 text-sm text-vermilion-800">“{profile.verificationNotes}”</p>
+          )}
+          {status !== 'verified' && status !== 'pending' && !profile?.marksheetUrl && (
+            <p className="mt-2 text-sm text-ink-600">
+              Start by uploading your semester marksheets and Class X and XII mark sheets as one PDF.
+              The cell checks your CGPA and percentages against them.
+            </p>
+          )}
+          {status === 'pending' && (
+            <p className="mt-2 text-sm text-ink-600">
+              You can still correct your details while you wait. Once verified, they are locked.
+            </p>
           )}
           {profile?.marksheetUrl && (
             <button

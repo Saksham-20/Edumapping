@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from './LoadingSpinner';
 import { Button } from '../ui';
+import { formatRole } from './navigation';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
 const ProtectedRoute = ({ children, requiredRoles = [] }) => {
@@ -17,7 +18,8 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
   if (!isAuthenticated) {
     // Remember where they were headed so the login can send them back rather
     // than dumping everyone on the dashboard.
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // The query string is kept too, so "/jobs?type=internship" survives.
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   }
 
   // An account still awaiting approval reached /pending-approval exactly once,
@@ -47,7 +49,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
           </h1>
           <p className="mt-3 text-sm text-ink-600">
             It’s limited to {requiredRoles.map((r) => r.replace(/_/g, ' ')).join(', ')} accounts.
-            You’re signed in as {user.role?.replace(/_/g, ' ')}.
+            You’re signed in as {formatRole(user.role)}.
           </p>
           <Button as={Link} to="/dashboard" className="mt-6">
             Back to dashboard

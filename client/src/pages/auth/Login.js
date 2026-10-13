@@ -121,15 +121,16 @@ const EnquiryForm = () => {
  * it below a full-viewport screen.
  */
 // The API's login identifier is an email *or* a phone number: the route builds
-// `_loginId` from `identifier || email`, and authService._findUserByIdentifier
-// treats anything without an `@` as a phone and matches `phone` exactly. This
+// `_loginId` from `identifier || email`, and authService treats anything
+// without an `@` as a phone number. This
 // screen used to declare the field `type="email"` and gate it behind an
 // email-only regex, so the phone half of that contract was unreachable from the
 // UI — a seeded account like +91-9876543210 could sign in through curl but not
 // through the app.
 //
-// Phones are matched verbatim server-side, so nothing is normalised here; the
-// check only has to be loose enough to let a plausible phone number through and
+// The server reads any common spelling of a phone number ("+91 98765 43210",
+// "098765 43210"), so nothing is normalised here; the check only has to be
+// loose enough to let a plausible phone number through and
 // tight enough to still catch a typo'd email.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+]?[\d][\d\s().-]{5,19}$/;
@@ -146,7 +147,23 @@ const Login = ({ isSchoolMode = false, altLink }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  // ProtectedRoute stores the page it bounced from as a path string
+  // ("/jobs/12?tab=apply"). This used to read `from.pathname`, which a string
+  // does not have, so every deep link landed on the dashboard after sign-in.
+  // A location object is still accepted for any caller that passes one.
+  const rawFrom = location.state?.from;
+  const fromPath =
+    typeof rawFrom === 'string'
+      ? rawFrom
+      : rawFrom?.pathname
+        ? `${rawFrom.pathname}${rawFrom.search || ''}`
+        : '';
+  // Only an in-app path: never back to a sign-in or sign-up screen, and never
+  // a protocol-relative URL that would leave the site.
+  const from =
+    fromPath.startsWith('/') && !fromPath.startsWith('//') && !/^\/(login|register)/.test(fromPath)
+      ? fromPath
+      : '/dashboard';
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -208,41 +225,20 @@ const Login = ({ isSchoolMode = false, altLink }) => {
       await login(formData.email.trim(), formData.password);
       navigate(from, { replace: true });
     } catch (error) {
-      let errorMessage = 'Login failed. Please try again.';
-
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
+      // The server's sentences are written for the person signing in (wrong
+      // details, waiting for approval, institution not yet approved, too many
+      // attempts), so they are shown as they are. Rewording them here by
+      // keyword used to turn "your institution is pending approval" into
+      // "your account is pending approval", which sent people to chase the
+      // wrong thing.
+      const status = error?.status || error?.response?.status;
+      let message = error?.response?.data?.message || error?.message;
+      if (!error?.response && /network|timeout/i.test(error?.message || '')) {
+        message = 'We could not reach EduMapping. Check your internet connection and try again.';
+      } else if (status >= 500) {
+        message = 'Something went wrong on our side. Please try again in a minute.';
       }
-
-      // The API returns one prose string for every rejection, so the reason has
-      // to be recovered from its wording before it can be rephrased.
-      if (errorMessage.toLowerCase().includes('pending approval') || errorMessage.toLowerCase().includes('pending')) {
-        setErrors({
-          submit: 'Your account is pending approval. Please wait for TPO/Admin approval before logging in.'
-        });
-      } else if (errorMessage.toLowerCase().includes('rejected')) {
-        setErrors({
-          submit: 'Your account has been rejected. Please contact support for more information.'
-        });
-      } else if (errorMessage.toLowerCase().includes('invalid credentials') || errorMessage.toLowerCase().includes('invalid')) {
-        setErrors({
-          submit: 'Those sign-in details were not recognised. Check your email or phone number and password, then try again.'
-        });
-      } else if (errorMessage.toLowerCase().includes('disabled')) {
-        setErrors({
-          submit: 'Your account has been disabled. Please contact support for more information.'
-        });
-      } else {
-        setErrors({
-          submit: errorMessage
-        });
-      }
+      setErrors({ submit: message || 'Sign-in failed. Please try again.' });
     } finally {
       setIsLoading(false);
     }

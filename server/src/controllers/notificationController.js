@@ -1,10 +1,11 @@
 // server/src/controllers/notificationController.js
-const { Notification, User, StudentProfile, Organization, AuditLog } = require('../models');
+const { Notification, User, StudentProfile, Organization, AuditLog, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { validationResult } = require('express-validator');
 const notificationService = require('../services/notificationService');
 const emailService = require('../services/emailService');
 const logger = require('../utils/logger');
+const { branchLabel } = require('../utils/branches');
 
 // Roles an admin may address an announcement to. 'all' means every active
 // account except the sender.
@@ -54,15 +55,35 @@ const escapeHtml = (s) =>
  *
  * Returns `{ where, include, description }` or `{ error }`.
  */
+/** Distinct branch spellings on student profiles, optionally for one institution. */
+const storedBranches = async (organizationId) => {
+  const rows = await StudentProfile.findAll({
+    attributes: [[sequelize.fn('DISTINCT', sequelize.col('branch')), 'branch']],
+    where: { branch: { [Op.ne]: null } },
+    include: organizationId
+      ? [{ model: User, as: 'user', attributes: [], where: { organizationId, role: 'student' }, required: true }]
+      : [],
+    raw: true
+  });
+  return rows.map((r) => r.branch).filter((b) => b && b.trim());
+};
+
 const buildAudience = async (actor, audience = {}) => {
   const where = { isActive: true, id: { [Op.ne]: actor.id } };
   const profileWhere = {};
   const graduationYear = audience.graduationYear ? parseInt(audience.graduationYear, 10) : null;
   const branch = audience.branch ? String(audience.branch).trim() : '';
   if (graduationYear) profileWhere.graduationYear = graduationYear;
-  // Case-insensitive exact match: branch names are free text on the profile
-  // ("Computer Science Engineering" vs "computer science engineering").
-  if (branch) profileWhere.branch = { [Op.iLike]: branch.replace(/[%_\\]/g, '\\$&') };
+  const scopeOrgId = actor.role === 'tpo' ? actor.organizationId : audience.organizationId ? parseInt(audience.organizationId, 10) || -1 : null;
+  // Branch is free text on the profile and every batch spells it its own way
+  // ("CSE", "Computer Science & Engg."). Match every stored spelling whose
+  // canonical name is the one asked for.
+  if (branch) {
+    const wanted = branchLabel(branch);
+    const stored = await storedBranches(scopeOrgId);
+    const spellings = stored.filter((b) => branchLabel(b) === wanted);
+    profileWhere.branch = spellings.length ? { [Op.in]: spellings } : { [Op.iLike]: branch.replace(/[%_\\]/g, '\\$&') };
+  }
 
   let organization = null;
   if (actor.role === 'tpo') {
@@ -72,7 +93,7 @@ const buildAudience = async (actor, audience = {}) => {
     organization = actor.organization || null;
   } else {
     if (audience.organizationId) {
-      organization = await Organization.findByPk(parseInt(audience.organizationId, 10), {
+      organization = await Organization.findByPk(parseInt(audience.organizationId, 10) || -1, {
         attributes: ['id', 'name', 'type']
       });
       if (!organization) return { error: 'Organization not found' };
@@ -206,7 +227,13 @@ class NotificationController {
       if (target.error) return res.status(400).json({ error: 'Invalid Audience', message: target.error });
 
       const recipients = await User.count({ where: target.where, include: target.include, distinct: true, col: 'id' });
-      res.json({ message: 'Audience resolved', recipients, description: target.description });
+      // The branches this sender can target, one entry per department however
+      // many ways it is spelled, so the form can offer a list instead of a
+      // free-text box that has to match the profile exactly.
+      const scopeOrgId =
+        req.user.role === 'tpo' ? req.user.organizationId : parseInt(req.body.audience?.organizationId, 10) || null;
+      const branches = [...new Set((await storedBranches(scopeOrgId)).map(branchLabel))].sort();
+      res.json({ message: 'Audience resolved', recipients, description: target.description, branches });
     } catch (error) {
       next(error);
     }

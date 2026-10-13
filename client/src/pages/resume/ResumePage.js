@@ -1,5 +1,5 @@
 // client/src/pages/resume/ResumePage.js
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -21,8 +21,20 @@ import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ArrowUpTrayIcon
 } from '@heroicons/react/24/outline';
+
+/** Largest resume the upload route accepts (server MAX_FILE_SIZE default). */
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+const formatWhen = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
 
 /** Threshold at which the API will accept a generate request. */
 const COMPLETE_AT = 80;
@@ -51,8 +63,9 @@ const ResumePreview = ({ resumeData }) => {
           </p>
         )}
         <p className="mt-2 flex flex-col items-center justify-center gap-x-3 text-xs text-ink-600 sm:flex-row sm:text-sm">
-          <span>{personalInfo.email}</span>
-          {personalInfo.phone && <span aria-hidden="true">•</span>}
+          <span className="break-all">{personalInfo.email}</span>
+          {/* Stacked on a phone, so the separator would sit alone on a line. */}
+          {personalInfo.phone && <span aria-hidden="true" className="hidden sm:inline">•</span>}
           {personalInfo.phone && <span>{personalInfo.phone}</span>}
         </p>
       </header>
@@ -75,12 +88,30 @@ const ResumePreview = ({ resumeData }) => {
           {profile.branch && (
             <p className="text-sm text-ink-800">Specialization: {profile.branch}</p>
           )}
+          {resumeData.institution && <p className="text-sm text-ink-800">{resumeData.institution}</p>}
           <p className="mt-1 text-sm text-ink-600">
             {profile.cgpa && <span>CGPA: {profile.cgpa}</span>}
             {profile.percentage && profile.cgpa && <span> | </span>}
             {profile.percentage && <span>Percentage: {profile.percentage}%</span>}
             {profile.graduationYear && <span> | Expected graduation: {profile.graduationYear}</span>}
           </p>
+          {/* Same school scores the generated PDF prints. */}
+          {[
+            ['Class XII', profile.class12Percentage],
+            ['Diploma', profile.diplomaPercentage],
+            ['Class X', profile.class10Percentage]
+          ].some(([, v]) => v !== null && v !== undefined) && (
+            <p className="mt-1 text-sm text-ink-600">
+              {[
+                ['Class XII', profile.class12Percentage],
+                ['Diploma', profile.diplomaPercentage],
+                ['Class X', profile.class10Percentage]
+              ]
+                .filter(([, v]) => v !== null && v !== undefined)
+                .map(([label, v]) => `${label}: ${Number(v)}%`)
+                .join(' | ')}
+            </p>
+          )}
         </section>
       )}
 
@@ -173,18 +204,20 @@ const ResumePage = () => {
   const [resumeData, setResumeData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileRef = useRef(null);
 
   const fetchResumeData = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await api.get('/resume/data');
-      setResumeData(response.data);
+      setResumeData({ ...response.data, institution: user?.organization?.name || null });
     } catch (error) {
-      toast.error('Failed to load resume data');
+      // The api interceptor has already said why.
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.organization?.name]);
 
   useEffect(() => {
     fetchResumeData();
@@ -194,12 +227,40 @@ const ResumePage = () => {
     try {
       setIsGenerating(true);
       await api.post('/resume/generate');
-      toast.success('Resume generated successfully!');
+      toast.success('Resume generated');
       await fetchResumeData();
     } catch (error) {
-      toast.error('Failed to generate resume');
+      // The api interceptor has already shown the server's reason.
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // A student's own CV, for those who already have a better one than the
+  // generated layout. It replaces the generated PDF for new applications;
+  // applications already sent keep the resume they went out with.
+  const handleUploadResume = async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
+      toast.error('Upload your resume as a PDF. Save it as PDF from Word or Google Docs first.');
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error('That file is over 10 MB. Export a smaller PDF and try again.');
+      return;
+    }
+    const body = new FormData();
+    body.append('resume', file);
+    setIsUploading(true);
+    try {
+      await api.post('/resume/upload', body, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
+      toast.success('Resume uploaded');
+      await fetchResumeData();
+    } catch (error) {
+      // The api interceptor has already shown the server's reason.
+    } finally {
+      setIsUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -246,6 +307,26 @@ const ResumePage = () => {
   const completionScore = getProfileCompletionScore();
   const isProfileComplete = completionScore >= COMPLETE_AT;
   const hasResume = resumeData?.profile?.resumeUrl;
+  const resumeFile = resumeData?.profile?.resumeFile || null;
+  const isUploaded = resumeFile?.source === 'uploaded';
+  // A generated PDF is a snapshot. If the profile changed afterwards the PDF
+  // recruiters download no longer matches what this page previews.
+  const isStale =
+    !isUploaded &&
+    resumeFile?.createdAt &&
+    resumeData?.profile?.updatedAt &&
+    new Date(resumeData.profile.updatedAt) - new Date(resumeFile.createdAt) > 60000;
+
+  const uploadButton = (
+    <Button
+      variant="secondary"
+      icon={ArrowUpTrayIcon}
+      loading={isUploading}
+      onClick={() => fileRef.current?.click()}
+    >
+      {isUploaded ? 'Replace my PDF' : 'Upload my own PDF'}
+    </Button>
+  );
 
   return (
     <PageShell>
@@ -254,36 +335,39 @@ const ResumePage = () => {
         title="My resume"
         lead="Generate a PDF from your profile, then share it with recruiters and your TPO."
         actions={
-          isProfileComplete ? (
-            hasResume ? (
-              <>
-                <Button
-                  variant="secondary"
-                  icon={ArrowPathIcon}
-                  loading={isGenerating}
-                  onClick={handleGenerateResume}
-                >
-                  Regenerate
-                </Button>
-                <Button icon={ArrowDownTrayIcon} onClick={handleDownloadResume}>
-                  Download PDF
-                </Button>
-              </>
-            ) : (
+          <>
+            {/* Download is never hidden behind profile completion: a student
+                with a resume must always be able to get it back. */}
+            {hasResume && (
+              <Button icon={ArrowDownTrayIcon} onClick={handleDownloadResume}>
+                Download PDF
+              </Button>
+            )}
+            {isProfileComplete ? (
               <Button
-                icon={DocumentTextIcon}
+                variant={hasResume ? 'secondary' : 'primary'}
+                icon={hasResume ? ArrowPathIcon : DocumentTextIcon}
                 loading={isGenerating}
                 onClick={handleGenerateResume}
               >
-                Generate resume
+                {hasResume ? (isUploaded ? 'Generate from profile' : 'Regenerate') : 'Generate resume'}
               </Button>
-            )
-          ) : (
-            <Button as={Link} to="/profile" variant="saffron" icon={ExclamationTriangleIcon}>
-              Complete profile
-            </Button>
-          )
+            ) : (
+              <Button as={Link} to="/profile" variant="saffron" icon={ExclamationTriangleIcon}>
+                Complete profile
+              </Button>
+            )}
+            {uploadButton}
+          </>
         }
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="sr-only"
+        aria-label="Upload your resume as a PDF"
+        onChange={(e) => handleUploadResume(e.target.files?.[0])}
       />
 
       {!isProfileComplete && (
@@ -318,14 +402,53 @@ const ResumePage = () => {
         </div>
       )}
 
-      {hasResume ? (
+      {hasResume && isStale && (
+        <div role="status" className="mb-6 flex items-start gap-3 rounded-2xl border border-saffron-500/40 bg-saffron-50 p-4 text-sm text-saffron-900">
+          <ExclamationTriangleIcon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>
+            Your profile has changed since this PDF was made, so it may be out of date. Regenerate it so
+            new applications get the current version.
+          </p>
+        </div>
+      )}
+
+      {hasResume && isUploaded ? (
+        // An uploaded CV has its own layout; previewing the profile here would
+        // show the student something recruiters never receive.
+        <Card>
+          <div className="flex flex-wrap items-center gap-4">
+            <span
+              aria-hidden="true"
+              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-ink-950/15 bg-bone-100 text-ink-700"
+            >
+              <DocumentTextIcon className="h-6 w-6" strokeWidth={1.6} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-2 font-display text-base font-bold text-ink-950">
+                <CheckCircleIcon aria-hidden="true" className="h-5 w-5 shrink-0 text-india-600" />
+                Using your own resume
+              </p>
+              <p className="break-words text-sm text-ink-600">
+                {resumeFile.originalName}
+                {formatWhen(resumeFile.createdAt) ? ` · uploaded ${formatWhen(resumeFile.createdAt)}` : ''}
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm text-ink-600">
+            This PDF goes with every new application. Jobs you already applied to keep the resume you
+            sent at the time.
+          </p>
+        </Card>
+      ) : hasResume ? (
         <Card padded={false} className="overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-950/10 bg-bone-100 px-5 py-4">
             <h2 className="flex items-center gap-2 font-display text-base font-bold text-ink-950">
               <CheckCircleIcon aria-hidden="true" className="h-5 w-5 text-india-600" />
               Resume generated
             </h2>
-            <Badge tone="neutral">Preview of your PDF</Badge>
+            <Badge tone="neutral">
+              {formatWhen(resumeFile?.createdAt) ? `Made ${formatWhen(resumeFile.createdAt)}` : 'Preview of your PDF'}
+            </Badge>
           </div>
           <div className="overflow-auto bg-bone-200 p-4 sm:p-6 md:p-8">
             <ResumePreview resumeData={resumeData} />
@@ -337,8 +460,8 @@ const ResumePage = () => {
           title="No resume yet"
           description={
             isProfileComplete
-              ? 'Your profile is ready. Generate your resume and it becomes visible to recruiters and TPOs.'
-              : 'Complete your profile details to unlock resume generation. A professional resume improves your chances of getting hired.'
+              ? 'Your profile is ready. Generate a resume from it, or upload your own PDF. You need one to apply for jobs.'
+              : 'Complete your profile to generate a resume from it, or upload your own PDF now. You need one to apply for jobs.'
           }
           action={
             isProfileComplete ? (

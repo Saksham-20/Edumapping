@@ -25,8 +25,23 @@ const fileFilter = (req, file, cb) => {
   if (allowedTypes[mimeType] && allowedTypes[mimeType].includes(fileExtension)) {
     cb(null, true);
   } else {
-    cb(new Error(`File type not allowed. Allowed types: ${Object.keys(allowedTypes).join(', ')}`), false);
+    cb(new Error('This file type is not accepted. Upload a PDF, a Word document, or a JPG, PNG or WebP image.'), false);
   }
+};
+
+// MIME types in words for error messages: "a PDF" rather than "application/pdf".
+const TYPE_WORDS = {
+  'application/pdf': 'a PDF',
+  'application/msword': 'a Word document',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'a Word document',
+  'image/jpeg': 'a JPG image',
+  'image/jpg': 'a JPG image',
+  'image/png': 'a PNG image',
+  'image/webp': 'a WebP image'
+};
+const describeTypes = (types) => {
+  const words = [...new Set(types.map((t) => TYPE_WORDS[t] || t))];
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}` : words[0];
 };
 
 const upload = multer({
@@ -48,7 +63,7 @@ const uploadSingle = (fieldName, allowedTypes = []) => {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json({
             error: 'File Too Large',
-            message: 'File size exceeds the maximum limit'
+            message: `This file is larger than ${Math.round((parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024) / (1024 * 1024))} MB. Upload a smaller file.`
           });
         }
         if (err.code === 'LIMIT_FILE_COUNT') {
@@ -73,7 +88,7 @@ const uploadSingle = (fieldName, allowedTypes = []) => {
         if (!allowedTypes.includes(req.file.mimetype)) {
           return res.status(400).json({
             error: 'Invalid File Type',
-            message: `Only ${allowedTypes.join(', ')} files are allowed`
+            message: `Upload ${describeTypes(allowedTypes)}.`
           });
         }
       }

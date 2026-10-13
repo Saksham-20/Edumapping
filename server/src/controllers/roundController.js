@@ -33,6 +33,17 @@ const pick = (src, keys) =>
 
 const fail = (res, status, error, message) => res.status(status).json({ error, message });
 
+// The bare 'Validation Error' with no message reached the screen as "Some
+// details need fixing" — the first field's reason is what to show.
+const validationFailed = (res, errors) => {
+  const details = errors.array().map(({ path, msg }) => ({ field: path, message: msg }));
+  return res.status(400).json({ error: 'Validation Error', message: details[0]?.message || 'Check the round details.', details });
+};
+
+/** A round that ends before it starts is a typo, not a schedule. */
+const endsBeforeStart = (scheduledAt, endsAt) =>
+  scheduledAt && endsAt && new Date(endsAt).getTime() <= new Date(scheduledAt).getTime();
+
 const audit = (req, action, entityId, newValues) =>
   AuditLog.create({
     userId: req.user.id,
@@ -150,7 +161,7 @@ class RoundController {
   async create(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
+      if (!errors.isEmpty()) return validationFailed(res, errors);
 
       const job = await Job.findByPk(req.body.jobId);
       if (!job) return fail(res, 404, 'Job Not Found', 'Job not found');
@@ -159,6 +170,9 @@ class RoundController {
       }
 
       const data = pick(req.body, ROUND_FIELDS);
+      if (endsBeforeStart(data.scheduledAt, data.endsAt)) {
+        return fail(res, 400, 'Validation Error', 'The round ends before it starts. Check the end time.');
+      }
       if (!data.sequence) {
         const last = await JobRound.max('sequence', { where: { jobId: job.id } });
         data.sequence = (Number(last) || 0) + 1;
@@ -181,7 +195,7 @@ class RoundController {
   async update(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
+      if (!errors.isEmpty()) return validationFailed(res, errors);
 
       const round = await JobRound.findByPk(req.params.id, { include: [{ model: Job, as: 'job' }] });
       if (!round) return fail(res, 404, 'Round Not Found', 'Round not found');
@@ -189,6 +203,15 @@ class RoundController {
         return fail(res, 403, 'Access Forbidden', 'You cannot edit this round');
       }
 
+      const changes = pick(req.body, ROUND_FIELDS);
+      if (
+        endsBeforeStart(
+          changes.scheduledAt !== undefined ? changes.scheduledAt : round.scheduledAt,
+          changes.endsAt !== undefined ? changes.endsAt : round.endsAt
+        )
+      ) {
+        return fail(res, 400, 'Validation Error', 'The round ends before it starts. Check the end time.');
+      }
       const before = { scheduledAt: round.scheduledAt, venue: round.venue, meetingLink: round.meetingLink, status: round.status };
       await round.update(pick(req.body, ROUND_FIELDS));
 
@@ -319,6 +342,26 @@ class RoundController {
         where: { roundId: round.id, applicationId: { [Op.in]: applications.map((a) => a.id) } },
         attributes: ['applicationId']
       });
+      // A roll number that matches a student who never applied to this job
+      // was silently dropped; the cell needs to know who was left out.
+      const notApplied = [];
+      if (Array.isArray(identifiers) && identifiers.length && appWhere.studentId) {
+        const applied = new Set(applications.map((a) => a.studentId));
+        const cleaned = [...new Set(identifiers.map((v) => String(v).trim()).filter(Boolean))];
+        const matched = await User.findAll({
+          where: { id: { [Op.in]: appWhere.studentId[Op.in] } },
+          include: [{ model: StudentProfile, as: 'studentProfile', attributes: ['studentId'] }],
+          attributes: ['id', 'email']
+        });
+        matched
+          .filter((u) => !applied.has(u.id))
+          .forEach((u) => {
+            const hit = cleaned.find(
+              (v) => v.toLowerCase() === u.email.toLowerCase() || v.toLowerCase() === String(u.studentProfile?.studentId || '').toLowerCase()
+            );
+            notApplied.push(hit || u.email);
+          });
+      }
       const already = new Set(existing.map((e) => e.applicationId));
       const fresh = applications.filter((a) => !already.has(a.id));
 
@@ -346,11 +389,24 @@ class RoundController {
       );
 
       audit(req, 'round_participants_added', round.id, { added: fresh.map((a) => a.id) });
+      // A recruiter is told only "not among this job's applicants". Separating
+      // "no such student" from "did not apply" let a company probe whether a
+      // roll number or email belongs to anyone on the platform.
+      const isRecruiter = req.user.role === 'recruiter';
+      const notMatched = isRecruiter ? [...notApplied, ...unknown] : notApplied;
+      const notes = [];
+      if (already.size) notes.push(`${already.size} already in this round`);
+      if (notMatched.length) {
+        notes.push(
+          `${isRecruiter ? 'not among the applicants' : 'not applied to this job'}: ${notMatched.slice(0, 5).join(', ')}${notMatched.length > 5 ? '…' : ''}`
+        );
+      }
       res.json({
-        message: `${fresh.length} student(s) added to ${round.name}`,
+        message: `${fresh.length} student${fresh.length === 1 ? '' : 's'} added to ${round.name}${notes.length ? ` (${notes.join('; ')})` : ''}`,
         added: fresh.length,
         alreadyInRound: already.size,
-        unknown
+        notApplied: notMatched,
+        unknown: isRecruiter ? [] : unknown
       });
     } catch (error) {
       next(error);
@@ -398,6 +454,7 @@ class RoundController {
       );
 
       let targets = [];
+      let unmatched = [];
       if (Array.isArray(participantIds) && participantIds.length) {
         const ids = new Set(participantIds.map(Number));
         targets = inScope.filter((p) => ids.has(p.id));
@@ -408,6 +465,14 @@ class RoundController {
             wanted.has(String(p.application?.student?.email || '').toLowerCase()) ||
             wanted.has(String(p.application?.student?.studentProfile?.studentId || '').toLowerCase())
         );
+        const found = new Set();
+        targets.forEach((p) => {
+          found.add(String(p.application?.student?.email || '').toLowerCase());
+          found.add(String(p.application?.student?.studentProfile?.studentId || '').toLowerCase());
+        });
+        // A typo in a pasted roll number used to vanish: that student kept a
+        // pending result and nobody noticed.
+        unmatched = [...new Set(identifiers.map((v) => String(v).trim()).filter(Boolean))].filter((v) => !found.has(v.toLowerCase()));
       } else {
         return fail(res, 400, 'Validation Error', 'Provide participantIds or identifiers');
       }
@@ -446,7 +511,7 @@ class RoundController {
         );
       }
 
-      const label = { cleared: 'cleared', not_cleared: 'did not clear', absent: 'was marked absent for', pending: 'is pending in' };
+      const label = { cleared: 'cleared', not_cleared: 'did not clear', absent: 'were marked absent for', pending: 'are pending in' };
       await Promise.allSettled(
         [...targets.map((t) => [t, result]), ...others.map((o) => [o, 'not_cleared'])]
           .filter(([, r]) => r !== 'pending')
@@ -462,7 +527,14 @@ class RoundController {
       );
 
       audit(req, 'round_results_recorded', round.id, { result, updated: targets.length, rejectedOthers: others.length });
-      res.json({ message: `${targets.length} result(s) recorded`, updated: targets.length, markedNotCleared: others.length });
+      res.json({
+        message: `${targets.length} result${targets.length === 1 ? '' : 's'} recorded${
+          unmatched.length ? `. Not in this round: ${unmatched.slice(0, 5).join(', ')}${unmatched.length > 5 ? '…' : ''}` : ''
+        }`,
+        updated: targets.length,
+        markedNotCleared: others.length,
+        unmatched
+      });
     } catch (error) {
       next(error);
     }
@@ -539,6 +611,9 @@ class RoundController {
     try {
       const appWhere = { studentId: req.user.id };
       if (req.query.applicationId) appWhere.id = parseInt(req.query.applicationId, 10) || -1;
+      // A withdrawn drive's rounds are no longer the student's business, except
+      // on that application's own page where its history is still shown.
+      else appWhere.status = { [Op.ne]: 'withdrawn' };
       const applications = await Application.findAll({
         where: appWhere,
         attributes: ['id', 'jobId', 'status'],
@@ -566,6 +641,7 @@ class RoundController {
           const p = byRound.get(r.id);
           return {
             id: r.id,
+            applicationStatus: app?.status || null,
             name: r.name,
             roundType: r.roundType,
             sequence: r.sequence,

@@ -287,9 +287,12 @@ const TPOAnalytics = () => {
       api.get('/admin/organizations', { params: { type: 'college', limit: 200 }, silent: true })
     ])
       .then(([unis, colleges]) => {
-        const list = [...(unis.universities || []), ...(colleges.colleges || [])].sort((a, b) =>
-          a.name.localeCompare(b.name)
+        // The university listing now includes colleges too, so the two lists
+        // overlap; keep one entry per institution.
+        const byId = new Map(
+          [...(unis.universities || []), ...(colleges.colleges || [])].map((o) => [o.id, o])
         );
+        const list = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
         setInstitutions(list);
         // Open on the institution with the most students (universities carry
         // a student count; colleges do not), not whichever sorts first.
@@ -391,7 +394,6 @@ const TPOAnalytics = () => {
             value={filters.dateRange}
             onChange={setFilter('dateRange')}
             options={DATE_RANGES}
-            help="Counts are scoped to this window."
           />
         </div>
         <div className="w-full sm:w-52">

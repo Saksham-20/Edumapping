@@ -21,7 +21,9 @@ import {
   DetailRow,
   Divider,
   EmptyState,
+  ErrorState,
   Input,
+  Modal,
   PageHeader,
   PageShell,
   Select,
@@ -86,19 +88,22 @@ const ApplicationDetail = () => {
   const [showStatusUpdate, setShowStatusUpdate] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [feedback, setFeedback] = useState('');
+  // A transient failure (server restarting, offline) is offered as a retry,
+  // not reported as "Application not found".
+  const [loadError, setLoadError] = useState(null);
 
   const fetchApplicationDetails = useCallback(async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
       const response = await api.get(`/applications/${id}`);
       setApplication(response.application || response);
       setNewStatus(response.application?.status || response?.status || '');
     } catch (error) {
-      if (error.status === 403) {
-        toast.error('Access denied. You do not have permission to view this application.');
-      } else {
-        toast.error('Failed to load application details');
-      }
+      // The API client has already toasted the reason; the page below shows
+      // the not-found state. A second, vaguer toast only added noise.
+      setApplication(null);
+      if (![400, 403, 404].includes(error.status)) setLoadError(error.message || 'The server did not respond.');
     } finally {
       setIsLoading(false);
     }
@@ -129,7 +134,12 @@ const ApplicationDetail = () => {
 
     if (application.status === 'applied') return timeline;
 
-    if (['screening', 'shortlisted', 'interviewed', 'selected', 'rejected'].includes(application.status)) {
+    // A rejection can happen at any stage. Only stages with their own
+    // timestamp are shown for one, or a student turned down at screening was
+    // told "Interviewed: the interview process is complete".
+    const rejected = application.status === 'rejected';
+
+    if (['screening', 'shortlisted', 'interviewed', 'selected'].includes(application.status)) {
       timeline.push({
         status: 'screening',
         label: 'Moved to screening',
@@ -138,16 +148,19 @@ const ApplicationDetail = () => {
       });
     }
 
-    if (['shortlisted', 'interviewed', 'selected', 'rejected'].includes(application.status)) {
+    if (
+      ['shortlisted', 'interviewed', 'selected'].includes(application.status) ||
+      (rejected && application.shortlistedAt)
+    ) {
       timeline.push({
         status: 'shortlisted',
         label: 'Shortlisted',
         date: application.shortlistedAt || application.updatedAt || application.appliedAt,
-        description: 'The candidate cleared screening'
+        description: isStudent ? 'You cleared screening' : 'The candidate cleared screening'
       });
     }
 
-    if (['interviewed', 'selected', 'rejected'].includes(application.status)) {
+    if (['interviewed', 'selected'].includes(application.status) || (rejected && application.interviewedAt)) {
       timeline.push({
         status: 'interviewed',
         label: 'Interviewed',
@@ -173,11 +186,33 @@ const ApplicationDetail = () => {
         status: 'withdrawn',
         label: 'Application withdrawn',
         date: application.updatedAt || application.appliedAt,
-        description: 'The candidate withdrew this application'
+        description: isStudent ? 'You withdrew this application' : 'The candidate withdrew this application'
       });
     }
 
     return timeline;
+  };
+
+  // The student whose application this is. They see "you" rather than "the
+  // candidate", and can withdraw from here as well as from the list.
+  const isStudent = user?.role === 'student';
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const canWithdraw =
+    isStudent && application && ['applied', 'screening', 'shortlisted', 'interviewed'].includes(application.status);
+
+  const handleWithdraw = async () => {
+    try {
+      setWithdrawBusy(true);
+      await api.patch(`/applications/${id}/withdraw`);
+      toast.success('Application withdrawn. You can apply again while the drive is open.');
+      setConfirmWithdraw(false);
+      await fetchApplicationDetails();
+    } catch (error) {
+      // The API layer has shown the server's reason.
+    } finally {
+      setWithdrawBusy(false);
+    }
   };
 
   const handleStatusUpdate = async () => {
@@ -193,12 +228,12 @@ const ApplicationDetail = () => {
         feedback: feedback.trim() || undefined
       });
 
-      toast.success('Application status updated successfully');
+      toast.success('Status updated. The student has been notified.');
       setShowStatusUpdate(false);
       setFeedback('');
       await fetchApplicationDetails();
     } catch (error) {
-      toast.error('Failed to update application status');
+      // Already toasted with the server's reason (e.g. a withdrawn application).
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -206,6 +241,9 @@ const ApplicationDetail = () => {
 
   const canUpdateStatus = () => {
     if (!user || !application) return false;
+    // A withdrawal is final on the server; offering the control only led to
+    // an error.
+    if (application.status === 'withdrawn') return false;
     if (user.role === 'admin') return true;
     if (user.role === 'recruiter') return application?.job?.organizationId === user.organizationId;
     // A TPO owns the student, not the posting, so their check runs the other way.
@@ -218,6 +256,18 @@ const ApplicationDetail = () => {
       <PageShell width="narrow">
         <SkeletonCard lines={3} className="mb-6" />
         <SkeletonCard lines={6} />
+      </PageShell>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <PageShell width="narrow">
+        <ErrorState
+          title="Could not load this application"
+          description={`${loadError} Check your connection and try again.`}
+          onRetry={fetchApplicationDetails}
+        />
       </PageShell>
     );
   }
@@ -253,7 +303,21 @@ const ApplicationDetail = () => {
         ]}
         eyebrow="Application"
         title={application.job?.title || 'Application details'}
-        actions={<StatusBadge status={application.status} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={application.status} />
+            {isStudent && application.status === 'selected' && (
+              <Button as={Link} to="/offers" size="sm" variant="saffron">
+                See your offer
+              </Button>
+            )}
+            {canWithdraw && (
+              <Button size="sm" variant="secondary" onClick={() => setConfirmWithdraw(true)}>
+                Withdraw
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <Card className="mb-6">
@@ -301,8 +365,17 @@ const ApplicationDetail = () => {
               <DetailRow label="Name">
                 {`${student.firstName || ''} ${student.lastName || ''}`.trim()}
               </DetailRow>
-              <DetailRow label="Email">{student.email}</DetailRow>
+              {/* break-all: a long college address has no spaces to wrap at
+                  and ran into the next column. */}
+              <DetailRow label="Email">
+                <span className="break-all">{student.email}</span>
+              </DetailRow>
               <DetailRow label="Phone">{student.phone}</DetailRow>
+              {/* The roll number is how placement cells and companies
+                  exchange shortlists. */}
+              {studentProfile?.studentId && (
+                <DetailRow label="Roll number">{studentProfile.studentId}</DetailRow>
+              )}
             </dl>
             {studentProfile && (
               <dl className="divide-y divide-ink-950/10">
@@ -320,6 +393,16 @@ const ApplicationDetail = () => {
                 </DetailRow>
                 {studentProfile.percentage && (
                   <DetailRow label="Percentage">{`${studentProfile.percentage}%`}</DetailRow>
+                )}
+                {(studentProfile.class10Percentage != null || studentProfile.class12Percentage != null) && (
+                  <DetailRow label="Class X / XII">
+                    {[studentProfile.class10Percentage, studentProfile.class12Percentage ?? studentProfile.diplomaPercentage]
+                      .map((v) => (v == null ? '—' : `${v}%`))
+                      .join(' / ')}
+                  </DetailRow>
+                )}
+                {studentProfile.activeBacklogs != null && (
+                  <DetailRow label="Active backlogs">{String(studentProfile.activeBacklogs)}</DetailRow>
                 )}
               </dl>
             )}
@@ -341,11 +424,13 @@ const ApplicationDetail = () => {
             </>
           )}
 
-          {studentProfile?.resumeUrl && (
+          {/* The resume submitted with this application first: the profile's
+              current one may have changed since they applied. */}
+          {(application.resumeUrl || studentProfile?.resumeUrl) && (
             <div className="mt-5">
               <Button
                 // Resumes are private: fetched with the Bearer token, not a public link.
-                onClick={() => openProtectedFile(studentProfile.resumeUrl)}
+                onClick={() => openProtectedFile(application.resumeUrl || studentProfile.resumeUrl)}
                 size="sm"
                 variant="secondary"
                 icon={DocumentArrowDownIcon}
@@ -385,11 +470,11 @@ const ApplicationDetail = () => {
                 options={STATUS_OPTIONS}
               />
               <Input
-                label="Feedback"
+                label="Note to the student"
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Add feedback or notes…"
-                help="Optional. Shared with the candidate."
+                placeholder="e.g. Cleared the technical round"
+                help="Optional. The student sees this with the new status."
               />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -449,6 +534,15 @@ const ApplicationDetail = () => {
         </ol>
       </Card>
 
+      {application.feedback && (
+        <Card className="mb-6">
+          <CardHeader title={user?.role === 'student' ? 'Note from the recruiter' : 'Latest note to the student'} />
+          <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-ink-800">
+            {application.feedback}
+          </p>
+        </Card>
+      )}
+
       {application.coverLetter && (
         <Card className="mb-6">
           <CardHeader title="Cover letter" />
@@ -466,6 +560,22 @@ const ApplicationDetail = () => {
           View job details
         </Button>
       </div>
+      <Modal
+        open={confirmWithdraw}
+        onClose={() => setConfirmWithdraw(false)}
+        title="Withdraw this application?"
+        description="The company will no longer consider you for this drive. While it is still open you can apply again."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmWithdraw(false)}>
+              Keep it
+            </Button>
+            <Button variant="danger" loading={withdrawBusy} onClick={handleWithdraw}>
+              Withdraw
+            </Button>
+          </>
+        }
+      />
     </PageShell>
   );
 };

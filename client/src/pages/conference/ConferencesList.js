@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import conferenceService, { canHostConferences } from '../../services/conferences';
+import api, { describeApiError, fieldErrorsFrom } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Badge,
@@ -16,7 +17,6 @@ import {
   EmptyState,
   ErrorState,
   Input,
-  Modal,
   PageHeader,
   PageShell,
   Select,
@@ -25,12 +25,14 @@ import {
   Textarea,
   cx
 } from '../../components/ui';
+import AdminModal from '../../components/admin/AdminModal';
 import {
   VideoCameraIcon,
   PlusIcon,
   UserCircleIcon,
   CalendarIcon,
-  SignalIcon
+  SignalIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 const TABS = [
@@ -39,7 +41,8 @@ const TABS = [
   { value: 'all', label: 'All' }
 ];
 
-const STATUS_TONES = { live: 'danger', scheduled: 'info', ended: 'neutral' };
+const STATUS_TONES = { live: 'danger', scheduled: 'info', ended: 'neutral', cancelled: 'neutral' };
+const STATUS_LABELS = { live: 'Live now', scheduled: 'Scheduled', ended: 'Ended', cancelled: 'Cancelled' };
 
 /** Formats a scheduled time, or says it is unscheduled. */
 const formatWhen = (iso) => {
@@ -65,7 +68,7 @@ const ConferenceCard = ({ conference, onJoin }) => {
     <Card className="flex flex-col">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-display text-base font-bold text-ink-950">{conference.title}</h3>
+          <h3 className="break-words font-display text-base font-bold text-ink-950">{conference.title}</h3>
           <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-600">
             <UserCircleIcon aria-hidden="true" className="h-3.5 w-3.5" />
             {hostName}
@@ -73,7 +76,7 @@ const ConferenceCard = ({ conference, onJoin }) => {
           </p>
         </div>
         <Badge tone={STATUS_TONES[conference.status] || 'neutral'} dot>
-          {conference.status}
+          {STATUS_LABELS[conference.status] || conference.status}
         </Badge>
       </div>
 
@@ -105,8 +108,15 @@ const ConferencesList = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const canHost = canHostConferences(user?.role);
+  // Without an institution, "my organization" would admit nobody (a platform
+  // admin has none), so that choice is only offered to people who have one.
+  const hasOrg = Boolean(user?.organizationId || user?.organization?.id);
+  const defaultAccess = hasOrg ? 'organization' : 'public';
 
   const [conferences, setConferences] = useState([]);
+  // `null` until the server says; older servers omit it, so only an explicit
+  // `false` shows the warning.
+  const [liveAvailable, setLiveAvailable] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('upcoming');
@@ -116,7 +126,7 @@ const ConferencesList = () => {
     title: '',
     description: '',
     scheduledStart: '',
-    access: 'organization',
+    access: defaultAccess,
     maxParticipants: ''
   });
   const [formErrors, setFormErrors] = useState({});
@@ -129,6 +139,7 @@ const ConferencesList = () => {
       // renders its own error state, and two notices for one failure is noise.
       const data = await conferenceService.list({}, { silent: true });
       setConferences(data.conferences || []);
+      setLiveAvailable(data.liveAvailable === false ? false : true);
     } catch (err) {
       // 503 is the documented "conferencing not provisioned" response, not a
       // fault — it deserves an explanation rather than a generic error.
@@ -173,8 +184,19 @@ const ConferencesList = () => {
     e.preventDefault();
     const errs = {};
     if (form.title.trim().length < 3) errs.title = 'Give the class a title of at least 3 characters';
-    if (form.maxParticipants && Number(form.maxParticipants) < 2) {
-      errs.maxParticipants = 'A session needs room for at least 2 people';
+    if (form.maxParticipants) {
+      const n = Number(form.maxParticipants);
+      if (!Number.isInteger(n) || n < 2 || n > 200) {
+        errs.maxParticipants = 'Enter a whole number from 2 to 200';
+      }
+    }
+    if (form.scheduledStart) {
+      const start = new Date(form.scheduledStart);
+      // A few minutes of slack so "now" typed by hand still counts.
+      if (Number.isNaN(start.getTime())) errs.scheduledStart = 'Enter a valid date and time';
+      else if (start.getTime() < Date.now() - 5 * 60 * 1000) {
+        errs.scheduledStart = 'That time has already passed. Pick a later time or leave it empty.';
+      }
     }
     setFormErrors(errs);
     if (Object.keys(errs).length) return;
@@ -191,16 +213,21 @@ const ConferencesList = () => {
       if (form.scheduledStart) payload.scheduledStart = new Date(form.scheduledStart).toISOString();
       if (form.maxParticipants) payload.maxParticipants = Number(form.maxParticipants);
 
-      const data = await conferenceService.create(payload);
+      // Posted directly because the shared service's `create` takes no request
+      // config; `silent` keeps the error inside the form, next to its field.
+      const data = await api.post('/conferences', payload, { silent: true });
       toast.success('Live class created');
       setCreateOpen(false);
-      setForm({ title: '', description: '', scheduledStart: '', access: 'organization', maxParticipants: '' });
+      setForm({ title: '', description: '', scheduledStart: '', access: defaultAccess, maxParticipants: '' });
       if (data?.conference?.id) navigate(`/conference/${data.conference.id}`);
       else load();
     } catch (err) {
-      setFormErrors({
-        title: err?.response?.data?.message || 'Could not create the class'
-      });
+      const fields = fieldErrorsFrom(err);
+      setFormErrors(
+        Object.keys(fields).length
+          ? fields
+          : { title: describeApiError(err) || 'Could not create the class. Try again.' }
+      );
     } finally {
       setCreating(false);
     }
@@ -226,6 +253,21 @@ const ConferencesList = () => {
           )
         }
       />
+
+      {!loading && !error && liveAvailable === false && (
+        <div
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-saffron-200 bg-saffron-50 px-4 py-3 text-sm text-ink-800"
+        >
+          <ExclamationTriangleIcon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-saffron-600" />
+          <p>
+            <span className="font-semibold">Live video is not switched on yet.</span>{' '}
+            {canHost
+              ? 'You can schedule classes now, but nobody can join a room until live classes are set up on EduMapping.'
+              : 'You can see scheduled classes here, but rooms will not open until live classes are set up. Check back later.'}
+          </p>
+        </div>
+      )}
 
       {!loading && !error && conferences.length > 0 && (
         <Tabs
@@ -285,11 +327,15 @@ const ConferencesList = () => {
         </div>
       )}
 
-      <Modal
+      <AdminModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="New live class"
-        description="Students in your organization will be able to join."
+        description={
+          hasOrg
+            ? 'Students in your institution will be able to join.'
+            : 'Choose who can join below.'
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
@@ -322,17 +368,20 @@ const ConferencesList = () => {
             type="datetime-local"
             value={form.scheduledStart}
             onChange={setField('scheduledStart')}
+            error={formErrors.scheduledStart}
             help="Leave empty to start immediately."
           />
           <Select
             label="Who can join"
             value={form.access}
             onChange={setField('access')}
+            error={formErrors.access}
+            // "Registered for an event" and "invite only" are left out: this
+            // form cannot link an event or invite anyone, so either choice
+            // created a room that nobody could enter.
             options={[
-              { value: 'organization', label: 'Anyone in my organization' },
-              { value: 'registered', label: 'Only students registered for the linked event' },
-              { value: 'invite', label: 'Invite only' },
-              { value: 'public', label: 'Anyone with the link' }
+              ...(hasOrg ? [{ value: 'organization', label: 'Anyone in my institution' }] : []),
+              { value: 'public', label: 'Anyone signed in to EduMapping' }
             ]}
           />
           <Input
@@ -346,7 +395,7 @@ const ConferencesList = () => {
             help="Optional. This server is sized for roughly 25–30 people at once."
           />
         </form>
-      </Modal>
+      </AdminModal>
     </PageShell>
   );
 };

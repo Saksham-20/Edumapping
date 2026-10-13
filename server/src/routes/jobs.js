@@ -34,50 +34,80 @@ router.get('/', optionalAuth, jobController.getAllJobs);
  * salary below the minimum. `partial` makes every field optional, since an
  * update sends only what changed.
  */
+// The largest pay figure accepted, in rupees: 100 crore a year. The column is
+// a 32-bit integer, so anything past ~214 crore used to reach Postgres and come
+// back as a 500 with the SQL in the body; a figure this large is a typo anyway
+// (usually an extra zero, or LPA typed into a rupee field).
+const MAX_SALARY = 1000000000;
+
 const jobValidators = (partial = false) => {
   const required = (chain) => (partial ? chain.optional() : chain);
+  // Every rule carries its own sentence. express-validator's default is the
+  // bare "Invalid value", which told a recruiter something was wrong with the
+  // form but not what or where.
+  const pct = (key, label) =>
+    body(`eligibilityCriteria.${key}`).optional({ nullable: true })
+      .isFloat({ min: 0, max: 100 }).withMessage(`${label} must be a percentage between 0 and 100`);
   return [
-
-    required(body('title')).notEmpty().trim().isLength({ min: 3, max: 255 }),
-    required(body('description')).notEmpty().trim(),
-    required(body('jobType')).isIn(['internship', 'full_time', 'part_time']),
-    body('location').optional().trim(),
-    body('salaryMin').optional().isInt({ min: 0 }),
-    body('salaryMax').optional().isInt({ min: 0 }),
-    body('experienceRequired').optional().isInt({ min: 0 }),
-    body('totalPositions').optional().isInt({ min: 1 }),
-    body('applicationDeadline').optional().isISO8601(),
-    body('requirements').optional().trim(),
-    body('skillsRequired').optional().isArray(),
-    body('status').optional().isIn(['draft', 'active', 'closed', 'cancelled']),
-    body('eligibilityCriteria').optional().isObject(),
+    required(body('title'))
+      .trim()
+      .notEmpty().withMessage('Enter a job title, e.g. Graduate Engineer Trainee')
+      .bail()
+      .isLength({ min: 3, max: 255 }).withMessage('Job title must be between 3 and 255 characters'),
+    required(body('description'))
+      .trim()
+      .notEmpty().withMessage('Describe the role so students know what they are applying for'),
+    required(body('jobType'))
+      .isIn(['internship', 'full_time', 'part_time']).withMessage('Choose full time, part time or internship'),
+    body('location').optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage('Location must be under 255 characters'),
+    body('salaryMin').optional({ nullable: true })
+      .isInt({ min: 0, max: MAX_SALARY }).withMessage('Minimum pay must be a whole number of rupees, e.g. 600000 for 6 LPA'),
+    body('salaryMax').optional({ nullable: true })
+      .isInt({ min: 0, max: MAX_SALARY }).withMessage('Maximum pay must be a whole number of rupees, e.g. 1200000 for 12 LPA'),
+    body('experienceRequired').optional({ nullable: true })
+      .isInt({ min: 0, max: 50 }).withMessage('Experience must be a whole number of years between 0 and 50'),
+    body('totalPositions').optional({ nullable: true })
+      .isInt({ min: 1, max: 100000 }).withMessage('Number of openings must be at least 1'),
+    body('applicationDeadline').optional({ nullable: true })
+      .isISO8601().withMessage('Application deadline must be a date, e.g. 2026-11-30'),
+    body('requirements').optional({ nullable: true }).trim(),
+    body('skillsRequired').optional().isArray().withMessage('Skills must be a list'),
+    body('status').optional().isIn(['draft', 'active', 'closed', 'cancelled'])
+      .withMessage('Status must be draft, active, closed or cancelled'),
+    body('eligibilityCriteria').optional().isObject().withMessage('Eligibility criteria must be an object'),
     // Both spellings are accepted for each rule. Seeded and imported jobs store
     // snake_case while the posting form writes camelCase; validating only the
     // camelCase keys meant branch and batch restrictions were accepted
     // completely unchecked.
-    body('eligibilityCriteria.minCGPA').optional().isFloat({ min: 0, max: 10 }),
-    body('eligibilityCriteria.min_cgpa').optional().isFloat({ min: 0, max: 10 }),
-    body('eligibilityCriteria.allowedBranches').optional().isArray(),
-    body('eligibilityCriteria.allowed_branches').optional().isArray(),
-    body('eligibilityCriteria.allowedBranches.*').optional().isString().trim().isLength({ min: 1, max: 120 }),
-    body('eligibilityCriteria.allowed_branches.*').optional().isString().trim().isLength({ min: 1, max: 120 }),
-    body('eligibilityCriteria.graduationYear').optional().isArray(),
-    body('eligibilityCriteria.graduation_year').optional().isArray(),
-    body('eligibilityCriteria.graduationYear.*').optional().isInt({ min: 1950, max: 2100 }),
-    body('eligibilityCriteria.graduation_year.*').optional().isInt({ min: 1950, max: 2100 }),
+    body('eligibilityCriteria.minCGPA').optional({ nullable: true }).isFloat({ min: 0, max: 10 }).withMessage('Minimum CGPA must be between 0 and 10'),
+    body('eligibilityCriteria.min_cgpa').optional({ nullable: true }).isFloat({ min: 0, max: 10 }).withMessage('Minimum CGPA must be between 0 and 10'),
+    body('eligibilityCriteria.allowedBranches').optional().isArray().withMessage('Eligible branches must be a list'),
+    body('eligibilityCriteria.allowed_branches').optional().isArray().withMessage('Eligible branches must be a list'),
+    body('eligibilityCriteria.allowedBranches.*').optional().isString().trim().isLength({ min: 1, max: 120 }).withMessage('Each branch name must be under 120 characters'),
+    body('eligibilityCriteria.allowed_branches.*').optional().isString().trim().isLength({ min: 1, max: 120 }).withMessage('Each branch name must be under 120 characters'),
+    body('eligibilityCriteria.graduationYear').optional().isArray().withMessage('Graduating batches must be a list of years'),
+    body('eligibilityCriteria.graduation_year').optional().isArray().withMessage('Graduating batches must be a list of years'),
+    body('eligibilityCriteria.graduationYear.*').optional().isInt({ min: 1950, max: 2100 }).withMessage('Each graduating batch must be a four-digit year'),
+    body('eligibilityCriteria.graduation_year.*').optional().isInt({ min: 1950, max: 2100 }).withMessage('Each graduating batch must be a four-digit year'),
     // The academic bars real postings state. Both spellings again, since
     // seeded and imported rows use snake_case.
-    body('eligibilityCriteria.maxBacklogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }),
-    body('eligibilityCriteria.max_backlogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }),
-    body('eligibilityCriteria.minClass10Percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
-    body('eligibilityCriteria.min_class10_percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
-    body('eligibilityCriteria.minClass12Percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
-    body('eligibilityCriteria.min_class12_percentage').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
-    body('eligibilityCriteria.maxEducationGapYears').optional({ nullable: true }).isInt({ min: 0, max: 20 }),
-    body('eligibilityCriteria.max_education_gap_years').optional({ nullable: true }).isInt({ min: 0, max: 20 }),
-    body().custom((body) => {
-      if (body.salaryMin && body.salaryMax && parseInt(body.salaryMin) > parseInt(body.salaryMax)) {
-        throw new Error('Maximum salary must be greater than or equal to minimum salary');
+    body('eligibilityCriteria.maxBacklogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }).withMessage('Maximum backlogs must be a whole number, 0 for none allowed'),
+    body('eligibilityCriteria.max_backlogs').optional({ nullable: true }).isInt({ min: 0, max: 100 }).withMessage('Maximum backlogs must be a whole number, 0 for none allowed'),
+    pct('minClass10Percentage', 'Minimum Class X %'),
+    pct('min_class10_percentage', 'Minimum Class X %'),
+    pct('minClass12Percentage', 'Minimum Class XII %'),
+    pct('min_class12_percentage', 'Minimum Class XII %'),
+    body('eligibilityCriteria.maxEducationGapYears').optional({ nullable: true }).isInt({ min: 0, max: 20 }).withMessage('Maximum education gap must be a whole number of years'),
+    body('eligibilityCriteria.max_education_gap_years').optional({ nullable: true }).isInt({ min: 0, max: 20 }).withMessage('Maximum education gap must be a whole number of years'),
+    // Reported against salaryMax so the form can put it under that input; the
+    // whole-body custom() it replaces surfaced with an empty field name. On an
+    // update only the submitted pair is compared here; the controller checks a
+    // lone figure against the stored one.
+    body('salaryMax').custom((max, { req }) => {
+      const min = req.body.salaryMin;
+      if (min !== undefined && min !== null && min !== '' && max !== null && max !== '' &&
+          Number(min) > Number(max)) {
+        throw new Error('Maximum pay must be greater than or equal to minimum pay');
       }
       return true;
     })
