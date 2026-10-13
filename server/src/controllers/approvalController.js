@@ -2,6 +2,7 @@ const { User, Organization, RecruiterProfile, Job, AuditLog, sequelize } = requi
 const { Op } = require('sequelize');
 const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
+const emailService = require('../services/emailService');
 const {
   canDecideOrganization,
   canDecideUser,
@@ -52,7 +53,7 @@ const badRequest = (res, errors) =>
   res.status(400).json({
     error: 'Validation Error',
     message: errors.array()[0]?.msg || 'Invalid request',
-    details: errors.array()
+    details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
   });
 
 /** Fire-and-forget: an audit write must never fail the decision it records. */
@@ -324,6 +325,17 @@ class ApprovalController {
 
       await transaction.commit();
 
+      // Let the institution's accounts know, in the background.
+      User.findAll({ where: { organizationId: organization.id, approvalStatus: approved ? 'approved' : 'rejected' } })
+        .then((members) =>
+          Promise.all(
+            members.map((m) =>
+              emailService.sendApprovalDecision(m, { approved, organizationName: organization.name, notes })
+            )
+          )
+        )
+        .catch(() => {});
+
       audit(req, `organization_${PAST_TENSE[action]}`, 'organization', organization.id, {
         name: organization.name,
         type: organization.type,
@@ -413,6 +425,10 @@ class ApprovalController {
         approvedAt: new Date(),
         approvalNotes: notes || null
       });
+
+      emailService
+        .sendApprovalDecision(user, { approved, organizationName: user.organization?.name, notes })
+        .catch(() => {});
 
       audit(req, `${user.role === 'recruiter' ? 'recruiter' : 'user'}_${PAST_TENSE[action]}`, 'user', user.id, {
         role: user.role,

@@ -408,10 +408,27 @@ class AuthService {
     // makes every spelling of the same number work regardless of how the row
     // happens to be stored.
     if (isEmail) {
-      return await User.findOne({
-        where: { email: { [Op.iLike]: trimmed } },
+      // iLike for case, with its wildcards escaped: "_" in an address would
+      // otherwise match any character and could pick up someone else's row.
+      const escaped = trimmed.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const user = await User.findOne({
+        where: { email: { [Op.iLike]: escaped } },
         include: [{ model: Organization, as: 'organization' }]
       });
+      if (user) return user;
+
+      // Registration once ran the address through normalizeEmail(), which
+      // drops the dots from Gmail addresses. Those accounts are stored as
+      // "sanjaydixit@gmail.com" while their owners type "sanjay.dixit@…", so a
+      // Gmail address with dots also tries its dotless form.
+      const [local, host] = trimmed.toLowerCase().split('@');
+      if ((host === 'gmail.com' || host === 'googlemail.com') && local.includes('.')) {
+        return await User.findOne({
+          where: { email: { [Op.iLike]: `${local.replace(/\./g, '')}@${host}`.replace(/[\\%_]/g, (c) => `\\${c}`) } },
+          include: [{ model: Organization, as: 'organization' }]
+        });
+      }
+      return null;
     }
 
     const digits = trimmed.replace(/[^0-9]/g, '');
@@ -594,7 +611,8 @@ class AuthService {
     if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       throw httpError(400, 'Valid email is required');
     }
-    const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
+    // Same lookup as sign-in, so a Gmail address saved without its dots is found.
+    const user = await this._findUserByIdentifier(normalizedEmail);
     if (!user) {
       return { message: 'If the email exists, a reset OTP has been sent' };
     }
@@ -637,7 +655,8 @@ class AuthService {
     }
 
     const row = await this._consumeOtp(normalizedEmail, 'forgot_password', otp);
-    const user = await User.findOne({ where: { email: { [Op.iLike]: normalizedEmail } } });
+    // Same lookup as sign-in, so a Gmail address saved without its dots is found.
+    const user = await this._findUserByIdentifier(normalizedEmail);
     if (!user) {
       throw httpError(404, 'User not found');
     }

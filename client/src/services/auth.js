@@ -3,6 +3,10 @@ import api from './api';
 
 const TOKEN_KEY = 'campusconnect_tokens';
 
+/** Whether a just-registered account may use the app right away. */
+export const isSignedInOnRegister = (user) =>
+  Boolean(user) && user.approvalStatus !== 'pending' && user.approvalStatus !== 'rejected' && user.isActive !== false;
+
 class AuthService {
   login = async (email, password) => {
     try {
@@ -23,7 +27,10 @@ class AuthService {
 
   register = async (userData) => {
     const response = await api.post('/auth/register', userData);
-    this.setTokens(response.tokens);
+    // A pending account cannot use its tokens yet — every request would be
+    // refused and the refresh would bounce the person to a bare sign-in page.
+    // Only an approved account is signed in straight away.
+    if (isSignedInOnRegister(response.user)) this.setTokens(response.tokens);
     return response;
   };
 

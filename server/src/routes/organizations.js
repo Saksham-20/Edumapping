@@ -228,21 +228,37 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
  */
 router.post('/register', async (req, res, next) => {
   try {
-    const {
-      name,
-      type,
-      domain,
-      contactEmail,
-      contactPhone,
-      website,
-      address
-    } = req.body;
+    const clean = (v) => (typeof v === 'string' ? v.trim() : v);
+    const name = clean(req.body.name);
+    const type = clean(req.body.type);
+    // Same normalisation as the model setter, so the duplicate check below
+    // compares what will actually be stored.
+    const domain = clean(req.body.domain)
+      ? String(req.body.domain)
+          .trim()
+          .toLowerCase()
+          .replace(/^.*@/, '')
+          .replace(/^https?:\/\//, '')
+          .replace(/^www\./, '')
+          .replace(/\/.*$/, '')
+      : '';
+    const contactEmail = clean(req.body.contactEmail);
+    const contactPhone = clean(req.body.contactPhone) || null;
+    const website = clean(req.body.website) || null;
+    const address = clean(req.body.address) || null;
 
-    // Validate required fields
-    if (!name || !type || !domain || !contactEmail) {
+    // Validate required fields, naming the missing ones.
+    const missing = [
+      !name && { field: 'name', message: 'Institution name is required' },
+      !type && { field: 'type', message: 'Institution type is required' },
+      !domain && { field: 'domain', message: 'Email domain is required' },
+      !contactEmail && { field: 'contactEmail', message: 'Contact email is required' }
+    ].filter(Boolean);
+    if (missing.length) {
       return res.status(400).json({
         error: 'Validation Error',
-        message: 'Name, type, domain, and contact email are required'
+        message: missing[0].message,
+        details: missing
       });
     }
 
@@ -408,21 +424,37 @@ router.post('/register', async (req, res, next) => {
  */
 router.post('/', authenticateToken, requireRole('admin'), async (req, res, next) => {
   try {
-    const {
-      name,
-      type,
-      domain,
-      contactEmail,
-      contactPhone,
-      website,
-      address
-    } = req.body;
+    const clean = (v) => (typeof v === 'string' ? v.trim() : v);
+    const name = clean(req.body.name);
+    const type = clean(req.body.type);
+    // Same normalisation as the model setter, so the duplicate check below
+    // compares what will actually be stored.
+    const domain = clean(req.body.domain)
+      ? String(req.body.domain)
+          .trim()
+          .toLowerCase()
+          .replace(/^.*@/, '')
+          .replace(/^https?:\/\//, '')
+          .replace(/^www\./, '')
+          .replace(/\/.*$/, '')
+      : '';
+    const contactEmail = clean(req.body.contactEmail);
+    const contactPhone = clean(req.body.contactPhone) || null;
+    const website = clean(req.body.website) || null;
+    const address = clean(req.body.address) || null;
 
-    // Validate required fields
-    if (!name || !type || !domain || !contactEmail) {
+    // Validate required fields, naming the missing ones.
+    const missing = [
+      !name && { field: 'name', message: 'Institution name is required' },
+      !type && { field: 'type', message: 'Institution type is required' },
+      !domain && { field: 'domain', message: 'Email domain is required' },
+      !contactEmail && { field: 'contactEmail', message: 'Contact email is required' }
+    ].filter(Boolean);
+    if (missing.length) {
       return res.status(400).json({
         error: 'Validation Error',
-        message: 'Name, type, domain, and contact email are required'
+        message: missing[0].message,
+        details: missing
       });
     }
 

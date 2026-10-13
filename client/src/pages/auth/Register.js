@@ -6,6 +6,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { Button, Card, Input, Select, Textarea } from '../../components/ui';
 import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
+import { asOrgError, isEmail, isPhone, submitErrors, trimPayload } from './registerKit';
+import { isSignedInOnRegister } from '../../services/auth';
 import EmailCodeField, { isValidEmailCode, useEmailVerificationRequired } from './EmailCodeField';
 
 const Register = () => {
@@ -86,7 +88,7 @@ const Register = () => {
 
     if (!formData.email) {
       newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+    } else if (!isEmail(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
 
@@ -104,7 +106,7 @@ const Register = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (formData.phone && !/^[+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
+    if (formData.phone && !isPhone(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
 
@@ -126,7 +128,7 @@ const Register = () => {
         }
         if (!formData.organizationContactEmail) {
           newErrors.organizationContactEmail = 'Contact email is required';
-        } else if (!/\S+@\S+\.\S+/.test(formData.organizationContactEmail)) {
+        } else if (!isEmail(formData.organizationContactEmail)) {
           newErrors.organizationContactEmail = 'Please enter a valid contact email';
         }
         if (formData.organizationWebsite && !/^https?:\/\/.+/.test(formData.organizationWebsite)) {
@@ -154,7 +156,7 @@ const Register = () => {
 
     setIsLoading(true);
     try {
-      let submitData = { ...formData };
+      let submitData = trimPayload(formData);
       delete submitData.confirmPassword;
 
       // Handle new organization registration
@@ -194,7 +196,7 @@ const Register = () => {
 
           toast.success(`${formData.role === 'new_university' ? 'University' : 'Company'} created successfully. Your account is being created...`);
         } catch (orgError) {
-          throw new Error(orgError.message || `Failed to create ${formData.role === 'new_university' ? 'university' : 'company'}`);
+          throw asOrgError(orgError, `Failed to create ${formData.role === 'new_university' ? 'university' : 'company'}`);
         }
       } else {
         // Don't send organizationId for admin role
@@ -206,6 +208,17 @@ const Register = () => {
       if (otp) submitData.otp = otp;
 
       const response = await register(submitData);
+
+      // A new institution, a recruiter or a placement officer waits for
+      // approval: they are not signed in yet, so show them what happens next
+      // rather than a sign-in page.
+      if (!isSignedInOnRegister(response.user)) {
+        navigate('/pending-approval', {
+          replace: true,
+          state: { institution: String(formData.role || '').startsWith('new_'), email: response.user?.email }
+        });
+        return;
+      }
 
       // Where to land afterwards. Registration signs the user straight in — the
       // service stores the returned tokens — so sending them to '/' dropped a
@@ -242,9 +255,7 @@ const Register = () => {
         land();
       }
     } catch (error) {
-      setErrors({
-        submit: error.message || 'Registration failed. Please try again.'
-      });
+      setErrors(submitErrors(error));
     } finally {
       setIsLoading(false);
     }

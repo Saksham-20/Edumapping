@@ -9,7 +9,7 @@ class AuthController {
       if (!errors.isEmpty()) {
         return res.status(400).json({
           error: 'Validation Error',
-          details: errors.array()
+          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
         });
       }
 
@@ -31,7 +31,7 @@ class AuthController {
       if (!errors.isEmpty()) {
         return res.status(400).json({
           error: 'Validation Error',
-          details: errors.array()
+          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
         });
       }
 

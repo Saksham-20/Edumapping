@@ -200,7 +200,7 @@ class NotificationController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', message: errors.array()[0].msg, details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', message: errors.array()[0].msg, details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
       const target = await buildAudience(req.user, req.body.audience);
       if (target.error) return res.status(400).json({ error: 'Invalid Audience', message: target.error });
@@ -229,7 +229,7 @@ class NotificationController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', message: errors.array()[0].msg, details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', message: errors.array()[0].msg, details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const { title, message, priority = 'medium', sendEmail = false } = req.body;

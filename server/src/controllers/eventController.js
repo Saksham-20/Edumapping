@@ -130,7 +130,7 @@ class EventController {
       if (!errors.isEmpty()) {
         return res.status(400).json({
           error: 'Validation Error',
-          details: errors.array()
+          details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
         });
       }
 
@@ -521,7 +521,7 @@ class EventController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const { id } = req.params;
@@ -587,7 +587,7 @@ class EventController {
       // were never enforced.
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const updates = pickEventFields(req.body);

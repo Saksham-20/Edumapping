@@ -3,7 +3,7 @@ const { body, param, query, validationResult } = require('express-validator');
 
 // Common validation rules
 const commonValidations = {
-  email: body('email').isEmail().normalizeEmail(),
+  email: body('email').trim().toLowerCase().isEmail().withMessage('Enter a valid email address'),
   password: body('password').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/),
   name: (field) => body(field).trim().isLength({ min: 1, max: 100 }),
   // Fixed phone validation to allow empty strings
@@ -156,13 +156,15 @@ const validateJobFilters = [
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    // No `value` in the response: it echoed submitted passwords back.
+    const details = errors.array().map((error) => ({
+      field: error.path || error.param,
+      message: error.msg === 'Invalid value' ? `${error.path || error.param} is not valid` : error.msg
+    }));
     return res.status(400).json({
       error: 'Validation Error',
-      details: errors.array().map(error => ({
-        field: error.path || error.param,
-        message: error.msg,
-        value: error.value
-      }))
+      message: details[0].message,
+      details
     });
   }
   next();

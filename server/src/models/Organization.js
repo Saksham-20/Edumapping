@@ -18,11 +18,30 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('university', 'company', 'school', 'college'),
       allowNull: false
     },
+    // The institution's email domain, stored bare ("college.edu"). This was
+    // validated as an email address, which no bare domain can pass, so every
+    // college and company that tried to sign itself up was rejected.
     domain: {
       type: DataTypes.STRING(100),
       unique: true,
+      set(value) {
+        if (value === null || value === undefined) return this.setDataValue('domain', value);
+        const bare = String(value)
+          .trim()
+          .toLowerCase()
+          .replace(/^.*@/, '')
+          .replace(/^https?:\/\//, '')
+          .replace(/^www\./, '')
+          .replace(/\/.*$/, '');
+        this.setDataValue('domain', bare || null);
+      },
       validate: {
-        isEmail: true
+        isDomain(value) {
+          if (!value) return;
+          if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value)) {
+            throw new Error('Email domain should look like college.edu');
+          }
+        }
       }
     },
     logoUrl: {
@@ -35,18 +54,31 @@ module.exports = (sequelize, DataTypes) => {
     contactEmail: {
       type: DataTypes.STRING(255),
       field: 'contact_email',
+      // Phones add a trailing space after an autocompleted address.
+      set(value) {
+        this.setDataValue('contactEmail', value ? String(value).trim().toLowerCase() : value || null);
+      },
       validate: {
-        isEmail: true
+        isEmail: { msg: 'Contact email is not a valid email address' }
       }
     },
     contactPhone: {
       type: DataTypes.STRING(20),
-      field: 'contact_phone'
+      field: 'contact_phone',
+      set(value) {
+        this.setDataValue('contactPhone', value ? String(value).trim() : null);
+      }
     },
     website: {
       type: DataTypes.STRING(255),
+      // "college.edu" and "www.college.edu" are what people type; store a link.
+      set(value) {
+        if (!value || !String(value).trim()) return this.setDataValue('website', null);
+        const v = String(value).trim();
+        this.setDataValue('website', /^https?:\/\//i.test(v) ? v : `https://${v}`);
+      },
       validate: {
-        isUrl: true
+        isUrl: { msg: 'Website must be a web address, such as https://college.edu' }
       }
     },
     isVerified: {

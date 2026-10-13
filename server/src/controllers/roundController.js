@@ -150,7 +150,7 @@ class RoundController {
   async create(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
 
       const job = await Job.findByPk(req.body.jobId);
       if (!job) return fail(res, 404, 'Job Not Found', 'Job not found');
@@ -181,7 +181,7 @@ class RoundController {
   async update(req, res, next) {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
 
       const round = await JobRound.findByPk(req.params.id, { include: [{ model: Job, as: 'job' }] });
       if (!round) return fail(res, 404, 'Round Not Found', 'Round not found');

@@ -55,7 +55,11 @@ module.exports = (sequelize, DataTypes) => {
           this.setDataValue('phone', value);
           return;
         }
-        this.setDataValue('phone', String(value).replace(/[\s\-().]/g, ''));
+        let phone = String(value).replace(/[\s\-().]/g, '');
+        // Indian numbers are often written with the trunk 0 ("09876543210");
+        // the number itself is the 10 digits after it.
+        if (/^0\d{10}$/.test(phone)) phone = phone.slice(1);
+        this.setDataValue('phone', phone);
       },
       validate: {
         // Custom validator to allow empty strings or null values

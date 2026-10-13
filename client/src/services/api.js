@@ -31,6 +31,43 @@ api.interceptors.request.use(
 );
 
 // Response interceptor for token refresh and error handling
+/**
+ * The sentence to show for a failed request. A 400 from validation used to
+ * surface as the bare word "Validation Error" with the reason hidden in
+ * `details`, so a person could not tell which field to fix. The first detail
+ * is the useful part; the generic title is only a last resort.
+ */
+export const describeApiError = (error) => {
+  const data = error?.response?.data || error?.data || {};
+  const details = Array.isArray(data.details) ? data.details : [];
+  const firstDetail = details
+    .map((d) => (typeof d === 'string' ? d : d?.message || d?.msg))
+    .find((m) => m && m !== 'Invalid value');
+  return (
+    data.message ||
+    firstDetail ||
+    (data.error && data.error !== 'Validation Error' ? data.error : null) ||
+    (data.error === 'Validation Error' ? 'Some details need fixing. Check the form and try again.' : null) ||
+    error?.message ||
+    'An unexpected error occurred'
+  );
+};
+
+/**
+ * Field-keyed errors from a validation response, for forms that want to put
+ * each message under its own input: { contactEmail: 'Enter a valid email' }.
+ */
+export const fieldErrorsFrom = (error) => {
+  const data = error?.response?.data || error?.data || {};
+  const out = {};
+  (Array.isArray(data.details) ? data.details : []).forEach((d) => {
+    const field = d?.field || d?.path || d?.param;
+    const msg = d?.message || d?.msg;
+    if (field && msg && msg !== 'Invalid value' && !out[field]) out[field] = msg;
+  });
+  return out;
+};
+
 api.interceptors.response.use(
   (response) => {
     // Return the data directly for easier consumption
@@ -67,10 +104,7 @@ api.interceptors.response.use(
     }
 
     // Handle other errors
-    const errorMessage = error.response?.data?.message || 
-                        error.response?.data?.error || 
-                        error.message || 
-                        'An unexpected error occurred';
+    const errorMessage = describeApiError(error);
 
     // Don't show toast for certain errors.
     // A caller can also opt out per request with `{ silent: true }` — the

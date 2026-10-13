@@ -9,13 +9,33 @@ const { authLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware
 const router = express.Router();
 
 // Validation middleware
+// Every rule names its field in plain words: the form shows the first message
+// verbatim. Email is trimmed and lower-cased but otherwise kept as typed;
+// `normalizeEmail()` used to strip the dots out of Gmail addresses, so
+// "sanjay.dixit@gmail.com" was saved as "sanjaydixit@gmail.com" and that
+// person could not sign in with the address they registered with.
 const validateRegistration = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/),
-  body('firstName').trim().isLength({ min: 1, max: 100 }),
-  body('lastName').trim().isLength({ min: 1, max: 100 }),
-  body('role').isIn(['student', 'recruiter', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor']),
-  body('otp').optional().isLength({ min: 6, max: 6 }).isNumeric(),
+  body('email')
+    .trim()
+    .toLowerCase()
+    .isEmail()
+    .withMessage('Enter a valid email address'),
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password needs an uppercase letter, a lowercase letter and a number'),
+  body('firstName').trim().isLength({ min: 1, max: 100 }).withMessage('First name is required'),
+  body('lastName').trim().isLength({ min: 1, max: 100 }).withMessage('Last name is required'),
+  body('role')
+    .isIn(['student', 'recruiter', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor'])
+    .withMessage('Choose who you are registering as'),
+  body('otp')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 6, max: 6 })
+    .isNumeric()
+    .withMessage('The verification code is the 6 digits from the email'),
   body('organizationId')
     .optional({ values: 'falsy' })
     .custom((value) => {
@@ -94,7 +114,7 @@ router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
   try {
     const email = req.body.email && String(req.body.email).trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'Valid email is required' }] });
+      return res.status(400).json({ error: 'Validation Error', message: 'Enter a valid email address', details: [{ field: 'email', message: 'Enter a valid email address' }] });
     }
     const result = await authService.sendRegistrationOtp(email);
     res.json(result);
@@ -107,9 +127,11 @@ router.post('/register', authLimiter, otpVerifyLimiter, validateRegistration, as
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      const details = errors.array().map((e) => ({ field: e.path, message: e.msg }));
       return res.status(400).json({
         error: 'Validation Error',
-        details: errors.array()
+        message: details[0].message,
+        details
       });
     }
 
@@ -158,7 +180,7 @@ router.post('/login', authLimiter, validateLogin, async (req, res, next) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({
         error: 'Validation Error',
-        details: errors.array()
+        details: errors.array().map(({ path, msg }) => ({ field: path, message: msg }))
       });
     }
 
@@ -273,7 +295,7 @@ router.post('/forgot-password/send-otp', otpSendLimiter, async (req, res, next) 
   try {
     const email = req.body.email && String(req.body.email).trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ error: 'Validation Error', details: [{ msg: 'Valid email is required' }] });
+      return res.status(400).json({ error: 'Validation Error', message: 'Enter a valid email address', details: [{ field: 'email', message: 'Enter a valid email address' }] });
     }
     const result = await authService.sendForgotPasswordOtp(email);
     res.json(result);
@@ -354,7 +376,7 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
       const { currentPassword, newPassword } = req.body;
       const result = await authService.changePassword(req.user.id, currentPassword, newPassword);

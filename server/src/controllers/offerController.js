@@ -54,7 +54,7 @@ class OfferController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const { applicationId, ctc, ctcBreakup, currency, roleTitle, location, isPPO, joiningDate, notes } = req.body;
@@ -211,7 +211,7 @@ class OfferController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const { id } = req.params;
@@ -272,7 +272,7 @@ class OfferController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+        return res.status(400).json({ error: 'Validation Error', details: errors.array().map(({ path, msg }) => ({ field: path, message: msg })) });
       }
 
       const { id } = req.params;

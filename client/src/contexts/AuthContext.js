@@ -1,6 +1,6 @@
 // client/src/contexts/AuthContext.js
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import authService from '../services/auth.js';
+import authService, { isSignedInOnRegister } from '../services/auth.js';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -97,16 +97,18 @@ export const AuthProvider = ({ children }) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       const response = await authService.register(userData);
-      
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: response
-      });
-      
-      toast.success('Registration successful!');
+
+      // Pending accounts are not signed in (see authService.register); the
+      // registration screen sends them to /pending-approval instead.
+      if (isSignedInOnRegister(response.user)) {
+        dispatch({
+          type: 'LOGIN_SUCCESS',
+          payload: response
+        });
+      }
       return response;
     } catch (error) {
-      toast.error(error.message || 'Registration failed');
+      // The API layer has already shown the reason; the form shows it too.
       throw error;
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });

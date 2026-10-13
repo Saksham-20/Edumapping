@@ -6,6 +6,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { Button, Card, Input, PageLoader, Select, Textarea } from '../../components/ui';
 import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
+import { asOrgError, isEmail, isPhone, submitErrors, trimPayload } from './registerKit';
+import { isSignedInOnRegister } from '../../services/auth';
 import EmailCodeField, { isValidEmailCode, useEmailVerificationRequired } from './EmailCodeField';
 
 const SchoolRegister = () => {
@@ -85,7 +87,7 @@ const SchoolRegister = () => {
 
     if (!formData.email) {
       newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+    } else if (!isEmail(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
 
@@ -103,7 +105,7 @@ const SchoolRegister = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (formData.phone && !/^[+]?[1-9][\d]{0,15}$/.test(formData.phone)) {
+    if (formData.phone && !isPhone(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
 
@@ -123,7 +125,7 @@ const SchoolRegister = () => {
         }
         if (!formData.organizationContactEmail) {
           newErrors.organizationContactEmail = 'Contact email is required';
-        } else if (!/\S+@\S+\.\S+/.test(formData.organizationContactEmail)) {
+        } else if (!isEmail(formData.organizationContactEmail)) {
           newErrors.organizationContactEmail = 'Please enter a valid contact email';
         }
       } else if (!formData.organizationId) {
@@ -148,7 +150,7 @@ const SchoolRegister = () => {
 
     setIsLoading(true);
     try {
-      let submitData = { ...formData };
+      let submitData = trimPayload(formData);
       delete submitData.confirmPassword;
 
       // Convert empty organizationId to null
@@ -199,13 +201,24 @@ const SchoolRegister = () => {
 
           toast.success('School created successfully. Your account is being created...');
         } catch (orgError) {
-          throw new Error(orgError.message || 'Failed to create school');
+          throw asOrgError(orgError, 'Failed to create school');
         }
       }
 
       if (otp) submitData.otp = otp;
 
       const response = await register(submitData);
+
+      // A new institution, a recruiter or a placement officer waits for
+      // approval: they are not signed in yet, so show them what happens next
+      // rather than a sign-in page.
+      if (!isSignedInOnRegister(response.user)) {
+        navigate('/pending-approval', {
+          replace: true,
+          state: { institution: String(formData.role || '').startsWith('new_'), email: response.user?.email }
+        });
+        return;
+      }
 
       if (response.user) {
         if (formData.role === 'new_school') {
@@ -219,26 +232,7 @@ const SchoolRegister = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      // The API is inconsistent about where the reason lands, so every known
-      // shape is unwrapped before falling back to a generic message.
-      let errorMessage = 'Registration failed. Please try again.';
-
-      if (error.response?.data) {
-        if (error.response.data.message) {
-          errorMessage = error.response.data.message;
-        } else if (error.response.data.error) {
-          errorMessage = error.response.data.error;
-        } else if (error.response.data.details && Array.isArray(error.response.data.details)) {
-          errorMessage = error.response.data.details.map(d => d.message || d).join(', ');
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      setErrors({
-        submit: errorMessage
-      });
-      toast.error(errorMessage);
+      setErrors(submitErrors(error));
     } finally {
       setIsLoading(false);
     }

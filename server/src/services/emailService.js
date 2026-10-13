@@ -64,6 +64,31 @@ class EmailService {
     }
   }
 
+  /**
+   * Tells someone the result of their approval request. Without it a college
+   * that signed up had no way to know it could now sign in. Sent only when
+   * SMTP is configured, and never allowed to fail the decision itself.
+   */
+  async sendApprovalDecision(user, { approved, organizationName, notes } = {}) {
+    if (!this.isConfigured() || !user?.email) return null;
+    const appUrl = process.env.FRONTEND_URL || 'https://edumapping.com';
+    const who = organizationName ? `${organizationName} on EduMapping` : 'your EduMapping account';
+    const subject = approved ? `Approved: ${who}` : `Update on ${who}`;
+    const esc = (v) => String(v || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const body = approved
+      ? `<p>Hello ${esc(user.firstName)},</p><p>${esc(who)} has been approved. You can sign in now.</p><p><a href="${appUrl}/login">Sign in to EduMapping</a></p>`
+      : `<p>Hello ${esc(user.firstName)},</p><p>We could not approve ${esc(who)} yet.</p>${notes ? `<p>Reason: ${esc(notes)}</p>` : ''}<p>Reply to this email or write to support@edumapping.com and we will help.</p>`;
+    const text = approved
+      ? `Hello ${user.firstName}, ${who} has been approved. Sign in at ${appUrl}/login`
+      : `Hello ${user.firstName}, we could not approve ${who} yet.${notes ? ` Reason: ${notes}.` : ''} Write to support@edumapping.com for help.`;
+    try {
+      return await this.sendEmail(user.email, subject, body, text);
+    } catch (error) {
+      logger.warn('Approval email not sent', { to: logger.sanitize.email(user.email) });
+      return null;
+    }
+  }
+
   async sendWelcomeEmail(user) {
     const subject = 'Welcome to EduMapping!';
     const html = `

@@ -1,6 +1,41 @@
 // server/src/middleware/errorHandler.js
 const logger = require('../utils/logger');
 
+
+// Human names for the fields people actually fill in.
+const FIELD_LABELS = {
+  email: 'Email address',
+  contactEmail: 'Contact email',
+  contact_email: 'Contact email',
+  contactPhone: 'Contact phone',
+  contact_phone: 'Contact phone',
+  phone: 'Phone number',
+  website: 'Website',
+  domain: 'Email domain',
+  name: 'Name',
+  firstName: 'First name',
+  lastName: 'Last name',
+  password: 'Password'
+};
+
+const friendlyValidationMessage = (error) => {
+  const label = FIELD_LABELS[error.path] || String(error.path || 'This field').replace(/_/g, ' ');
+  switch (error.validatorKey) {
+    case 'isEmail':
+      return `${label} is not a valid email address`;
+    case 'isUrl':
+      return `${label} must be a full web address, such as https://college.edu`;
+    case 'notEmpty':
+    case 'is_null':
+      return `${label} is required`;
+    case 'len':
+      return `${label} is too long or too short`;
+    default:
+      // Custom validators already throw a readable sentence.
+      return error.message && !/^Validation \w+ on /.test(error.message) ? error.message : `${label} is not valid`;
+  }
+};
+
 const errorHandler = (err, req, res, next) => {
   // Avoid "Cannot set headers after they are sent" - can crash process and cause 502
   if (res.headersSent) {
@@ -37,14 +72,18 @@ const errorHandler = (err, req, res, next) => {
     })
   });
 
-  // Sequelize validation errors
+  // Sequelize validation errors. The raw messages ("Validation isEmail on
+  // contactEmail failed") mean nothing to the person filling the form, and the
+  // client showed only the title, so a college signing up was told
+  // "Validation Error" with no hint of which field was wrong.
   if (err.name === 'SequelizeValidationError') {
-    const errors = err.errors.map(error => ({
+    const errors = err.errors.map((error) => ({
       field: error.path,
-      message: error.message
+      message: friendlyValidationMessage(error)
     }));
     return res.status(400).json({
       error: 'Validation Error',
+      message: errors[0]?.message || 'Some details need fixing',
       details: errors
     });
   }
