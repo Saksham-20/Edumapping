@@ -5,6 +5,7 @@ const path = require('path');
 const { User, StudentProfile, Achievement, File } = require('../models');
 const fileService = require('./fileService');
 const logger = require('../utils/logger');
+const { httpError } = require('../utils/appError');
 
 class ResumeService {
   async generateResumeFromProfile(userId) {
@@ -24,11 +25,13 @@ class ResumeService {
     });
 
     if (!user) {
-      throw new Error('User not found');
+      throw httpError(404, 'User not found');
     }
 
+    // A student who has not filled in their profile yet is a normal state,
+    // not a server fault: it was a 500 with a stack trace.
     if (!user.studentProfile) {
-      throw new Error('Student profile not found');
+      throw httpError(400, 'Complete your profile first, then generate your resume');
     }
 
     // Delete old resume if exists
@@ -86,10 +89,12 @@ class ResumeService {
       resumeUrl
     });
 
+    // `filePath` is the absolute location on the server's disk; it was
+    // returned here and told every student how the host is laid out.
     return {
       fileId: fileRecord.id,
       fileName,
-      filePath,
+      resumeUrl,
       downloadUrl: `/api/files/${fileRecord.id}/download` // Use File ID-based download endpoint
     };
   }
@@ -411,8 +416,8 @@ class ResumeService {
     return {
       fileId: fileRecord.id,
       fileName: file.originalname,
-      filePath,
-      downloadUrl: resumeUrl
+      resumeUrl,
+      downloadUrl: `/api/files/${fileRecord.id}/download`
     };
   }
 

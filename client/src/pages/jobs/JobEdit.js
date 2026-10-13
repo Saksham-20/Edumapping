@@ -53,6 +53,13 @@ const JobEdit = () => {
   // because the form only edits the minimum CGPA, and the save has to merge
   // into the rest rather than replace it.
   const [eligibilityCriteria, setEligibilityCriteria] = useState(null);
+  // The job's status as loaded. The form used to fold it into one
+  // "isActive" checkbox and write back `active ? 'active' : 'draft'`, so
+  // saving a posting that was waiting for placement-cell review silently
+  // turned it into a draft and dropped it out of the review queue. Status is
+  // no longer part of the edit payload at all; only an active/closed posting
+  // can be opened or closed here, through the status endpoint.
+  const [jobStatus, setJobStatus] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -88,6 +95,7 @@ const JobEdit = () => {
       }
 
       setEligibilityCriteria(job.eligibilityCriteria || null);
+      setJobStatus(job.status || null);
 
       // Stored as one newline-joined string; the form edits it as rows.
       const requirements = job.requirements
@@ -231,8 +239,7 @@ const JobEdit = () => {
         jobType: formData.jobType,
         location: formData.location.trim(),
         requirements: formData.requirements.filter((req) => req.trim() !== '').join('\n'),
-        skillsRequired: formData.skillsRequired.filter((skill) => skill.trim() !== ''),
-        status: formData.isActive ? 'active' : 'draft'
+        skillsRequired: formData.skillsRequired.filter((skill) => skill.trim() !== '')
       };
 
       // Merge rather than replace: the criteria object can carry keys this form
@@ -267,6 +274,13 @@ const JobEdit = () => {
       }
 
       await api.put(`/jobs/${id}`, cleanedData);
+
+      // Opening or closing a live posting is a separate, explicit action.
+      const canToggle = jobStatus === 'active' || jobStatus === 'closed';
+      const wantedStatus = formData.isActive ? 'active' : 'closed';
+      if (canToggle && wantedStatus !== jobStatus) {
+        await api.patch(`/jobs/${id}/status`, { status: wantedStatus });
+      }
 
       toast.success('Job updated');
       navigate(`/jobs/${id}`);
@@ -477,13 +491,27 @@ const JobEdit = () => {
             onRemove={(index) => removeArrayItem(index, 'skillsRequired')}
           />
 
-          <Checkbox
-            label="Keep this job active"
-            description="Uncheck to move the posting back to draft."
-            name="isActive"
-            checked={formData.isActive}
-            onChange={handleInputChange}
-          />
+          {jobStatus === 'active' || jobStatus === 'closed' ? (
+            <Checkbox
+              label="Accepting applications"
+              description="Uncheck to close the posting to new applications."
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleInputChange}
+            />
+          ) : (
+            <p className="rounded-xl border border-ink-950/10 bg-bone-100 px-4 py-3 text-sm text-ink-700">
+              {jobStatus === 'pending_review'
+                ? 'This posting is waiting for placement-cell review. Saving your edits keeps it in the review queue.'
+                : 'This posting is not published. It goes live once the placement cell approves it.'}
+            </p>
+          )}
+          {jobStatus === 'active' && user.role === 'recruiter' && (
+            <p className="text-sm text-ink-600">
+              Changing the eligibility rules or salary of a live posting sends it back to the
+              placement cell for review before students see the change.
+            </p>
+          )}
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-ink-950/10 pt-6">
             <Button as={Link} to="/jobs" variant="ghost">

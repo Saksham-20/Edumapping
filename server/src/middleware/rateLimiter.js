@@ -76,6 +76,26 @@ const otpSendLimiter = rateLimit({
   skip: skipLocalhostInDev
 });
 
+// OTP verification limiter (registration + reset-with-otp). Keyed on IP and
+// the address being attacked, so one IP cannot sweep codes for many accounts
+// and many IPs cannot pool their allowance against one account beyond the
+// per-code attempt counter in authService.
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.OTP_VERIFY_RATE_LIMIT_MAX, 10) || 10,
+  keyGenerator: (req) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    return `${req.ip}|${email}`;
+  },
+  message: {
+    error: 'Too Many Attempts',
+    message: 'Too many verification attempts. Please wait a few minutes and try again.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipLocalhostInDev
+});
+
 // File upload limiter
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -153,9 +173,25 @@ module.exports = {
   authLimiter,
   passwordResetLimiter,
   otpSendLimiter,
+  otpVerifyLimiter,
   uploadLimiter,
   applicationLimiter,
   searchLimiter,
   createRoleLimiter,
   createIPLimiter
 };
+// Public contact form. Unauthenticated and it sends an email per request, so
+// without a limit it is a free relay for flooding the team inbox.
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: parseInt(process.env.CONTACT_RATE_LIMIT_MAX, 10) || 5,
+  message: {
+    error: 'Too Many Requests',
+    message: 'Too many messages sent. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipLocalhostInDev
+});
+
+module.exports.contactLimiter = contactLimiter;

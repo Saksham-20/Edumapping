@@ -3,6 +3,27 @@ const { User, Organization, StudentProfile, RecruiterProfile, RecruiterAllowedOr
 const authService = require('../services/authService');
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
+const crypto = require('crypto');
+
+/**
+ * A one-off password for an imported student: 12 characters from an alphabet
+ * without look-alikes (0/O, 1/l/I), always containing an upper-case letter,
+ * a lower-case letter and a digit so it satisfies the registration policy.
+ */
+function generateTemporaryPassword() {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const all = upper + lower + digits;
+  const pickFrom = (set) => set[crypto.randomInt(set.length)];
+  const chars = [pickFrom(upper), pickFrom(lower), pickFrom(digits)];
+  while (chars.length < 12) chars.push(pickFrom(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
 
 class AdminController {
   // Create a new user
@@ -367,8 +388,17 @@ class AdminController {
         });
       }
 
-      const defaultPassword = process.env.BULK_IMPORT_DEFAULT_PASSWORD || 'Student@123';
-      const passwordHash = await authService.hashPassword(defaultPassword);
+      // Every imported student used to get the same password, 'Student@123'
+      // unless BULK_IMPORT_DEFAULT_PASSWORD was set — a value printed in the
+      // code, so anyone who knew a student's email (usually guessable from
+      // the institution's pattern) could sign in as them. Each student now
+      // gets their own random temporary password, returned once in the import
+      // result for the importer to hand out (the client offers it as a CSV).
+      // BULK_IMPORT_DEFAULT_PASSWORD is no longer read.
+      //
+      // There is no "must change password" flag on users (adding one needs a
+      // migration); the import screen tells the importer to have students
+      // change it after their first sign-in.
 
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
@@ -456,6 +486,8 @@ class AdminController {
         const dateOfBirth = get('dateOfBirth') || null;
 
         try {
+          const temporaryPassword = generateTemporaryPassword();
+          const passwordHash = await authService.hashPassword(temporaryPassword);
           const user = await User.create({
             email,
             passwordHash,
@@ -484,12 +516,31 @@ class AdminController {
             dateOfBirth
           });
 
-          created.push({ row: rowNum, email, name: `${firstName} ${lastName}` });
+          created.push({ row: rowNum, email, name: `${firstName} ${lastName}`, temporaryPassword });
         } catch (err) {
           errors.push({ row: rowNum, email, message: err.message || 'Failed to create user' });
         }
       }
 
+      // Who loaded which students into which institution. Bulk import creates
+      // accounts with access to the platform in one request, and nothing
+      // recorded it. Emails only — never the temporary passwords.
+      await AuditLog.create({
+        userId: req.user.id,
+        action: 'students_bulk_imported',
+        entityType: 'organization',
+        entityId: organizationId,
+        newValues: {
+          total: rows.length,
+          created: created.map((c) => c.email),
+          skipped: skipped.length,
+          errors: errors.length
+        },
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.get('user-agent')
+      }).catch(() => {});
+
+      res.setHeader('Cache-Control', 'no-store');
       res.json({
         message: 'Import completed',
         summary: {
@@ -754,16 +805,22 @@ class AdminController {
         });
       }
       const user = await User.findOne({
-        where: { id: recruiterUserId, role: 'recruiter' },
-        include: [{ model: RecruiterProfile, as: 'recruiterProfile' }]
+        where: { id: recruiterUserId, role: 'recruiter' }
       });
-      if (!user || !user.recruiterProfile) {
+      if (!user) {
         return res.status(404).json({
           error: 'Recruiter Not Found',
-          message: 'Recruiter or recruiter profile not found'
+          message: 'Recruiter not found'
         });
       }
-      const profile = user.recruiterProfile;
+      // A recruiter who never saved their own profile had no row, and this
+      // answered 404 — so an admin could not grant access to a recruiter until
+      // the recruiter happened to edit their profile. An empty profile is the
+      // correct starting point (no allowed institutions = no access).
+      const [profile] = await RecruiterProfile.findOrCreate({
+        where: { userId: user.id },
+        defaults: { userId: user.id }
+      });
       const allowedOrgs = await RecruiterAllowedOrganization.findAll({
         where: { recruiterProfileId: profile.id },
         attributes: ['organizationId']
@@ -805,16 +862,22 @@ class AdminController {
         });
       }
       const user = await User.findOne({
-        where: { id: recruiterUserId, role: 'recruiter' },
-        include: [{ model: RecruiterProfile, as: 'recruiterProfile' }]
+        where: { id: recruiterUserId, role: 'recruiter' }
       });
-      if (!user || !user.recruiterProfile) {
+      if (!user) {
         return res.status(404).json({
           error: 'Recruiter Not Found',
-          message: 'Recruiter or recruiter profile not found'
+          message: 'Recruiter not found'
         });
       }
-      const profile = user.recruiterProfile;
+      // A recruiter who never saved their own profile had no row, and this
+      // answered 404 — so an admin could not grant access to a recruiter until
+      // the recruiter happened to edit their profile. An empty profile is the
+      // correct starting point (no allowed institutions = no access).
+      const [profile] = await RecruiterProfile.findOrCreate({
+        where: { userId: user.id },
+        defaults: { userId: user.id }
+      });
       const validIds = organizationIds.filter((n) => Number.isInteger(Number(n)) && Number(n) > 0);
       const orgs = await Organization.findAll({
         where: { id: { [Op.in]: validIds } },

@@ -106,9 +106,11 @@ router.get('/user/:userId', authenticateToken, achievementController.getUserAchi
  *     security:
  *       - bearerAuth: []
  */
+// School staff verify their own students' achievements as a TPO does for a
+// college; the controller limits every one of them to their own institution.
 router.patch('/:id/verify', 
   authenticateToken, 
-  requireRole('admin', 'tpo'),
+  requireRole('admin', 'tpo', 'principal', 'teacher', 'school_admin', 'career_counselor'),
   [
     body('isVerified').isBoolean()
   ],

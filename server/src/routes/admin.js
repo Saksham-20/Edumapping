@@ -5,6 +5,7 @@ const { requireRole } = require('../middleware/rbac');
 const adminController = require('../controllers/adminController');
 const adminOrganizationController = require('../controllers/adminOrganizationController');
 const { createUploadMiddleware, FILE_TYPES, handleMulterError } = require('../config/multer');
+const { uploadLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -82,7 +83,7 @@ router.post('/users/bulk', adminController.bulkUpdateUsers);
  *     security:
  *       - bearerAuth: []
  */
-router.post('/students/import', uploadExcel, handleMulterError, adminController.importStudentsFromExcel);
+router.post('/students/import', uploadLimiter, uploadExcel, handleMulterError, adminController.importStudentsFromExcel);
 
 /**
  * @swagger

@@ -394,11 +394,9 @@ const CareerCounselorDashboard = () => {
           </div>
         )}
         <p className="mt-5 text-xs text-ink-500">
-          Names and streams only. How a student is progressing — their applications and
-          achievements — has no endpoint this role can call:{' '}
-          <code className="text-ink-700">GET /api/applications</code> returns only your own rows,
-          and <code className="text-ink-700">GET /api/achievements</code> filters by a single
-          known <code className="text-ink-700">userId</code>.
+          Names and streams only. A student’s applications and achievements are not yet
+          shown to career counsellors here; open a student’s profile to see what they have
+          shared.
         </p>
       </>
     );

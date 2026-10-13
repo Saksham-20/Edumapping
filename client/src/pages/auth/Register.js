@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { Button, Card, Input, Select, Textarea } from '../../components/ui';
 import { AuthBrand, AuthShell, FormError, PasswordField } from './authKit';
+import EmailCodeField, { isValidEmailCode, useEmailVerificationRequired } from './EmailCodeField';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -28,6 +29,13 @@ const Register = () => {
   const [organizations, setOrganizations] = useState([]);
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [otp, setOtp] = useState('');
+  const emailVerificationRequired = useEmailVerificationRequired();
+  // The institution created on an earlier attempt. The org is created before
+  // the account, so when the account step failed (email taken, server
+  // validation) a retry used to create the org again and hit 409 "already
+  // registered", leaving the person stuck. A retry now reuses it.
+  const [createdOrg, setCreatedOrg] = useState(null);
 
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -112,9 +120,9 @@ const Register = () => {
           newErrors.organizationName = `${formData.role === 'new_university' ? 'University' : 'Company'} name is required`;
         }
         if (!formData.organizationDomain) {
-          newErrors.organizationDomain = 'Domain email is required';
-        } else if (!/\S+@\S+\.\S+/.test(formData.organizationDomain)) {
-          newErrors.organizationDomain = 'Please enter a valid domain email';
+          newErrors.organizationDomain = 'Email domain is required';
+        } else if (!/^(\S+@)?[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(formData.organizationDomain.trim())) {
+          newErrors.organizationDomain = 'Enter a domain such as school.edu';
         }
         if (!formData.organizationContactEmail) {
           newErrors.organizationContactEmail = 'Contact email is required';
@@ -127,6 +135,10 @@ const Register = () => {
       } else if (!formData.organizationId) {
         newErrors.organizationId = 'Please select an organization';
       }
+    }
+
+    if (emailVerificationRequired && !isValidEmailCode(otp)) {
+      newErrors.otp = 'Enter the 6-digit code we emailed you';
     }
 
     setErrors(newErrors);
@@ -152,15 +164,21 @@ const Register = () => {
           const orgData = {
             name: formData.organizationName,
             type: formData.role === 'new_university' ? 'university' : 'company',
-            domain: formData.organizationDomain,
+            // Stored bare ("school.edu"); people often type an address instead.
+            domain: formData.organizationDomain.trim().replace(/^.*@/, '').toLowerCase(),
             contactEmail: formData.organizationContactEmail,
             contactPhone: formData.organizationContactPhone || null,
             website: formData.organizationWebsite || null,
             address: formData.organizationAddress || null
           };
 
-          const orgResponse = await api.post('/organizations/register', orgData);
-          const newOrg = orgResponse.organization;
+          const orgKey = `${orgData.type}:${orgData.name.trim().toLowerCase()}`;
+          let newOrg = createdOrg && createdOrg.key === orgKey ? createdOrg : null;
+          if (!newOrg) {
+            const orgResponse = await api.post('/organizations/register', orgData);
+            newOrg = { id: orgResponse.organization.id, key: orgKey };
+            setCreatedOrg(newOrg);
+          }
 
           // Set the role and organizationId for user registration
           submitData.role = formData.role === 'new_university' ? 'tpo' : 'recruiter';
@@ -184,6 +202,8 @@ const Register = () => {
           delete submitData.organizationId;
         }
       }
+
+      if (otp) submitData.otp = otp;
 
       const response = await register(submitData);
 
@@ -299,6 +319,18 @@ const Register = () => {
             placeholder="you@example.com"
           />
 
+          {emailVerificationRequired && (
+            <EmailCodeField
+              email={formData.email}
+              value={otp}
+              onChange={(value) => {
+                setOtp(value);
+                if (errors.otp) setErrors((prev) => ({ ...prev, otp: '' }));
+              }}
+              error={errors.otp}
+            />
+          )}
+
           <Input
             label="Phone number"
             name="phone"
@@ -307,7 +339,7 @@ const Register = () => {
             onChange={handleChange}
             error={errors.phone}
             help="Optional."
-            placeholder="+91 1234567890"
+            placeholder="+919876543210"
           />
 
           <Select
@@ -380,15 +412,15 @@ const Register = () => {
               />
 
               <Input
-                label="Domain email"
+                label="Email domain"
                 name="organizationDomain"
-                type="email"
+                type="text"
                 required
                 value={formData.organizationDomain}
                 onChange={handleChange}
                 error={errors.organizationDomain}
                 help={`This will be used to verify your ${newOrgNoun} domain.`}
-                placeholder={`example@${formData.role === 'new_university' ? 'university.edu' : 'company.com'}`}
+                placeholder={formData.role === 'new_university' ? 'e.g. university.edu' : 'e.g. company.com'}
               />
 
               <Input
@@ -409,7 +441,7 @@ const Register = () => {
                 value={formData.organizationContactPhone}
                 onChange={handleChange}
                 error={errors.organizationContactPhone}
-                placeholder="+1-555-0100"
+                placeholder="+919876543210"
               />
 
               <Input

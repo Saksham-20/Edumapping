@@ -15,6 +15,16 @@ class EmailService {
     });
   }
 
+  /**
+   * Whether mail can actually leave this server. Without SMTP_HOST the
+   * transporter points at localhost:1025, which only exists on a developer's
+   * machine running a mail catcher; registration uses this to decide whether
+   * it can insist on an emailed code.
+   */
+  isConfigured() {
+    return !!process.env.SMTP_HOST;
+  }
+
   async sendEmail(to, subject, html, text) {
     try {
       const mailOptions = {

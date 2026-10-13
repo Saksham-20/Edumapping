@@ -13,8 +13,16 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection', reason, { promise: String(promise) });
 });
 
+// An uncaught exception leaves the process in an undefined state — a half-run
+// handler, a leaked connection, a lock never released. Carrying on (as this
+// used to) serves later requests from that state. Log it and exit; pm2
+// restarts the process clean within a second. The listener-first startup
+// means the gap is a brief 502, not an outage.
 process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception', err);
+  logger.error('Uncaught Exception — exiting so the process manager restarts clean', err);
+  // Give the logger a moment to flush before the process goes away.
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 100);
 });
 
 async function startServer() {

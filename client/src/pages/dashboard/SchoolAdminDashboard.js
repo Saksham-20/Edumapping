@@ -426,9 +426,8 @@ const SchoolAdminDashboard = () => {
             /api/approvals and PUT /api/users/:id/status are both TPO/admin
             only, so this table reads rather than administers. */}
         <p className="mt-4 text-xs text-ink-500">
-          Read-only. Activating, deactivating or approving an account still needs an
-          admin or placement officer — <code className="text-ink-700">/api/approvals</code> is
-          not open to this role.
+          Read-only. Activating, deactivating or approving an account is done by an
+          EduMapping administrator.
         </p>
       </>
     );

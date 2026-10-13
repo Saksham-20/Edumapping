@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import authService from '../../services/auth';
+import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
 import { calculateProfileCompletion } from '../../utils/helpers';
 import {
@@ -23,13 +23,6 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
-
-// `REACT_APP_API_URL` already ends in `/api` (services/api.js uses it verbatim
-// as the axios baseURL). Appending another `/api` here produced
-// `/api/api/files/…`, which 404s, and the `resumeUrl` fallback pointed at
-// `/api/uploads/…` instead of `/uploads/…`. Strip the suffix and keep the
-// origin; unset in dev this collapses to a relative URL the CRA proxy forwards.
-const API_ORIGIN = (process.env.REACT_APP_API_URL || '').replace(/\/api\/?$/, '');
 
 /** Threshold at which the API will accept a generate request. */
 const COMPLETE_AT = 80;
@@ -211,55 +204,19 @@ const ResumePage = () => {
   };
 
   const handleDownloadResume = async () => {
-    try {
-      // Use File ID for download if available (preferred method)
-      if (resumeData?.profile?.resumeFileId) {
-        // Built from REACT_APP_API_URL directly rather than through services/api
-        // because this is a raw fetch for a binary body, not a JSON call.
-        const downloadUrl = `${API_ORIGIN}/api/files/${resumeData.profile.resumeFileId}/download`;
-
-        const token = authService.getAccessToken();
-        if (!token) {
-          toast.error('Authentication required. Please login again.');
-          return;
-        }
-
-        const response = await fetch(downloadUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: 'include'
-        });
-
-        if (response.ok) {
-          const blob = await response.blob();
-          const blobUrl = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = blobUrl;
-          link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(blobUrl);
-          toast.success('Resume download started');
-        } else {
-          const errorData = await response.json().catch(() => ({}));
-          toast.error(errorData.message || errorData.error || 'Failed to download resume');
-        }
-      } else if (resumeData?.profile?.resumeUrl) {
-        // Fallback for backward compatibility with old resumeUrl format
-        const link = document.createElement('a');
-        link.href = `${API_ORIGIN}${resumeData.profile.resumeUrl}`;
-        link.download = `${user.firstName}_${user.lastName}_Resume.pdf`;
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        toast.success('Resume download started');
-      } else {
-        toast.error('No resume available to download');
-      }
-    } catch (error) {
-      toast.error(error.message || 'Failed to download resume');
+    // Through the authenticated file route: resumes are no longer served from
+    // the public /uploads folder, so a bare link would 404 (and used to be
+    // readable by anyone holding the URL).
+    const filename = `${user.firstName}_${user.lastName}_Resume.pdf`;
+    const source = resumeData?.profile?.resumeFileId
+      ? `/files/${resumeData.profile.resumeFileId}/download`
+      : resumeData?.profile?.resumeUrl;
+    if (!source) {
+      toast.error('No resume available to download');
+      return;
     }
+    const ok = await openProtectedFile(source, { download: true, filename });
+    if (ok) toast.success('Resume download started');
   };
 
   const getProfileCompletionScore = () => {

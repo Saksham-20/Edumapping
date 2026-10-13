@@ -5,6 +5,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { requireRole, requireOwnership } = require('../middleware/rbac');
 const userController = require('../controllers/userController');
 const upload = require('../middleware/upload');
+const { uploadLimiter } = require('../middleware/rateLimiter');
 const { createUploadMiddleware, FILE_TYPES, handleMulterError } = require('../config/multer');
 const adminController = require('../controllers/adminController');
 
@@ -41,7 +42,8 @@ router.put('/profile',
   [
     body('firstName').optional().trim().isLength({ min: 1, max: 100 }),
     body('lastName').optional().trim().isLength({ min: 1, max: 100 }),
-    body('phone').optional().matches(/^[\+]?[\d\s-]{5,20}$/)
+    // A blank phone is "no phone"; the form sends '' for an empty input.
+    body('phone').optional({ values: 'falsy' }).matches(/^[\+]?[\d\s-]{5,20}$/)
   ],
   userController.updateProfile
 );
@@ -66,6 +68,7 @@ router.put('/profile',
  */
 router.post('/profile/picture',
   authenticateToken,
+  uploadLimiter,
   upload.uploadProfilePicture,
   userController.uploadProfilePicture
 );
@@ -126,7 +129,17 @@ router.get('/top-candidates',
  *     security:
  *       - bearerAuth: []
  */
-router.get('/:id', authenticateToken, userController.getProfile);
+// Must precede /:id, which used to swallow it ('search' was parsed as an id
+// and became a database error). Scoping is in the controller.
+router.get('/search',
+  authenticateToken,
+  requireRole('admin', 'tpo', 'principal', 'school_admin', 'career_counselor', 'teacher', 'recruiter'),
+  userController.searchUsers
+);
+
+// Visibility (self, admin, same-institution staff, scoped recruiter) is
+// enforced in the controller; out-of-scope ids answer 404.
+router.get('/:id(\\d+)', authenticateToken, userController.getProfile);
 
 /**
  * @swagger
@@ -137,7 +150,7 @@ router.get('/:id', authenticateToken, userController.getProfile);
  *     security:
  *       - bearerAuth: []
  */
-router.patch('/:id/status',
+router.patch('/:id(\\d+)/status',
   authenticateToken,
   requireRole('admin'),
   userController.toggleUserStatus
@@ -167,6 +180,7 @@ router.patch('/:id/status',
 router.post('/import',
   authenticateToken,
   requireRole('admin', 'tpo', 'principal', 'school_admin'),
+  uploadLimiter,
   uploadExcel,
   handleMulterError,
   (req, res, next) => {

@@ -1,5 +1,6 @@
 // server/src/controllers/assessmentController.js
-const { Assessment, Job, User, AssessmentResult } = require('../models');
+const { Assessment, Job, User, AssessmentResult, Application } = require('../models');
+const { Op } = require('sequelize');
 
 /**
  * The stored questions are authored with snake_case keys (`correct_answer`),
@@ -17,13 +18,89 @@ const correctAnswerOf = (question) =>
 const withoutAnswers = (questions = []) =>
   questions.map(({ correctAnswer, correct_answer: snakeCorrectAnswer, ...rest }) => rest);
 
+// What an author may set on an assessment. `...req.body` used to be written
+// straight to the row, so `createdBy` (and with it the right to read results)
+// could be claimed for somebody else.
+const ASSESSMENT_FIELDS = [
+  'jobId',
+  'title',
+  'description',
+  'assessmentType',
+  'duration',
+  'totalMarks',
+  'passingMarks',
+  'questions',
+  'instructions',
+  'isActive'
+];
+
+/**
+ * Which assessments a user may see at all.
+ *
+ * This listing was global: every signed-in user got every assessment on the
+ * platform — a school student was shown a company's coding test for a
+ * graduate role, and every recruiter and TPO got every other company's answer
+ * key. Now:
+ *
+ *   * admin: everything;
+ *   * recruiter / TPO: assessments attached to their own organization's jobs,
+ *     or ones they wrote — the people who set them;
+ *   * student: assessments for jobs they have applied to — an assessment is a
+ *     stage of an application, not a public catalogue;
+ *   * anyone else: none.
+ *
+ * Returns a `where` for Assessment (with the `job` include required where
+ * needed), or null for "nothing".
+ */
+async function visibleAssessmentScope(user) {
+  if (user.role === 'admin') return { where: {}, jobWhere: null };
+  if (user.role === 'recruiter' || user.role === 'tpo') {
+    return {
+      where: {
+        [Op.or]: [
+          { createdBy: user.id },
+          { '$job.organization_id$': user.organizationId || -1 }
+        ]
+      },
+      jobWhere: null
+    };
+  }
+  if (user.role === 'student') {
+    const applications = await Application.findAll({
+      where: { studentId: user.id },
+      attributes: ['jobId']
+    });
+    const jobIds = [...new Set(applications.map((a) => a.jobId))];
+    if (jobIds.length === 0) return null;
+    return { where: { jobId: { [Op.in]: jobIds }, isActive: true }, jobWhere: null };
+  }
+  return null;
+}
+
+/** May this user see the answer key? Only the setting organization and admins. */
+const canSeeAnswerKey = (user, assessment) =>
+  user.role === 'admin' ||
+  assessment.createdBy === user.id ||
+  (['recruiter', 'tpo'].includes(user.role) &&
+    !!user.organizationId &&
+    assessment.job?.organizationId === user.organizationId);
+
 class AssessmentController {
   async createAssessment(req, res, next) {
     try {
-      const assessmentData = {
-        ...req.body,
-        createdBy: req.user.id
-      };
+      const assessmentData = { createdBy: req.user.id };
+      for (const field of ASSESSMENT_FIELDS) {
+        if (req.body[field] !== undefined) assessmentData[field] = req.body[field];
+      }
+
+      // An assessment attached to a job becomes part of that job's process,
+      // so only the organization that owns the job may attach one.
+      if (assessmentData.jobId) {
+        const job = await Job.findByPk(assessmentData.jobId, { attributes: ['id', 'organizationId'] });
+        if (!job || (req.user.role !== 'admin' && job.organizationId !== req.user.organizationId)) {
+          return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
+        }
+      }
 
       const assessment = await Assessment.create(assessmentData);
 
@@ -39,26 +116,31 @@ class AssessmentController {
   async getAssessments(req, res, next) {
     try {
       const { jobId } = req.query;
-      const whereClause = {};
 
-      if (jobId) whereClause.jobId = jobId;
+      const scope = await visibleAssessmentScope(req.user);
+      if (!scope) {
+        return res.json({ message: 'Assessments retrieved successfully', assessments: [] });
+      }
+      const whereClause = { ...scope.where };
+      if (jobId) {
+        whereClause[Op.and] = [...(whereClause[Op.and] || []), { jobId }];
+      }
 
       const assessments = await Assessment.findAll({
         where: whereClause,
         include: [
-          { model: Job, as: 'job', attributes: ['id', 'title'] },
+          { model: Job, as: 'job', attributes: ['id', 'title', 'organizationId'] },
           { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] }
         ],
         order: [['createdAt', 'DESC']]
       });
 
-      // Students can call this endpoint, so the answer key has to come out
-      // here too — listing an assessment was enough to reveal every answer.
-      // Whoever authored the assessment still needs to see them.
-      const canSeeAnswers = ['recruiter', 'tpo', 'admin'].includes(req.user.role);
+      // The answer key goes only to the organization that set the test (and
+      // admins). Role alone used to decide it, so every recruiter and TPO on
+      // the platform could read every other company's answers.
       const payload = assessments.map((assessment) => {
         const data = assessment.toJSON();
-        if (!canSeeAnswers) data.questions = withoutAnswers(data.questions);
+        if (!canSeeAnswerKey(req.user, assessment)) data.questions = withoutAnswers(data.questions);
         return data;
       });
 
@@ -76,7 +158,16 @@ class AssessmentController {
       const { id } = req.params;
       const studentId = req.user.id;
 
-      const assessment = await Assessment.findByPk(id);
+      // Only an assessment the student can see — one for a job they applied
+      // to — can be started. Any id used to work, so a student could sit (and
+      // be recorded against) another institution's test.
+      const scope = await visibleAssessmentScope(req.user);
+      const assessment = scope
+        ? await Assessment.findOne({
+            where: { [Op.and]: [{ id }, scope.where] },
+            include: [{ model: Job, as: 'job', attributes: ['id', 'organizationId'] }]
+          })
+        : null;
       if (!assessment) {
         return res.status(404).json({
           error: 'Assessment Not Found',

@@ -1,6 +1,6 @@
 // server/src/routes/organizations.js
 const express = require('express');
-const { Organization } = require('../models');
+const { Organization, User } = require('../models');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { Op } = require('sequelize');
@@ -246,17 +246,36 @@ router.post('/register', async (req, res, next) => {
       });
     }
 
-    // Validate type
-    if (!['university', 'company', 'school'].includes(type)) {
+    // Validate type. `college` is a member of the enum (migration 32) and the
+    // college signup screen sends it, but this list predated it, so every
+    // college self-registration was rejected here.
+    if (!['university', 'college', 'company', 'school'].includes(type)) {
       return res.status(400).json({
         error: 'Validation Error',
-        message: 'Type must be either "university", "company", or "school"'
+        message: 'Type must be one of "university", "college", "company" or "school"'
       });
+    }
+
+    // Signup is two requests: create the organization, then the first user. If
+    // the second one failed (weak password, email taken, a dropped
+    // connection), the organization was left behind with nobody attached, and
+    // the retry hit "already exists" — the institution could never sign up
+    // again without an admin deleting the orphan. An organization that is
+    // still pending, has the same name and type, and has no users yet is that
+    // orphan: it is reused (with the newly submitted details) instead of
+    // refused. Anything approved, or with even one account, still 409s, so
+    // this cannot be used to take over a real institution.
+    const escapedName = String(name).replace(/[\\%_]/g, (c) => `\\${c}`);
+    const sameName = await Organization.findOne({ where: { name: { [Op.iLike]: escapedName } } });
+    let orphan = null;
+    if (sameName && sameName.approvalStatus === 'pending' && sameName.type === type) {
+      const members = await User.count({ where: { organizationId: sameName.id } });
+      if (members === 0) orphan = sameName;
     }
 
     // Check if organization with same domain already exists
     const existingOrgByDomain = await Organization.findOne({ where: { domain } });
-    if (existingOrgByDomain) {
+    if (existingOrgByDomain && (!orphan || existingOrgByDomain.id !== orphan.id)) {
       return res.status(409).json({
         error: 'Organization Already Exists',
         message: `An organization with the domain "${domain}" is already registered. Please use a different domain or contact support if this is your organization.`
@@ -264,15 +283,35 @@ router.post('/register', async (req, res, next) => {
     }
 
     // Check if organization with same name already exists (case-insensitive)
-    const existingOrgByName = await Organization.findOne({
-      where: {
-        name: { [Op.iLike]: name }
-      }
-    });
-    if (existingOrgByName) {
+    if (sameName && !orphan) {
       return res.status(409).json({
         error: 'Organization Already Exists',
-        message: `An organization with the name "${existingOrgByName.name}" is already registered. Please use a different name or contact support if this is your organization.`
+        message: `An organization with the name "${sameName.name}" is already registered. Please use a different name or contact support if this is your organization.`
+      });
+    }
+
+    if (orphan) {
+      // Approval fields are restated, not left as they were: this path must
+      // never hand back anything but a pending, unverified organization.
+      await orphan.update({
+        domain,
+        contactEmail,
+        contactPhone,
+        website,
+        address,
+        isVerified: false,
+        approvalStatus: 'pending'
+      });
+      logger.info('Reused orphaned pending organization on signup retry', { organizationId: orphan.id });
+      return res.status(200).json({
+        message: 'Organization registered successfully. It is pending admin approval.',
+        organization: {
+          id: orphan.id,
+          name: orphan.name,
+          type: orphan.type,
+          domain: orphan.domain,
+          approvalStatus: orphan.approvalStatus
+        }
       });
     }
 

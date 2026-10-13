@@ -140,8 +140,11 @@ module.exports = (sequelize, DataTypes) => {
           user.phone = null;
         }
         
-        // Update isActive based on approval status
-        if (user.role !== 'admin') {
+        // Derive isActive from the approval decision, but only when that
+        // decision is what changed. Re-deriving it on every save meant any
+        // update to an approved user — a profile edit, a lastLogin bump —
+        // silently re-activated an account an admin had just deactivated.
+        if (user.role !== 'admin' && user.changed('approvalStatus')) {
           if (user.approvalStatus === 'approved') {
             user.isActive = true;
           } else if (user.approvalStatus === 'rejected') {

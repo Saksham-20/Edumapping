@@ -1,6 +1,5 @@
 // server/src/routes/resume.js
 const express = require('express');
-const multer = require('multer');
 const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const resumeService = require('../services/resumeService');
@@ -8,20 +7,9 @@ const { uploadLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed'), false);
-    }
-  }
-});
+// Shared upload middleware: PDF only (MIME type and extension both checked),
+// with 400/413 answers instead of a multer error surfacing as a 500.
+const { uploadResume } = require('../middleware/upload');
 
 /**
  * @swagger
@@ -162,7 +150,7 @@ router.post('/upload',
   authenticateToken,
   requireRole('student'),
   uploadLimiter,
-  upload.single('resume'),
+  uploadResume,
   async (req, res, next) => {
     try {
       if (!req.file) {

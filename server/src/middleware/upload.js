@@ -6,11 +6,14 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  // Define allowed file types
+  // Define allowed file types. Both the declared MIME type and the extension
+  // must match: the extension is what decides how the file is served later,
+  // so nothing that a browser would render as a page (.html, .svg, .js) can
+  // get in under an innocent-looking MIME type.
   const allowedTypes = {
     'image/jpeg': ['.jpg', '.jpeg'],
     'image/png': ['.png'],
-    'image/gif': ['.gif'],
+    'image/webp': ['.webp'],
     'application/pdf': ['.pdf'],
     'application/msword': ['.doc'],
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
@@ -116,7 +119,9 @@ const uploadMultiple = (fieldName, maxCount = 5) => {
 
 // Specific upload types
 const uploadResume = uploadSingle('resume', ['application/pdf']);
-const uploadProfilePicture = uploadSingle('profilePicture', ['image/jpeg', 'image/png']);
+const uploadProfilePicture = uploadSingle('profilePicture', ['image/jpeg', 'image/png', 'image/webp']);
+// Generic upload used by POST /api/files/upload.
+const uploadFile = uploadSingle('file');
 const uploadDocument = uploadSingle('document');
 const uploadMultipleDocuments = uploadMultiple('documents', 3);
 
@@ -126,6 +131,7 @@ module.exports = {
   uploadMultiple,
   uploadResume,
   uploadProfilePicture,
+  uploadFile,
   uploadDocument,
   uploadMultipleDocuments
 };

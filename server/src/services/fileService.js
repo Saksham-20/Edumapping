@@ -1,8 +1,32 @@
 // server/src/services/fileService.js
 const { Client } = require('minio');
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
+
+// The directory app.js serves /uploads from. Writing to process.cwd() instead
+// only agreed with it when the process happened to be started from server/.
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+/**
+ * The name a file is stored under: timestamp, 16 random hex characters, then
+ * the caller's name reduced to a safe character set.
+ *
+ * The random part makes a URL unguessable even though callers build names
+ * from a user id and a timestamp. Sanitising matters because the generic
+ * upload passed the browser-supplied original name straight into path.join,
+ * so a name containing `../` could write outside the uploads directory.
+ * Callers' prefixes (`resume_<id>_`, `marksheet_<id>_`, `profile_<id>_`, …)
+ * survive intact; services/fileAccessService.js reads them.
+ */
+function storedName(fileName) {
+  const safe = path.basename(String(fileName || 'file'))
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/^\.+/, '')
+    .slice(-120) || 'file';
+  return `${Date.now()}-${crypto.randomBytes(8).toString('hex')}-${safe}`;
+}
 
 class FileService {
   constructor() {
@@ -41,7 +65,7 @@ class FileService {
 
   async saveToMinio(buffer, fileName, mimeType) {
     try {
-      const objectName = `uploads/${Date.now()}-${fileName}`;
+      const objectName = `uploads/${storedName(fileName)}`;
       
       await this.minioClient.putObject(
         this.bucketName, 
@@ -60,10 +84,9 @@ class FileService {
 
   async saveToLocal(buffer, fileName) {
     try {
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      await fs.mkdir(uploadsDir, { recursive: true });
-      
-      const filePath = path.join(uploadsDir, `${Date.now()}-${fileName}`);
+      await fs.mkdir(UPLOADS_DIR, { recursive: true });
+
+      const filePath = path.join(UPLOADS_DIR, storedName(fileName));
       await fs.writeFile(filePath, buffer);
       
       return filePath;
@@ -86,7 +109,7 @@ class FileService {
       const stream = await this.minioClient.getObject(this.bucketName, objectName);
       return stream;
     } catch (error) {
-      logger.error('Error getting file from MinIO', error, { filePath });
+      logger.error('Error getting file from MinIO', error, { objectName });
       throw new Error('File not found');
     }
   }
@@ -113,7 +136,7 @@ class FileService {
     try {
       await this.minioClient.removeObject(this.bucketName, objectName);
     } catch (error) {
-      logger.error('Error deleting file from MinIO', error, { filePath });
+      logger.error('Error deleting file from MinIO', error, { objectName });
       throw new Error('Failed to delete file');
     }
   }
@@ -137,7 +160,7 @@ class FileService {
         );
         return url;
       } catch (error) {
-        logger.error('Error generating signed URL', error, { filePath });
+        logger.error('Error generating signed URL', error, { objectName });
         throw new Error('Failed to generate download URL');
       }
     } else {
@@ -163,3 +186,4 @@ class FileService {
 }
 
 module.exports = new FileService();
+module.exports.UPLOADS_DIR = UPLOADS_DIR;

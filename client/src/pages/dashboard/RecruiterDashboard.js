@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import openProtectedFile from '../../utils/openProtectedFile';
 import {
   Avatar,
   Badge,
@@ -196,10 +197,8 @@ const CandidateCard = ({ student }) => {
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {p?.resumeUrl && (
           <Button
-            as="a"
-            href={p.resumeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            // Resumes are private: fetched with the Bearer token, not a public link.
+            onClick={() => openProtectedFile(p.resumeUrl)}
             size="sm"
             variant="secondary"
             icon={DocumentArrowDownIcon}

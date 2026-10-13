@@ -1,5 +1,12 @@
 // server/src/controllers/eventController.js
-const { Event, Organization, User, EventRegistration } = require('../models');
+const {
+  Event,
+  Organization,
+  User,
+  EventRegistration,
+  RecruiterProfile,
+  RecruiterAllowedOrganization
+} = require('../models');
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
@@ -13,6 +20,107 @@ const getEduMappingOrgId = async () => {
   });
   cachedEduMappingOrgId = org ? org.id : null;
   return cachedEduMappingOrgId;
+};
+
+// What an organizer may write on an event. Both create and update used to
+// spread `req.body` onto the row, so an update could move an event to another
+// organization (or into the global EduMapping one) or rewrite `createdBy`.
+const EVENT_FIELDS = [
+  'title',
+  'description',
+  'eventType',
+  'startTime',
+  'endTime',
+  'location',
+  'virtualLink',
+  'maxParticipants',
+  'registrationDeadline',
+  'status'
+];
+
+const pickEventFields = (body) => {
+  const out = {};
+  for (const field of EVENT_FIELDS) {
+    if (body[field] !== undefined) out[field] = body[field];
+  }
+  return out;
+};
+
+// Roles that run an organization's events (everyone but students).
+const ORGANIZER_ROLES = ['tpo', 'recruiter', 'principal', 'teacher', 'school_admin', 'career_counselor'];
+
+/**
+ * Company organizations that recruit at an institution: companies with a
+ * recruiter whose allow-list contains it. Their events (info sessions, drives)
+ * are meant for that institution's students.
+ */
+const companiesRecruitingAt = async (institutionId) => {
+  if (!institutionId) return [];
+  const rows = await RecruiterAllowedOrganization.findAll({
+    where: { organizationId: institutionId },
+    attributes: ['id'],
+    include: [{
+      model: RecruiterProfile,
+      as: 'recruiterProfile',
+      attributes: ['id'],
+      required: true,
+      include: [{ model: User, as: 'user', attributes: ['organizationId'], required: true }]
+    }]
+  });
+  return [...new Set(rows.map((r) => r.recruiterProfile.user.organizationId).filter(Boolean))];
+};
+
+/**
+ * The organizations whose events a user may see, or null for "all" (admin).
+ *
+ * One rule shared by the listing, the detail view and registration, so they
+ * cannot disagree. It used to be per-endpoint: students and anonymous callers
+ * saw every organization's events (and could register for a different
+ * school's), while a TPO or recruiter could widen their own view by passing
+ * `?organizationId=` for somebody else's institution.
+ *
+ *   * everyone: global events (the EduMapping organization);
+ *   * signed in: their own organization's events;
+ *   * students and TPOs of a college/university: also events of the companies
+ *     that recruit there (an info session is for those students).
+ */
+const visibleEventOrgIds = async (user) => {
+  if (user?.role === 'admin') return null;
+  const ids = new Set();
+  const eduMappingOrgId = await getEduMappingOrgId();
+  if (eduMappingOrgId) ids.add(eduMappingOrgId);
+  if (user?.organizationId) {
+    ids.add(user.organizationId);
+    const orgType = user.organization?.type;
+    if (['student', 'tpo'].includes(user.role) && ['university', 'college'].includes(orgType)) {
+      (await companiesRecruitingAt(user.organizationId)).forEach((id) => ids.add(id));
+    }
+  }
+  return [...ids];
+};
+
+/** Organizer of this event: admin, its author, or organizer-role staff of its organization. */
+const isEventOrganizer = (user, event) =>
+  !!user &&
+  (user.role === 'admin' ||
+    event.createdBy === user.id ||
+    (ORGANIZER_ROLES.includes(user.role) &&
+      !!user.organizationId &&
+      user.organizationId === event.organizationId));
+
+/** May this user see this event at all? Drafts only to organizers. */
+const canSeeEvent = async (user, event) => {
+  if (isEventOrganizer(user, event)) return true;
+  if (event.status === 'draft') return false;
+  const orgIds = await visibleEventOrgIds(user);
+  if (orgIds === null || orgIds.includes(event.organizationId)) return true;
+  // Someone already registered (an organizer added them, or the rules were
+  // wider when they signed up) can still open the event they are attending.
+  if (user?.id) {
+    const own = await EventRegistration.findOne({ where: { eventId: event.id, userId: user.id }, attributes: ['id'] });
+    return !!own;
+  }
+  return false;
 };
 
 class EventController {
@@ -51,7 +159,7 @@ class EventController {
       const resolvedStatus = req.body.status || 'scheduled';
 
       const eventData = {
-        ...req.body,
+        ...pickEventFields(req.body),
         organizationId: resolvedOrganizationId,
         createdBy: req.user.id,
         status: resolvedStatus
@@ -112,46 +220,26 @@ class EventController {
         whereClause.startTime = { [Op.gte]: new Date() };
       }
 
-      // For students, show events from their university and all company events
-      if (req.user && req.user.role === 'student') {
-        // Students see events from every organization by default — their own
-        // institution's, company events and the global EduMapping ones — which
-        // is deliberate. But the branch ignored `organizationId` entirely, so a
-        // student asking for one school's events got the unfiltered list back
-        // and no school-scoped view was possible. An explicit filter narrows;
-        // omitting it still shows everything.
-        if (organizationId) {
-          whereClause.organizationId = organizationId;
-        }
-      } else if (req.user && req.user.role === 'recruiter') {
-        // Recruiters only see events from their organization
-        // Use query param if provided, otherwise use user's organizationId
-        const orgId = organizationId || req.user.organizationId;
-        const eduMappingOrgId = await getEduMappingOrgId();
-        if (eduMappingOrgId) {
-          whereClause[Op.or] = [
-            { organizationId: orgId },
-            { organizationId: eduMappingOrgId }
-          ];
-        } else {
-          whereClause.organizationId = orgId;
-        }
-      } else if (req.user && req.user.role === 'tpo') {
-        // TPOs see events from their university
-        // Use query param if provided, otherwise use user's organizationId
-        const orgId = organizationId || req.user.organizationId;
-        const eduMappingOrgId = await getEduMappingOrgId();
-        if (eduMappingOrgId) {
-          whereClause[Op.or] = [
-            { organizationId: orgId },
-            { organizationId: eduMappingOrgId }
-          ];
-        } else {
-          whereClause.organizationId = orgId;
-        }
-      } else if (organizationId) {
-        // For unauthenticated or other roles, use query param if provided
-        whereClause.organizationId = organizationId;
+      // Scope to the organizations this user may see (see visibleEventOrgIds).
+      // `organizationId` only narrows within that set; it can no longer widen
+      // a TPO's or recruiter's view to another institution's events.
+      const visibleOrgIds = await visibleEventOrgIds(req.user);
+      if (visibleOrgIds === null) {
+        if (organizationId) whereClause.organizationId = organizationId;
+      } else {
+        const requested = organizationId ? parseInt(organizationId, 10) : null;
+        whereClause.organizationId = requested
+          ? (visibleOrgIds.includes(requested) ? requested : -1)
+          : { [Op.in]: visibleOrgIds };
+
+        // Drafts belong to their organizers only.
+        const organizerOrg = ORGANIZER_ROLES.includes(req.user?.role) ? req.user.organizationId : null;
+        whereClause[Op.and] = [
+          ...(whereClause[Op.and] || []),
+          organizerOrg
+            ? { [Op.or]: [{ status: { [Op.ne]: 'draft' } }, { organizationId: organizerOrg }] }
+            : { status: { [Op.ne]: 'draft' } }
+        ];
       }
 
       // Free-text search. This has to go through Op.and rather than assigning
@@ -203,8 +291,12 @@ class EventController {
 
       const eventsWithCounts = events.map(event => {
         const eventData = event.toJSON();
-        eventData.registrationCount = event.registrations ? event.registrations.length : 0;
-        
+        // Cancelled rows stay in the table (so a user can re-register), and
+        // were being counted as sign-ups.
+        eventData.registrationCount = (event.registrations || []).filter(
+          (reg) => reg.status !== 'cancelled'
+        ).length;
+
         // Check if current user is registered for this event
         if (req.user) {
           const userRegistration = event.registrations?.find(reg => reg.userId === req.user.id);
@@ -237,37 +329,42 @@ class EventController {
       const event = await Event.findByPk(id, {
         include: [
           { model: Organization, as: 'organization' },
-          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] },
-          {
-            model: EventRegistration,
-            as: 'registrations',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['id', 'firstName', 'lastName', 'email']
-              }
-            ]
-          }
+          { model: User, as: 'creator', attributes: ['id', 'firstName', 'lastName'] }
         ]
       });
 
-      if (!event) {
+      // Out of scope reads as not found, so event ids elsewhere are not confirmed.
+      if (!event || !(await canSeeEvent(req.user, event))) {
         return res.status(404).json({
           error: 'Event Not Found',
           message: 'Event not found'
         });
       }
 
-      // Check if current user is registered
-      let userRegistration = null;
-      if (req.user && event.registrations) {
-        userRegistration = event.registrations.find(reg => reg.userId === req.user.id);
-      }
+      // Who registered is the organizer's business. This endpoint is
+      // optionalAuth and returned every registrant's name and email to anyone,
+      // anonymous visitors included — for school events, minors' addresses.
+      // Organizers get the list; everyone else gets the count and, if signed
+      // in, their own row (the client reads `registrations` to find it).
+      const organizer = isEventOrganizer(req.user, event);
+      const registrations = await EventRegistration.findAll({
+        where: organizer ? { eventId: event.id } : { eventId: event.id, userId: req.user?.id || -1 },
+        include: organizer
+          ? [{ model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }]
+          : []
+      });
+      const registrationCount = await EventRegistration.count({
+        where: { eventId: event.id, status: { [Op.ne]: 'cancelled' } }
+      });
+
+      const userRegistration = req.user
+        ? registrations.find((reg) => reg.userId === req.user.id) || null
+        : null;
 
       const eventData = event.toJSON();
+      eventData.registrations = registrations.map((r) => r.toJSON());
       eventData.userRegistration = userRegistration;
-      eventData.registrationCount = event.registrations ? event.registrations.length : 0;
+      eventData.registrationCount = registrationCount;
 
       res.json({
         message: 'Event retrieved successfully',
@@ -284,7 +381,9 @@ class EventController {
       const userId = req.user.id;
 
       const event = await Event.findByPk(id);
-      if (!event) {
+      // Same visibility rule as the listing: a student could previously sign up
+      // for any institution's event by id, including another school's.
+      if (!event || !(await canSeeEvent(req.user, event))) {
         return res.status(404).json({
           error: 'Event Not Found',
           message: 'Event not found'
@@ -484,7 +583,29 @@ class EventController {
         });
       }
 
-      await event.update(req.body);
+      // The route declares validators; nothing read their result, so they
+      // were never enforced.
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation Error', details: errors.array() });
+      }
+
+      const updates = pickEventFields(req.body);
+
+      // Only an admin may move an event between organizations — including into
+      // or out of the global EduMapping one, which is visible to everyone.
+      if (req.user.role === 'admin' && req.body.organizationId !== undefined) {
+        const targetOrgId = parseInt(req.body.organizationId, 10);
+        const target = Number.isInteger(targetOrgId)
+          ? await Organization.findByPk(targetOrgId, { attributes: ['id'] })
+          : null;
+        if (!target) {
+          return res.status(400).json({ error: 'Validation Error', message: 'Invalid organizationId' });
+        }
+        updates.organizationId = targetOrgId;
+      }
+
+      await event.update(updates);
 
       const updatedEvent = await Event.findByPk(id, {
         include: [

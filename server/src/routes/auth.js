@@ -2,8 +2,9 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const authService = require('../services/authService');
+const { PASSWORD_POLICY, PASSWORD_POLICY_MESSAGE } = authService;
 const { authenticateToken } = require('../middleware/auth');
-const { authLimiter, otpSendLimiter } = require('../middleware/rateLimiter');
+const { authLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -83,6 +84,12 @@ const validateLogin = [
  *       409:
  *         description: User already exists
  */
+// Tells the signup screens whether to ask for an emailed code. Public and
+// constant per deployment; it reveals only whether SMTP is configured.
+router.get('/config', (req, res) => {
+  res.json({ emailVerificationRequired: authService.emailVerificationRequired() });
+});
+
 router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
   try {
     const email = req.body.email && String(req.body.email).trim();
@@ -96,7 +103,7 @@ router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
   }
 });
 
-router.post('/register', authLimiter, validateRegistration, async (req, res, next) => {
+router.post('/register', authLimiter, otpVerifyLimiter, validateRegistration, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -275,7 +282,10 @@ router.post('/forgot-password/send-otp', otpSendLimiter, async (req, res, next) 
   }
 });
 
-router.post('/forgot-password/reset-with-otp', async (req, res, next) => {
+// Was unlimited: the only thing between a guesser and any account's password
+// was a six-digit code. Now rate limited per IP and per address, on top of the
+// per-code attempt counter in the service.
+router.post('/forgot-password/reset-with-otp', otpVerifyLimiter, async (req, res, next) => {
   try {
     const { email, otp, newPassword } = req.body;
     if (!email || !otp || !newPassword) {
@@ -284,10 +294,11 @@ router.post('/forgot-password/reset-with-otp', async (req, res, next) => {
         details: [{ msg: 'email, otp and newPassword are required' }]
       });
     }
-    if (String(newPassword).length < 8) {
+    // Same policy as registration and change-password.
+    if (String(newPassword).length < 8 || !PASSWORD_POLICY.test(String(newPassword))) {
       return res.status(400).json({
         error: 'Validation Error',
-        details: [{ msg: 'Password must be at least 8 characters' }]
+        details: [{ msg: PASSWORD_POLICY_MESSAGE }]
       });
     }
     const result = await authService.resetPasswordWithOtp(email, otp, newPassword);

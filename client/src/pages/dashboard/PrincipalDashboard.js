@@ -444,12 +444,10 @@ const PrincipalDashboard = () => {
                 Outcome reporting is not available yet
               </h2>
               <p className="mt-1 text-sm text-ink-600">
-                Pass rates, placement percentages and year-on-year trends would come from{' '}
-                <code className="text-ink-800">GET /api/statistics/*</code>, which is limited to
-                admins and placement officers — a principal gets a 403. Headcounts and activity
-                above are counted from records this account can actually read; nothing on this
-                page is estimated. {assessments.length} assessment
-                {assessments.length === 1 ? ' is' : 's are'} published platform-wide for your
+                Pass rates, placement percentages and year-on-year trends are not yet available
+                to principals. The headcounts and activity above are counted from your school’s
+                own records; nothing on this page is estimated. {assessments.length} assessment
+                {assessments.length === 1 ? ' is' : 's are'} currently available for your
                 students to take.
               </p>
             </div>

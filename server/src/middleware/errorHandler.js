@@ -25,24 +25,16 @@ const errorHandler = (err, req, res, next) => {
     return sendError(err, req, res);
   }
 
-  // Log full error details for debugging
-  console.error('=== ERROR HANDLER ===');
-  console.error('Error Name:', err.name);
-  console.error('Error Message:', err.message);
-  console.error('Error Stack:', err.stack);
-  if (err.parent) {
-    console.error('Parent Error:', err.parent.message);
-    console.error('Parent Code:', err.parent.code);
-    console.error('Parent Detail:', err.parent.detail);
-  }
-  console.error('Request Path:', req.path);
-  console.error('Request Method:', req.method);
-  console.error('===================');
-  
+  // Full detail goes to the log, never to the client (see sendError).
   logger.error('Request error', err, {
     method: req.method,
     path: req.path,
-    statusCode: err.status || 500
+    statusCode: err.status || 500,
+    ...(err.parent && {
+      parentMessage: err.parent.message,
+      parentCode: err.parent.code,
+      parentDetail: err.parent.detail
+    })
   });
 
   // Sequelize validation errors
@@ -56,6 +48,8 @@ const errorHandler = (err, req, res, next) => {
       details: errors
     });
   }
+
+  const isDevelopment = process.env.NODE_ENV === 'development';
 
   // Sequelize database errors (e.g., invalid ENUM values)
   if (err.name === 'SequelizeDatabaseError') {
@@ -95,7 +89,8 @@ const errorHandler = (err, req, res, next) => {
       });
       return res.status(400).json({
         error: 'Invalid Reference',
-        message: errorDetail || 'The provided organization or reference does not exist. Please check your selection and try again.'
+        // Postgres' detail names tables and columns; development only.
+        message: (isDevelopment && errorDetail) || 'The provided organization or reference does not exist. Please check your selection and try again.'
       });
     }
     
@@ -107,12 +102,11 @@ const errorHandler = (err, req, res, next) => {
       });
       return res.status(400).json({
         error: 'Missing Required Field',
-        message: errorDetail || 'A required field is missing. Please check your input and try again.'
+        message: (isDevelopment && errorDetail) || 'A required field is missing. Please check your input and try again.'
       });
     }
     
     // Generic database error - include more details in development
-    const isDevelopment = process.env.NODE_ENV === 'development';
     return res.status(500).json({
       error: 'Database Error',
       message: isDevelopment && errorMessage 
@@ -142,7 +136,6 @@ const errorHandler = (err, req, res, next) => {
         message: 'This usually indicates the auto-increment sequence needs to be reset'
       });
       
-      const isDevelopment = process.env.NODE_ENV === 'development';
       return res.status(500).json({
         error: 'Database Error',
         message: 'A database error occurred. The auto-increment sequence may be out of sync. Please contact support.',
@@ -219,9 +212,15 @@ const errorHandler = (err, req, res, next) => {
  */
 const sendError = (err, req, res) => {
   const isDevelopment = process.env.NODE_ENV === 'development';
-  res.status(err.status || 500).json({
-    error: err.name || 'Internal Server Error',
-    message: err.message || 'Something went wrong',
+  const status = err.status || err.statusCode || 500;
+  // An unexpected failure's message is internal — a library error, a file
+  // path, a column name. Outside development a 5xx says only that something
+  // went wrong; the detail is in the log. Deliberate 4xx rejections
+  // (httpError) keep their message, which is written for the user.
+  const hideDetail = status >= 500 && !isDevelopment;
+  res.status(status).json({
+    error: hideDetail ? 'Internal Server Error' : err.name || 'Internal Server Error',
+    message: hideDetail ? 'Something went wrong. Please try again later.' : err.message || 'Something went wrong',
     // A stack on an expected rejection is noise even in development: the
     // interesting part is the status and the message.
     ...(isDevelopment && !err.expected && { 

@@ -1,6 +1,7 @@
 // server/src/middleware/auth.js
 const jwt = require('jsonwebtoken');
 const { User, Organization } = require('../models');
+const { organizationAccessBlock } = require('../services/authService');
 
 const authenticateToken = async (req, res, next) => {
   try {
@@ -59,6 +60,16 @@ const authenticateToken = async (req, res, next) => {
       }
     }
 
+    // Approval of the person was checked; approval of their institution was
+    // not, so an organization the platform had not vetted (or had rejected)
+    // could keep operating through accounts approved some other way — e.g.
+    // students, who are approved on sight. 401 like the pending-user case
+    // above, so the client drops the session the same way.
+    const orgBlock = organizationAccessBlock(user);
+    if (orgBlock) {
+      return res.status(401).json({ error: orgBlock.code, message: orgBlock.message });
+    }
+
     req.user = user;
     next();
   } catch (error) {
@@ -88,7 +99,7 @@ const optionalAuth = async (req, res, next) => {
         attributes: { exclude: ['passwordHash'] }
       });
       
-      if (user && user.isActive) {
+      if (user && user.isActive && !organizationAccessBlock(user)) {
         req.user = user;
       }
     }

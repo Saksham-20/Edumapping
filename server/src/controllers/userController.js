@@ -4,6 +4,8 @@ const { validationResult } = require('express-validator');
 const notificationService = require('../services/notificationService');
 const { Op } = require('sequelize');
 const recruiterAccessService = require('../services/recruiterAccessService');
+const accessService = require('../services/accessService');
+const path = require('path');
 
 // Helper functions outside the class
 const sanitizeNumericField = (value) => {
@@ -15,8 +17,19 @@ const sanitizeNumericField = (value) => {
   return isNaN(numValue) ? null : numValue;
 };
 
+// Optional text-ish columns whose validators or types reject an empty string.
+// The profile form sends every input, blank ones as '', so a brand-new
+// student's first save failed on isUrl (the URL fields), on the DATEONLY
+// column ('Invalid date') and on the gender ENUM. Blank means "not set".
+const BLANK_IS_NULL_FIELDS = ['linkedinUrl', 'githubUrl', 'portfolioUrl', 'dateOfBirth', 'gender', 'studentId', 'course', 'branch'];
+
 const sanitizeProfileData = (profileData) => {
   const sanitized = { ...profileData };
+  for (const field of BLANK_IS_NULL_FIELDS) {
+    if (field in sanitized && (sanitized[field] === '' || sanitized[field] === 'Invalid date')) {
+      sanitized[field] = null;
+    }
+  }
   
   // Sanitize numeric fields
   if ('cgpa' in sanitized) {
@@ -50,17 +63,98 @@ const sanitizeProfileData = (profileData) => {
   return sanitized;
 };
 
+/**
+ * What each role may write through PUT /users/profile.
+ *
+ * The handler used to pass the whole body to StudentProfile.update /
+ * RecruiterProfile.update, so a student could set their own placementStatus,
+ * lift their own placement sanction, mark themselves verified or eligible, or
+ * point resumeUrl at someone else's file; and a recruiter could widen their
+ * own allowedYears/Streams/Regions… limits, the scoping that decides which
+ * students they may see. Each list is what the person legitimately owns.
+ */
+const USER_EDITABLE_FIELDS = ['firstName', 'lastName', 'phone', 'profilePicture'];
+const STUDENT_EDITABLE_FIELDS = [
+  'studentId', 'dateOfBirth', 'gender', 'course', 'branch', 'yearOfStudy', 'graduationYear',
+  'cgpa', 'percentage', 'activeBacklogs', 'totalBacklogs', 'class10Percentage', 'class12Percentage',
+  'diplomaPercentage', 'educationGapYears', 'address', 'skills', 'bio',
+  'linkedinUrl', 'githubUrl', 'portfolioUrl'
+];
+const RECRUITER_EDITABLE_FIELDS = [
+  'department', 'position', 'bio', 'experience', 'linkedinUrl', 'workMode', 'locations', 'hiringRegions'
+];
+
+// Academic facts a placement cell has signed off on. Once the profile is
+// verified, eligibility checks rely on these, so the student cannot change
+// them without the cell unlocking the profile first.
+const LOCKED_WHEN_VERIFIED = [
+  'course', 'branch', 'graduationYear', 'yearOfStudy', 'cgpa', 'activeBacklogs', 'totalBacklogs',
+  'class10Percentage', 'class12Percentage', 'diplomaPercentage', 'educationGapYears', 'studentId', 'percentage'
+];
+const NUMERIC_LOCKED = new Set([
+  'graduationYear', 'yearOfStudy', 'cgpa', 'activeBacklogs', 'totalBacklogs',
+  'class10Percentage', 'class12Percentage', 'diplomaPercentage', 'educationGapYears', 'percentage'
+]);
+
+const pick = (source, fields) => {
+  const out = {};
+  for (const field of fields) {
+    if (source[field] !== undefined) out[field] = source[field];
+  }
+  return out;
+};
+
+/**
+ * Whether a submitted value differs from the stored one. The form posts every
+ * field on every save, so an unchanged value must compare equal even though
+ * DECIMAL columns come back as strings ("8.50" vs 8.5) and blanks as null.
+ */
+const valueChanged = (field, stored, submitted) => {
+  const blank = (v) => v === null || v === undefined || v === '';
+  if (blank(stored) && blank(submitted)) return false;
+  if (blank(stored) !== blank(submitted)) return true;
+  if (NUMERIC_LOCKED.has(field)) return Number(stored) !== Number(submitted);
+  return String(stored).trim() !== String(submitted).trim();
+};
+
 // School roles whose listing is pinned to their own institution. Teachers are
 // included: a teacher needs the roster of the school they teach at, and the
 // scoping below means including them widens nothing beyond that school.
 const SCHOOL_SCOPED_ROLES = ['principal', 'school_admin', 'career_counselor', 'teacher'];
+// Everyone whose listings are pinned to their own institution. The TPO was
+// missing: `?organizationId=5` let a college's placement officer list a
+// school's pupils.
+const INSTITUTION_SCOPED_ROLES = ['tpo', ...SCHOOL_SCOPED_ROLES];
+
+const NOT_FOUND = { error: 'User Not Found', message: 'User profile not found' };
 
 class UserController {
 
   async getProfile(req, res, next) {
     try {
-      const userId = req.params.id || req.user.id;
-      
+      const userId = req.params.id ? parseInt(req.params.id, 10) : req.user.id;
+
+      // GET /users/:id answered for any id to anyone signed in — every
+      // student could read every other student's phone, marks and documents,
+      // school pupils included. Out-of-scope is 404, not 403, so the endpoint
+      // does not confirm which ids exist.
+      if (userId !== req.user.id) {
+        const target = await User.findByPk(userId, { attributes: ['id', 'role', 'organizationId'] });
+        if (!target || !(await accessService.canViewUser(req.user, target))) {
+          return res.status(404).json(NOT_FOUND);
+        }
+        if (req.user.role === 'recruiter') {
+          AuditLog.create({
+            userId: req.user.id,
+            action: 'recruiter_profile_access',
+            entityType: 'user',
+            entityId: target.id,
+            ipAddress: req.ip || req.connection?.remoteAddress,
+            userAgent: req.get('user-agent')
+          }).catch(() => {});
+        }
+      }
+
       const user = await User.findByPk(userId, {
         include: [
           {
@@ -91,8 +185,11 @@ class UserController {
         });
       }
 
-      // If user has a student profile with resume, find the resume file
-      if (user.studentProfile && user.studentProfile.resumeUrl) {
+      // Serialise first, then annotate. Assigning a plain object back onto the
+      // Sequelize instance's association was dropped when the instance was
+      // serialised, so resumeFileId never reached the client.
+      const body = user.toJSON();
+      if (body.studentProfile && body.studentProfile.resumeUrl) {
         const resumeFile = await File.findOne({
           where: {
             userId: user.id,
@@ -102,17 +199,14 @@ class UserController {
         });
 
         if (resumeFile) {
-          // Add file ID and download URL to student profile
-          const profileData = user.studentProfile.toJSON();
-          profileData.resumeFileId = resumeFile.id;
-          profileData.resumeDownloadUrl = `/api/files/${resumeFile.id}/download`;
-          user.studentProfile = profileData;
+          body.studentProfile.resumeFileId = resumeFile.id;
+          body.studentProfile.resumeDownloadUrl = `/api/files/${resumeFile.id}/download`;
         }
       }
 
       res.json({
         message: 'Profile retrieved successfully',
-        user
+        user: body
       });
     } catch (error) {
       next(error);
@@ -129,10 +223,9 @@ class UserController {
         });
       }
 
-      const userId = req.params.id || req.user.id;
-      const { firstName, lastName, phone, profilePicture, ...profileData } = req.body;
+      // Always the caller's own profile; the route has no :id.
+      const userId = req.user.id;
 
-      // Update user basic info
       const user = await User.findByPk(userId);
       if (!user) {
         return res.status(404).json({
@@ -141,39 +234,59 @@ class UserController {
         });
       }
 
-      await user.update({
-        firstName,
-        lastName,
-        phone,
-        profilePicture
-      });
+      const userFields = pick(req.body, USER_EDITABLE_FIELDS);
+      if (userFields.phone === '') userFields.phone = null;
+      // A profile picture is either cleared or one this user uploaded through
+      // POST /users/profile/picture. Anything else (another user's file, an
+      // external tracking URL, a javascript: URL) is ignored.
+      if ('profilePicture' in userFields) {
+        const pic = userFields.profilePicture;
+        const ownUpload = typeof pic === 'string' &&
+          new RegExp(`^/uploads/\\d+-(?:[0-9a-f]{16}-)?profile_${userId}_[\\w.-]+$`).test(pic);
+        if (!(pic === null || pic === '' || pic === user.profilePicture || ownUpload)) {
+          delete userFields.profilePicture;
+        } else if (pic === '') {
+          userFields.profilePicture = null;
+        }
+      }
 
-      // Update role-specific profile
-      if (user.role === 'student' && profileData) {
-        // SANITIZE PROFILE DATA HERE - This is the key fix!
-        const sanitizedProfileData = sanitizeProfileData(profileData);
-        
+      if (user.role === 'student') {
+        const sanitizedProfileData = sanitizeProfileData(pick(req.body, STUDENT_EDITABLE_FIELDS));
         let studentProfile = await StudentProfile.findOne({ where: { userId } });
-        
+
+        if (studentProfile && studentProfile.verificationStatus === 'verified') {
+          const lockedFields = LOCKED_WHEN_VERIFIED.filter(
+            (field) => field in sanitizedProfileData &&
+              valueChanged(field, studentProfile[field], sanitizedProfileData[field])
+          );
+          if (lockedFields.length) {
+            return res.status(423).json({
+              error: 'Profile Locked',
+              message: 'Your academic details were verified by your placement cell and are locked. Ask your placement cell to unlock them.',
+              lockedFields
+            });
+          }
+        }
+
+        if (Object.keys(userFields).length) await user.update(userFields);
         if (studentProfile) {
           await studentProfile.update(sanitizedProfileData);
-        } else {
-          await StudentProfile.create({
-            userId,
-            ...sanitizedProfileData
+        } else if (Object.keys(sanitizedProfileData).length) {
+          studentProfile = await StudentProfile.create({
+            ...sanitizedProfileData,
+            userId
           });
         }
-      } else if (user.role === 'recruiter' && profileData) {
-        let recruiterProfile = await RecruiterProfile.findOne({ where: { userId } });
-        
-        if (recruiterProfile) {
-          await recruiterProfile.update(profileData);
-        } else {
-          await RecruiterProfile.create({
-            userId,
-            ...profileData
-          });
-        }
+      } else if (user.role === 'recruiter') {
+        if (Object.keys(userFields).length) await user.update(userFields);
+        const recruiterData = pick(req.body, RECRUITER_EDITABLE_FIELDS);
+        const [recruiterProfile] = await RecruiterProfile.findOrCreate({
+          where: { userId },
+          defaults: { userId }
+        });
+        if (Object.keys(recruiterData).length) await recruiterProfile.update(recruiterData);
+      } else if (Object.keys(userFields).length) {
+        await user.update(userFields);
       }
 
       // Return updated user
@@ -205,6 +318,7 @@ class UserController {
         organizationType,
         institutionType,
         isActive,
+        approvalStatus,
         search,
         year,
         stream,
@@ -220,11 +334,16 @@ class UserController {
       if (role) whereClause.role = role;
       if (organizationId) whereClause.organizationId = organizationId;
       if (isActive !== undefined) whereClause.isActive = isActive === 'true';
+      // The admin's pending-users queue filters on this; it was ignored, so the
+      // queue showed everybody.
+      if (['pending', 'approved', 'rejected'].includes(approvalStatus)) {
+        whereClause.approvalStatus = approvalStatus;
+      }
 
-      // School leadership may list people, but only their own school's. Forced
-      // here rather than trusted from the query string, so passing another
-      // organizationId cannot widen the result set.
-      if (SCHOOL_SCOPED_ROLES.includes(req.user.role)) {
+      // Institution staff (TPO and school leadership) may list people, but only
+      // their own institution's. Forced here rather than trusted from the query
+      // string, so passing another organizationId cannot widen the result set.
+      if (INSTITUTION_SCOPED_ROLES.includes(req.user.role)) {
         if (!req.user.organizationId) {
           return res.status(403).json({
             error: 'Access Forbidden',
@@ -340,6 +459,25 @@ class UserController {
 
       const whereClause = { role, isActive: true };
       if (organizationId) whereClause.organizationId = organizationId;
+
+      // Same pinning as getAllUsers: a TPO lists their own institution only.
+      if (INSTITUTION_SCOPED_ROLES.includes(req.user.role)) {
+        if (!req.user.organizationId) {
+          return res.status(403).json({
+            error: 'Access Forbidden',
+            message: 'Your account is not attached to an institution'
+          });
+        }
+        whereClause.organizationId = req.user.organizationId;
+      }
+      // A recruiter browses students and nobody else. Other roles' rosters
+      // (TPOs, school staff, other companies' recruiters) are not theirs.
+      if (req.user.role === 'recruiter' && role !== 'student') {
+        return res.status(403).json({
+          error: 'Access Forbidden',
+          message: 'Recruiters can only browse students'
+        });
+      }
 
       if (req.user.role === 'recruiter') {
         const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
@@ -486,18 +624,28 @@ class UserController {
       const userId = req.user.id;
       const fileService = require('../services/fileService');
       
-      const fileName = `profile_${userId}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
+      // `profile_<id>_` is what lets the public /uploads mount serve it (see
+      // services/fileAccessService). The extension comes from the checked MIME
+      // type, not from the browser's file name.
+      const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.file.mimetype] || 'jpg';
+      const fileName = `profile_${userId}_${Date.now()}.${ext}`;
       const filePath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
+      // Stored as the public URL path. It used to store the absolute path on
+      // the server's disk, which no browser could load and which disclosed the
+      // host's directory layout to anyone who could see the profile.
+      const profilePicture = process.env.STORAGE_TYPE === 'minio'
+        ? await fileService.getDownloadUrl(filePath)
+        : `/uploads/${path.basename(filePath)}`;
 
       // Update user profile picture
       await User.update(
-        { profilePicture: filePath },
+        { profilePicture },
         { where: { id: userId } }
       );
 
       res.json({
         message: 'Profile picture uploaded successfully',
-        profilePicture: filePath
+        profilePicture
       });
     } catch (error) {
       next(error);
@@ -527,13 +675,34 @@ class UserController {
       if (role) whereClause.role = role;
       if (organizationId) whereClause.organizationId = organizationId;
 
+      // Search was reachable by anyone (and in fact unreachable, shadowed by
+      // GET /:id). Now: admins search everyone, institution staff their own
+      // institution, recruiters the students in their scope.
+      const include = [
+        { model: Organization, as: 'organization' },
+        { model: StudentProfile, as: 'studentProfile' },
+        { model: RecruiterProfile, as: 'recruiterProfile' }
+      ];
+      if (INSTITUTION_SCOPED_ROLES.includes(req.user.role)) {
+        whereClause.organizationId = req.user.organizationId || -1;
+      } else if (req.user.role === 'recruiter') {
+        whereClause.role = 'student';
+        const allowedOrgIds = await recruiterAccessService.getAllowedOrganizationIds(req.user.id);
+        recruiterAccessService.applyRecruiterOrgScope(whereClause, allowedOrgIds);
+        const limits = await recruiterAccessService.getRecruiterFilterLimits(req.user.id);
+        if (limits.orgWhere && Object.keys(limits.orgWhere).length) {
+          include[0] = { ...include[0], where: limits.orgWhere, required: true };
+        }
+        if (limits.studentProfileWhere && Object.keys(limits.studentProfileWhere).length) {
+          include[1] = { ...include[1], where: limits.studentProfileWhere, required: true };
+        }
+      } else if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Access Forbidden', message: 'You cannot search users' });
+      }
+
       const users = await User.findAll({
         where: whereClause,
-        include: [
-          { model: Organization, as: 'organization' },
-          { model: StudentProfile, as: 'studentProfile' },
-          { model: RecruiterProfile, as: 'recruiterProfile' }
-        ],
+        include,
         attributes: { exclude: ['passwordHash'] },
         limit: 20,
         order: [['firstName', 'ASC']]
