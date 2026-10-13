@@ -306,7 +306,12 @@ const RecruiterDashboard = () => {
       views,
       // Undefined, not zero, when nothing has been viewed yet — a 0% rate would
       // claim we measured a conversion failure that never had a chance to occur.
-      conversion: views > 0 ? Math.round((applicationsOnLoadedJobs / views) * 100) : null,
+      // View counting started after some postings had already collected
+      // applications; a rate above 100% would only measure that gap.
+      conversion:
+        views > 0 && applicationsOnLoadedJobs <= views
+          ? Math.round((applicationsOnLoadedJobs / views) * 100)
+          : null,
       loadedJobCount: jobs.length
     };
   }, [data]);
@@ -405,7 +410,7 @@ const RecruiterDashboard = () => {
           value={stats.conversion === null ? '—' : `${stats.conversion}%`}
           hint={
             stats.conversion === null
-              ? 'No views recorded on these postings yet'
+              ? 'Not enough recorded views on these postings yet'
               : 'Applications per view on those postings'
           }
           icon={ChartBarIcon}

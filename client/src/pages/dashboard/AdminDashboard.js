@@ -43,8 +43,10 @@ import {
   Th,
   Thead,
   Toolbar,
-  Tr
+  Tr,
+  StatStrip
 } from '../../components/ui';
+import { formatRole } from '../../components/common/navigation';
 import {
   UsersIcon,
   BuildingOfficeIcon,
@@ -1073,7 +1075,7 @@ const AdminDashboard = () => {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <StatStrip>
         <StatCard
           title="Total users"
           value={stats.users?.total ?? 0}
@@ -1107,7 +1109,7 @@ const AdminDashboard = () => {
           icon={DocumentTextIcon}
           color="orange"
         />
-      </div>
+      </StatStrip>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <ChartCard title="Users by role">
@@ -1116,7 +1118,7 @@ const AdminDashboard = () => {
               {stats.users.byRole.map((row) => (
                 <MeterRow
                   key={row.role}
-                  label={row.role.replace(/_/g, ' ')}
+                  label={formatRole(row.role)}
                   value={Number(row.count)}
                   total={Number(stats.users.total) || 0}
                 />
