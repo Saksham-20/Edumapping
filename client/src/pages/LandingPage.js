@@ -8,15 +8,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 import Nav from '../components/landing/Nav';
+import Hero from '../components/landing/Hero';
+import Ticker from '../components/landing/Ticker';
+import Bento from '../components/landing/Bento';
+import Audience from '../components/landing/Audience';
+import Recruiters from '../components/landing/Recruiters';
 import EventsSection from '../components/landing/EventsSection';
-import {
-  RecordHero,
-  RecordChain,
-  RuleCheck,
-  SeasonLedger,
-  InspectionReport,
-  RecordClose
-} from '../components/landing/Record';
+import { CtaBand, Impact } from '../components/landing/Closers';
 import { AboutPage, ContactPage, FeaturesPage } from '../components/landing/InnerPages';
 import Footer from '../components/landing/Footer';
 import WhatsAppChat from '../components/common/WhatsAppChat';
@@ -46,17 +44,24 @@ const LandingPage = () => {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
 
-  // Choosing an audience opens the features page in that audience's terms;
-  // the home page itself speaks to colleges first.
+  // Choosing an audience scrolls to the section that changed, rather than
+  // silently mutating content somewhere off-screen.
   const handleSelectAudience = useCallback(
     (key) => {
       setAudience(key);
-      if (key === 'school') {
-        setCurrentPage('features');
-        window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      if (currentPage !== 'home') {
+        setCurrentPage('home');
+        return;
+      }
+      const target = document.getElementById('who-we-work-with');
+      if (target) {
+        target.scrollIntoView({
+          behavior: reduce ? 'auto' : 'smooth',
+          block: 'start'
+        });
       }
     },
-    [reduce]
+    [currentPage, reduce]
   );
 
   // School visitors get the school login; everyone else the college one.
@@ -72,10 +77,10 @@ const LandingPage = () => {
       };
 
   return (
-    <div className="min-h-screen bg-bone-50 font-sans text-ink-950 antialiased">
+    <div className="min-h-screen bg-lndbone-50 font-lndsans text-lndink-950 antialiased">
       <a
         href="#lp-main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-[10px] focus:border focus:border-ink-950 focus:bg-saffron-500 focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-ink-950"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-full focus:border focus:border-lndink-950 focus:bg-lndsaffron-500 focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-lndink-950"
       >
         Skip to content
       </a>
@@ -93,17 +98,14 @@ const LandingPage = () => {
           <motion.div key={currentPage} {...transition}>
             {currentPage === 'home' && (
               <>
-                <RecordHero
-                  onNavigate={handleNavigate}
-                  loginPath={loginPath}
-                  onSelectAudience={handleSelectAudience}
-                />
-                <RecordChain />
-                <RuleCheck />
-                <SeasonLedger onNavigate={handleNavigate} />
-                <InspectionReport />
+                <Hero onSelectAudience={handleSelectAudience} loginPath={loginPath} />
+                <Ticker />
+                <Bento />
+                <Audience audience={audience} onSelectAudience={setAudience} />
+                <Recruiters />
                 <EventsSection />
-                <RecordClose loginPath={loginPath} />
+                <Impact />
+                <CtaBand onNavigate={handleNavigate} />
               </>
             )}
 

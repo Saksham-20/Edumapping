@@ -33,20 +33,20 @@ export const Impact = () => (
     <GridTexture />
     <Container className="relative">
       <Eyebrow>Our impact</Eyebrow>
-      <h2 className="lp-balance mt-5 max-w-2xl font-display text-display-sm font-bold text-ink-950">
+      <h2 className="lp-balance mt-5 max-w-2xl font-lnddisplay text-display-sm font-bold text-lndink-950">
         Measured by careers, not clicks
       </h2>
 
-      <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-ink-950/15 pt-10 lg:grid-cols-4">
+      <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-lndink-950/15 pt-10 lg:grid-cols-4">
         {IMPACT.map(({ value, label }, index) => (
           <Reveal key={label} delay={index * 0.06}>
             <div>
               <dt className="sr-only">{label}</dt>
               <dd>
-                <span className="block font-display text-display-sm font-bold leading-none text-ink-950">
+                <span className="block font-lnddisplay text-display-sm font-bold leading-none text-lndink-950">
                   <Counter value={value} />
                 </span>
-                <span className="mt-3 block text-[11px] uppercase tracking-[0.07em] text-ink-500">
+                <span className="mt-3 block font-lndmono text-[11px] uppercase tracking-wider text-lndink-500">
                   {label}
                 </span>
               </dd>
@@ -64,17 +64,17 @@ export const Impact = () => (
  * as a deliberate brand moment rather than background colour.
  */
 export const CtaBand = ({ onNavigate }) => (
-  <section className="relative overflow-hidden bg-saffron-500 py-20 sm:py-24">
+  <section className="relative overflow-hidden bg-lndsaffron-500 py-20 sm:py-24">
     <GridTexture />
     <Grain />
 
     <Container className="relative">
       <Reveal>
         <div className="mx-auto max-w-3xl text-center">
-          <h2 className="lp-balance font-display text-display font-bold text-ink-950">
+          <h2 className="lp-balance font-lnddisplay text-display font-bold text-lndink-950">
             Ready to transform your institution?
           </h2>
-          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-ink-950/75 sm:text-lg">
+          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-lndink-950/75 sm:text-lg">
             Join the schools, colleges and employers already running workshops, guidance, training
             and placements on EduMapping.
           </p>
@@ -89,7 +89,7 @@ export const CtaBand = ({ onNavigate }) => (
               variant="outline"
               size="lg"
               onClick={() => onNavigate('contact')}
-              className="border-ink-950/30 hover:bg-ink-950/10"
+              className="border-lndink-950/30 hover:bg-lndink-950/10"
             >
               Talk to us
             </Button>

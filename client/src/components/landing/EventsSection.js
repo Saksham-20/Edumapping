@@ -47,14 +47,14 @@ const formatTime = (value) => {
 
 /** Skeleton card — holds the real card's height so nothing jumps on load. */
 const EventSkeleton = () => (
-  <div className="h-full animate-pulse rounded-3xl border border-ink-950/15 bg-white p-6">
-    <div className="h-5 w-24 rounded-full bg-ink-950/10" />
-    <div className="mt-5 h-5 w-3/4 rounded bg-ink-950/10" />
-    <div className="mt-2 h-4 w-full rounded bg-ink-950/[0.06]" />
-    <div className="mt-2 h-4 w-5/6 rounded bg-ink-950/[0.06]" />
+  <div className="h-full animate-pulse rounded-3xl border border-lndink-950/15 bg-white p-6">
+    <div className="h-5 w-24 rounded-full bg-lndink-950/10" />
+    <div className="mt-5 h-5 w-3/4 rounded bg-lndink-950/10" />
+    <div className="mt-2 h-4 w-full rounded bg-lndink-950/[0.06]" />
+    <div className="mt-2 h-4 w-5/6 rounded bg-lndink-950/[0.06]" />
     <div className="mt-6 space-y-2">
-      <div className="h-3.5 w-32 rounded bg-ink-950/[0.06]" />
-      <div className="h-3.5 w-40 rounded bg-ink-950/[0.06]" />
+      <div className="h-3.5 w-32 rounded bg-lndink-950/[0.06]" />
+      <div className="h-3.5 w-40 rounded bg-lndink-950/[0.06]" />
     </div>
   </div>
 );
@@ -127,10 +127,10 @@ const EventsSection = () => {
       <Container>
         <div className="max-w-2xl">
           <Eyebrow>Upcoming events</Eyebrow>
-          <h2 className="lp-balance mt-5 font-display text-display-sm font-bold text-ink-950">
+          <h2 className="lp-balance mt-5 font-lnddisplay text-display-sm font-bold text-lndink-950">
             Workshops and sessions, open to join
           </h2>
-          <p className="mt-4 max-w-prose text-base leading-relaxed text-ink-600 sm:text-lg">
+          <p className="mt-4 max-w-prose text-base leading-relaxed text-lndink-600 sm:text-lg">
             Global events hosted by EduMapping — workshops, info sessions and career seminars you
             can register for.
           </p>
@@ -145,47 +145,47 @@ const EventsSection = () => {
                     as="button"
                     interactive
                     onClick={() => setSelected(event)}
-                    className="flex h-full w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950 focus-visible:ring-offset-2"
+                    className="flex h-full w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lndink-950 focus-visible:ring-offset-2"
                     aria-label={`View details for ${event.title}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <Tag>{EVENT_TYPE_LABELS[event.eventType] || 'Event'}</Tag>
                       {event.virtualLink && (
                         <VideoCameraIcon
-                          className="h-5 w-5 shrink-0 text-saffron-600"
+                          className="h-5 w-5 shrink-0 text-lndsaffron-600"
                           strokeWidth={1.8}
                           aria-label="Online event"
                         />
                       )}
                     </div>
 
-                    <h3 className="mt-5 font-display text-lg font-bold leading-snug text-ink-950">
+                    <h3 className="mt-5 font-lnddisplay text-lg font-bold leading-snug text-lndink-950">
                       {event.title}
                     </h3>
                     {event.description && (
-                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-600">
+                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-lndink-600">
                         {event.description}
                       </p>
                     )}
 
-                    <dl className="mt-5 space-y-2 text-sm text-ink-600">
+                    <dl className="mt-5 space-y-2 text-sm text-lndink-600">
                       <div className="flex items-center gap-2">
-                        <CalendarIcon className="h-4 w-4 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                        <CalendarIcon className="h-4 w-4 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                         <dd>{formatDate(event.startDate)}</dd>
                       </div>
                       <div className="flex items-center gap-2">
-                        <ClockIcon className="h-4 w-4 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                        <ClockIcon className="h-4 w-4 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                         <dd>{formatTime(event.startDate)}</dd>
                       </div>
                       {event.location && (
                         <div className="flex items-center gap-2">
-                          <MapPinIcon className="h-4 w-4 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                          <MapPinIcon className="h-4 w-4 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                           <dd className="truncate">{event.location}</dd>
                         </div>
                       )}
                     </dl>
 
-                    <span className="mt-auto inline-flex items-center gap-1.5 pt-6 text-sm font-semibold text-ink-950">
+                    <span className="mt-auto inline-flex items-center gap-1.5 pt-6 text-sm font-semibold text-lndink-950">
                       View details
                       <ArrowGlyph />
                     </span>
@@ -199,7 +199,7 @@ const EventsSection = () => {
       <AnimatePresence>
         {selected && (
           <motion.div
-            className="fixed inset-0 z-[60] flex items-end justify-center bg-ink-950/70 p-4 backdrop-blur-sm sm:items-center"
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-lndink-950/70 p-4 backdrop-blur-sm sm:items-center"
             initial={reduce ? false : { opacity: 0 }}
             animate={reduce ? false : { opacity: 1 }}
             exit={reduce ? undefined : { opacity: 0 }}
@@ -209,7 +209,7 @@ const EventsSection = () => {
             aria-labelledby="lp-event-title"
           >
             <motion.div
-              className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-ink-950 bg-white p-7 shadow-block"
+              className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-lndink-950 bg-white p-7 shadow-lndblock"
               initial={reduce ? false : { opacity: 0, y: 24 }}
               animate={reduce ? false : { opacity: 1, y: 0 }}
               exit={reduce ? undefined : { opacity: 0, y: 16 }}
@@ -222,7 +222,7 @@ const EventsSection = () => {
                   type="button"
                   onClick={() => setSelected(null)}
                   aria-label="Close event details"
-                  className="-mr-1 -mt-1 inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-ink-500 transition-colors duration-200 hover:bg-ink-950/[0.06] hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                  className="-mr-1 -mt-1 inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-lndink-500 transition-colors duration-200 hover:bg-lndink-950/[0.06] hover:text-lndink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lndink-950"
                 >
                   <XMarkIcon className="h-5 w-5" strokeWidth={2} />
                 </button>
@@ -230,34 +230,34 @@ const EventsSection = () => {
 
               <h3
                 id="lp-event-title"
-                className="mt-5 font-display text-2xl font-bold text-ink-950"
+                className="mt-5 font-lnddisplay text-2xl font-bold text-lndink-950"
               >
                 {selected.title}
               </h3>
               {selected.description && (
-                <p className="mt-3 text-sm leading-relaxed text-ink-600">{selected.description}</p>
+                <p className="mt-3 text-sm leading-relaxed text-lndink-600">{selected.description}</p>
               )}
 
-              <dl className="mt-6 space-y-3 border-t border-ink-950/10 pt-6 text-sm">
+              <dl className="mt-6 space-y-3 border-t border-lndink-950/10 pt-6 text-sm">
                 <div className="flex items-center gap-3">
-                  <CalendarIcon className="h-5 w-5 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                  <CalendarIcon className="h-5 w-5 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                   <dt className="sr-only">Date</dt>
-                  <dd className="text-ink-700">
+                  <dd className="text-lndink-700">
                     {formatDate(selected.startDate)} · {formatTime(selected.startDate)}
                   </dd>
                 </div>
                 {selected.location && (
                   <div className="flex items-center gap-3">
-                    <MapPinIcon className="h-5 w-5 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                    <MapPinIcon className="h-5 w-5 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                     <dt className="sr-only">Location</dt>
-                    <dd className="text-ink-700">{selected.location}</dd>
+                    <dd className="text-lndink-700">{selected.location}</dd>
                   </div>
                 )}
                 {selected.organization?.name && (
                   <div className="flex items-center gap-3">
-                    <BuildingOfficeIcon className="h-5 w-5 shrink-0 text-ink-500" strokeWidth={1.8} aria-hidden="true" />
+                    <BuildingOfficeIcon className="h-5 w-5 shrink-0 text-lndink-500" strokeWidth={1.8} aria-hidden="true" />
                     <dt className="sr-only">Host</dt>
-                    <dd className="text-ink-700">{selected.organization.name}</dd>
+                    <dd className="text-lndink-700">{selected.organization.name}</dd>
                   </div>
                 )}
               </dl>

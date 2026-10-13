@@ -3,10 +3,11 @@
 // The landing page's design system. Every section composes these; nothing
 // below fetches data or makes routing decisions.
 //
-// Visual language: the attested record. Security-paper ground, degree-folder
-// navy ink, saffron and India green guilloche linework, violet attestation
-// stamps. Surfaces are documents: hairline borders, 14px corners, a soft paper
-// lift rather than glass or offset block shadows.
+// Visual language: a warm bone canvas, near-black ink type, saffron as the one
+// hot accent and india green as the "verified/positive" signal. Surfaces are
+// hard-edged — 1px ink borders and offset block shadows rather than soft
+// drop shadows — so the page reads as printed editorial rather than generic
+// glassy SaaS.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
@@ -65,10 +66,10 @@ export const Container = ({ children, className = '' }) => (
  * with dark type on a dark ground.
  */
 const SECTION_TONES = {
-  bone: 'bg-bone-50 text-ink-950',
-  white: 'bg-white text-ink-950',
-  sand: 'bg-bone-100 text-ink-950',
-  ink: 'bg-ink-950 text-white'
+  bone: 'bg-lndbone-50 text-lndink-950',
+  white: 'bg-white text-lndink-950',
+  sand: 'bg-lndbone-100 text-lndink-950',
+  ink: 'bg-lndink-950 text-white'
 };
 
 export const Section = ({ children, tone = 'bone', className = '', id }) => (
@@ -84,7 +85,7 @@ export const Section = ({ children, tone = 'bone', className = '', id }) => (
 export const Rule = ({ tone = 'light', className = '' }) => (
   <hr
     aria-hidden="true"
-    className={`border-0 h-px ${tone === 'dark' ? 'bg-white/10' : 'bg-ink-950/10'} ${className}`}
+    className={`border-0 h-px ${tone === 'dark' ? 'bg-white/10' : 'bg-lndink-950/10'} ${className}`}
   />
 );
 
@@ -95,10 +96,21 @@ export const Rule = ({ tone = 'light', className = '' }) => (
  * Rendered as a bordered tag rather than plain text so it reads as a printed
  * category marker and holds its own against the oversized headlines.
  */
-// Retired: a heading carries its own weight. Kept as a no-op so older section
-// files compile; it renders nothing.
-// eslint-disable-next-line no-unused-vars
-export const Eyebrow = ({ children, tone, className }) => null;
+export const Eyebrow = ({ children, tone = 'light', className = '' }) => (
+  <span
+    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 font-lndmono text-[11px] font-medium uppercase tracking-[0.18em] ${
+      tone === 'dark'
+        ? 'border-white/20 text-lndsaffron-300'
+        : 'border-lndink-950/15 text-lndink-700'
+    } ${className}`}
+  >
+    <span
+      aria-hidden="true"
+      className="h-1.5 w-1.5 rounded-full bg-lndsaffron-500 animate-pulse-dot"
+    />
+    {children}
+  </span>
+);
 
 /**
  * Mark — a saffron highlighter swipe behind a word.
@@ -141,8 +153,8 @@ export const SectionHead = ({
     <div className={align === 'center' ? 'max-w-3xl' : 'max-w-2xl'}>
       {eyebrow && <Eyebrow tone={tone}>{eyebrow}</Eyebrow>}
       <h2
-        className={`lp-balance font-display text-display-sm font-bold ${
-          tone === 'dark' ? 'text-white' : 'text-ink-950'
+        className={`lp-balance mt-5 font-lnddisplay text-display-sm font-bold ${
+          tone === 'dark' ? 'text-white' : 'text-lndink-950'
         }`}
       >
         {title}
@@ -150,7 +162,7 @@ export const SectionHead = ({
       {lead && (
         <p
           className={`mt-4 max-w-prose text-base leading-relaxed sm:text-lg ${
-            tone === 'dark' ? 'text-white/65' : 'text-ink-600'
+            tone === 'dark' ? 'text-white/65' : 'text-lndink-600'
           } ${align === 'center' ? 'mx-auto' : ''}`}
         >
           {lead}
@@ -176,32 +188,33 @@ const BUTTON_BASE =
   'focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
 
 const BUTTON_SIZES = {
-  sm: 'min-h-[40px] rounded-[10px] px-4 py-2 text-sm',
-  md: 'min-h-[46px] rounded-[10px] px-5 py-2.5 text-sm',
-  lg: 'min-h-[54px] rounded-[12px] px-7 py-3.5 text-base'
+  sm: 'min-h-[40px] rounded-full px-4 py-2 text-sm',
+  md: 'min-h-[46px] rounded-full px-5 py-2.5 text-sm',
+  lg: 'min-h-[54px] rounded-full px-7 py-3.5 text-base'
 };
 
 const BUTTON_VARIANTS = {
   // The one high-emphasis action. Offset block shadow that collapses on press.
   primary:
-    'bg-ink-950 text-bone-50 border border-ink-950 shadow-block-sm hover:bg-ink-800 ' +
-    'hover:shadow-[inset_0_-2px_0_0_#FF9933,0_12px_28px_-16px_rgba(12,20,38,.45)] ' +
-    'focus-visible:ring-saffron-600 focus-visible:ring-offset-bone-50',
+    'bg-lndink-950 text-white border border-lndink-950 shadow-lndblock hover:-translate-x-[2px] ' +
+    'hover:-translate-y-[2px] hover:shadow-[6px_6px_0_0_#FF9933] active:translate-x-0 ' +
+    'active:translate-y-0 active:shadow-lndblock-sm focus-visible:ring-lndink-950 focus-visible:ring-offset-lndbone-50',
   saffron:
-    'bg-saffron-500 text-ink-950 border border-saffron-600 shadow-block-saffron hover:bg-saffron-400 ' +
-    'active:bg-saffron-600 focus-visible:ring-bone-50 focus-visible:ring-offset-ink-950',
+    'bg-lndsaffron-500 text-lndink-950 border border-lndink-950 shadow-lndblock hover:-translate-x-[2px] ' +
+    'hover:-translate-y-[2px] hover:shadow-[6px_6px_0_0_#0B0C0E] active:translate-x-0 ' +
+    'active:translate-y-0 active:shadow-lndblock-sm focus-visible:ring-lndink-950 focus-visible:ring-offset-lndbone-50',
   // Secondary on light grounds.
   outline:
-    'border border-ink-950/25 bg-transparent text-ink-950 hover:border-ink-950 hover:bg-ink-950/[0.04] ' +
-    'focus-visible:ring-saffron-600 focus-visible:ring-offset-bone-50',
-  // Primary on the navy folder bands.
+    'border border-lndink-950/20 bg-transparent text-lndink-950 hover:border-lndink-950 hover:bg-lndink-950/[0.04] ' +
+    'focus-visible:ring-lndink-950 focus-visible:ring-offset-lndbone-50',
+  // Primary on the inverted dark bands.
   light:
-    'bg-bone-50 text-ink-950 border border-bone-50 hover:bg-saffron-500 hover:border-saffron-500 ' +
-    'focus-visible:ring-saffron-400 focus-visible:ring-offset-ink-950',
-  // Secondary on the navy folder bands.
+    'bg-white text-lndink-950 border border-white hover:bg-lndsaffron-500 hover:border-lndsaffron-500 ' +
+    'focus-visible:ring-white focus-visible:ring-offset-lndink-950',
+  // Secondary on the inverted dark bands.
   ghostDark:
-    'border border-bone-50/30 bg-transparent text-bone-50 hover:border-bone-50/70 hover:bg-white/[0.06] ' +
-    'focus-visible:ring-saffron-400 focus-visible:ring-offset-ink-950'
+    'border border-white/25 bg-white/[0.06] text-white hover:border-white/60 hover:bg-white/[0.12] ' +
+    'focus-visible:ring-white focus-visible:ring-offset-lndink-950'
 };
 
 export const Button = ({
@@ -241,10 +254,10 @@ export const ArrowGlyph = ({ className = '' }) => (
 /** Small tag for metadata and trust signals. */
 export const Tag = ({ children, tone = 'light', className = '' }) => (
   <span
-    className={`inline-flex items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-xs font-medium ${
+    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-lndmono text-[11px] font-medium uppercase tracking-wider ${
       tone === 'dark'
-        ? 'border-white/20 bg-white/[0.06] text-bone-200'
-        : 'border-ink-950/15 bg-[#FFFDF8] text-ink-700'
+        ? 'border-white/20 bg-white/[0.06] text-white/75'
+        : 'border-lndink-950/15 bg-white text-lndink-600'
     } ${className}`}
   >
     {children}
@@ -265,18 +278,18 @@ export const Card = ({
   ...rest
 }) => {
   const tones = {
-    light: 'border-ink-950/[0.13] bg-[#FFFDF8] text-ink-700',
-    sand: 'border-ink-950/[0.13] bg-bone-100 text-ink-700',
-    dark: 'border-white/15 bg-white/[0.04] text-bone-200'
+    light: 'border-lndink-950/15 bg-white text-lndink-700',
+    sand: 'border-lndink-950/15 bg-lndbone-100 text-lndink-700',
+    dark: 'border-white/15 bg-white/[0.04] text-white/70'
   };
   const hover =
     tone === 'dark'
-      ? 'hover:border-saffron-500/50 hover:bg-white/[0.08]'
-      : 'hover:border-ink-950/35 hover:shadow-lift';
+      ? 'hover:border-lndsaffron-500/50 hover:bg-white/[0.08]'
+      : 'hover:border-lndink-950/40 hover:shadow-lndblock-sm';
 
   return (
     <Tag
-      className={`rounded-[14px] border p-6 transition-[border-color,box-shadow,background-color] duration-200 ${tones[tone]} ${
+      className={`rounded-3xl border p-6 transition-all duration-200 ${tones[tone]} ${
         interactive ? `cursor-pointer ${hover}` : ''
       } ${className}`}
       {...rest}
@@ -293,22 +306,22 @@ export const Card = ({
 export const IconTile = ({ icon: Icon, accent = 'saffron', tone = 'light', className = '' }) => {
   const accents = {
     saffron: {
-      light: 'border-saffron-500/35 bg-saffron-50 text-saffron-800',
-      dark: 'border-saffron-500/30 bg-saffron-500/15 text-saffron-300'
+      light: 'border-lndsaffron-500/35 bg-lndsaffron-50 text-lndsaffron-800',
+      dark: 'border-lndsaffron-500/30 bg-lndsaffron-500/15 text-lndsaffron-300'
     },
     india: {
-      light: 'border-india-600/30 bg-india-50 text-india-700',
-      dark: 'border-india-500/30 bg-india-500/15 text-india-300'
+      light: 'border-lndindia-600/30 bg-lndindia-50 text-lndindia-700',
+      dark: 'border-lndindia-500/30 bg-lndindia-500/15 text-lndindia-300'
     },
     ink: {
-      light: 'border-ink-950/15 bg-ink-950 text-bone-50',
+      light: 'border-lndink-950/15 bg-lndink-950 text-white',
       dark: 'border-white/20 bg-white/10 text-white'
     }
   };
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border ${accents[accent][tone]} ${className}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${accents[accent][tone]} ${className}`}
     >
       <Icon className="h-5 w-5" strokeWidth={1.8} />
     </span>
@@ -428,11 +441,16 @@ export const Counter = ({ value, className = '', duration = 1400 }) => {
 
 /* ------------------------------------------------------------------ decor */
 
-// Retired with the old look: a grid overlay and film grain belong to no
-// document. Section files that still mount them now render nothing.
-// eslint-disable-next-line no-unused-vars
-export const GridTexture = (props) => null;
-export const Grain = () => null;
+/** Printed grid texture behind a section. Purely decorative. */
+export const GridTexture = ({ tone = 'light', fade = true }) => (
+  <div
+    aria-hidden="true"
+    className={`lp-grid ${tone === 'dark' ? 'lp-grid--dark' : ''} ${fade ? 'lp-grid--fade' : ''}`}
+  />
+);
+
+/** Film grain over a flat colour field. Purely decorative. */
+export const Grain = () => <div aria-hidden="true" className="lp-noise" />;
 
 /**
  * Marquee — an infinite horizontal ticker.

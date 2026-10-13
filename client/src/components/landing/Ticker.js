@@ -26,14 +26,14 @@ const ITEMS = [
  * down the page.
  */
 const Ticker = () => (
-  <div className="relative overflow-hidden border-y border-ink-950 bg-ink-950 py-4">
+  <div className="relative overflow-hidden border-y border-lndink-950 bg-lndink-950 py-4">
     <Marquee>
       {ITEMS.map((item) => (
         <span key={item} className="flex items-center">
-          <span className="whitespace-nowrap px-7 font-display text-sm font-medium tracking-tight text-white/80 sm:text-base">
+          <span className="whitespace-nowrap px-7 font-lnddisplay text-sm font-medium tracking-tight text-white/80 sm:text-base">
             {item}
           </span>
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-saffron-500" />
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-lndsaffron-500" />
         </span>
       ))}
     </Marquee>

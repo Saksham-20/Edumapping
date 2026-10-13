@@ -50,7 +50,7 @@ import {
  * between pages doesn't shift the eye to a different reading position.
  */
 const PageHeader = ({ eyebrow, title, highlight, lead }) => (
-  <section className="relative overflow-hidden bg-bone-50 pb-14 pt-32 sm:pb-16 sm:pt-36">
+  <section className="relative overflow-hidden bg-lndbone-50 pb-14 pt-32 sm:pb-16 sm:pt-36">
     <GridTexture />
     <Grain />
     <div
@@ -60,11 +60,11 @@ const PageHeader = ({ eyebrow, title, highlight, lead }) => (
     />
     <Container className="relative">
       <Eyebrow>{eyebrow}</Eyebrow>
-      <h1 className="lp-balance mt-6 max-w-4xl font-display text-display font-bold text-ink-950">
+      <h1 className="lp-balance mt-6 max-w-4xl font-lnddisplay text-display font-bold text-lndink-950">
         {title} {highlight && <Mark>{highlight}</Mark>}
       </h1>
       {lead && (
-        <p className="mt-6 max-w-prose text-base leading-relaxed text-ink-600 sm:text-lg">{lead}</p>
+        <p className="mt-6 max-w-prose text-base leading-relaxed text-lndink-600 sm:text-lg">{lead}</p>
       )}
     </Container>
   </section>
@@ -176,8 +176,8 @@ export const FeaturesPage = ({ audience = 'college' }) => {
                     icon={icon}
                     accent={index % 3 === 0 ? 'india' : index % 3 === 1 ? 'saffron' : 'ink'}
                   />
-                  <h3 className="mt-5 font-display text-base font-bold text-ink-950">{title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-600">{desc}</p>
+                  <h3 className="mt-5 font-lnddisplay text-base font-bold text-lndink-950">{title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-lndink-600">{desc}</p>
                 </Card>
               </Reveal>
             ))}
@@ -261,9 +261,9 @@ export const AboutPage = () => (
       <Container>
         <div className="grid gap-4 lg:grid-cols-2">
           <Reveal>
-            <div className="h-full rounded-3xl border border-ink-950 bg-ink-950 p-8 text-white">
+            <div className="h-full rounded-3xl border border-lndink-950 bg-lndink-950 p-8 text-white">
               <IconTile icon={RocketLaunchIcon} accent="saffron" tone="dark" />
-              <h2 className="mt-6 font-display text-2xl font-bold text-white">Our mission</h2>
+              <h2 className="mt-6 font-lnddisplay text-2xl font-bold text-white">Our mission</h2>
               <p className="mt-4 text-sm leading-relaxed text-white/65">
                 To democratise access to career opportunity by bridging education and employment.
                 We empower students at every level — school through college — with essential
@@ -274,10 +274,10 @@ export const AboutPage = () => (
           </Reveal>
 
           <Reveal delay={0.08}>
-            <div className="h-full rounded-3xl border border-ink-950/15 bg-bone-50 p-8">
+            <div className="h-full rounded-3xl border border-lndink-950/15 bg-lndbone-50 p-8">
               <IconTile icon={EyeIcon} accent="india" />
-              <h2 className="mt-6 font-display text-2xl font-bold text-ink-950">Our vision</h2>
-              <p className="mt-4 text-sm leading-relaxed text-ink-600">
+              <h2 className="mt-6 font-lnddisplay text-2xl font-bold text-lndink-950">Our vision</h2>
+              <p className="mt-4 text-sm leading-relaxed text-lndink-600">
                 To be the standard for career development and campus placements — a world where
                 every student, in school or college, gets the chance to discover their potential,
                 build real skills and find work that matches their talents and ambition.
@@ -293,10 +293,10 @@ export const AboutPage = () => (
       <Container>
         <div className="max-w-2xl">
           <Eyebrow>What we do</Eyebrow>
-          <h2 className="lp-balance mt-5 font-display text-display-sm font-bold text-ink-950">
+          <h2 className="lp-balance mt-5 font-lnddisplay text-display-sm font-bold text-lndink-950">
             Comprehensive solutions, end to end
           </h2>
-          <p className="mt-4 max-w-prose text-base leading-relaxed text-ink-600 sm:text-lg">
+          <p className="mt-4 max-w-prose text-base leading-relaxed text-lndink-600 sm:text-lg">
             For educational institutions and the students inside them.
           </p>
         </div>
@@ -307,8 +307,8 @@ export const AboutPage = () => (
               <Card interactive className="flex h-full gap-5">
                 <IconTile icon={icon} accent={index % 2 === 0 ? 'saffron' : 'india'} />
                 <div>
-                  <h3 className="font-display text-base font-bold text-ink-950">{title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-600">{desc}</p>
+                  <h3 className="font-lnddisplay text-base font-bold text-lndink-950">{title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-lndink-600">{desc}</p>
                 </div>
               </Card>
             </Reveal>
@@ -322,19 +322,19 @@ export const AboutPage = () => (
       <GridTexture />
       <Container className="relative">
         <Eyebrow>Our impact</Eyebrow>
-        <h2 className="lp-balance mt-5 max-w-2xl font-display text-display-sm font-bold text-ink-950">
+        <h2 className="lp-balance mt-5 max-w-2xl font-lnddisplay text-display-sm font-bold text-lndink-950">
           Making a difference across institutions
         </h2>
-        <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-ink-950/15 pt-10 lg:grid-cols-4">
+        <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 border-t border-lndink-950/15 pt-10 lg:grid-cols-4">
           {ABOUT_STATS.map(({ value, label }, index) => (
             <Reveal key={label} delay={index * 0.06}>
               <div>
                 <dt className="sr-only">{label}</dt>
                 <dd>
-                  <span className="block font-display text-display-sm font-bold leading-none text-ink-950">
+                  <span className="block font-lnddisplay text-display-sm font-bold leading-none text-lndink-950">
                     <Counter value={value} />
                   </span>
-                  <span className="mt-3 block text-[11px] uppercase tracking-[0.07em] text-ink-500">
+                  <span className="mt-3 block font-lndmono text-[11px] uppercase tracking-wider text-lndink-500">
                     {label}
                   </span>
                 </dd>
@@ -350,7 +350,7 @@ export const AboutPage = () => (
       <Container>
         <div className="max-w-2xl">
           <Eyebrow>Our core values</Eyebrow>
-          <h2 className="lp-balance mt-5 font-display text-display-sm font-bold text-ink-950">
+          <h2 className="lp-balance mt-5 font-lnddisplay text-display-sm font-bold text-lndink-950">
             What we hold ourselves to
           </h2>
         </div>
@@ -359,8 +359,8 @@ export const AboutPage = () => (
             <Reveal key={title} delay={index * 0.05}>
               <Card interactive className="h-full">
                 <IconTile icon={icon} accent={index % 2 === 0 ? 'saffron' : 'india'} />
-                <h3 className="mt-5 font-display text-base font-bold text-ink-950">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-600">{desc}</p>
+                <h3 className="mt-5 font-lnddisplay text-base font-bold text-lndink-950">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-lndink-600">{desc}</p>
               </Card>
             </Reveal>
           ))}
@@ -438,9 +438,9 @@ export const ContactPage = () => {
   };
 
   const fieldClass =
-    'w-full rounded-2xl border border-ink-950/20 bg-white px-4 py-3 text-sm text-ink-950 ' +
-    'placeholder:text-ink-500 transition-colors duration-200 focus:border-ink-950 ' +
-    'focus:outline-none focus:ring-2 focus:ring-ink-950/20';
+    'w-full rounded-2xl border border-lndink-950/20 bg-white px-4 py-3 text-sm text-lndink-950 ' +
+    'placeholder:text-lndink-500 transition-colors duration-200 focus:border-lndink-950 ' +
+    'focus:outline-none focus:ring-2 focus:ring-lndink-950/20';
 
   return (
     <>
@@ -461,7 +461,7 @@ export const ContactPage = () => {
                   <Card className="flex gap-5">
                     <IconTile icon={icon} accent={i === 0 ? 'saffron' : i === 1 ? 'india' : 'ink'} />
                     <div className="min-w-0">
-                      <h3 className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-500">
+                      <h3 className="font-lndmono text-[11px] font-medium uppercase tracking-[0.16em] text-lndink-500">
                         {label}
                       </h3>
                       <ul className="mt-2 space-y-1">
@@ -470,12 +470,12 @@ export const ContactPage = () => {
                             {hrefs?.[idx] ? (
                               <a
                                 href={hrefs[idx]}
-                                className="lp-link cursor-pointer break-words font-semibold text-ink-950 transition-colors duration-200 hover:text-saffron-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                                className="lp-link cursor-pointer break-words font-semibold text-lndink-950 transition-colors duration-200 hover:text-lndsaffron-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lndink-950"
                               >
                                 {line}
                               </a>
                             ) : (
-                              <span className="font-semibold text-ink-950">{line}</span>
+                              <span className="font-semibold text-lndink-950">{line}</span>
                             )}
                           </li>
                         ))}
@@ -486,11 +486,11 @@ export const ContactPage = () => {
               ))}
 
               <Reveal delay={0.2}>
-                <ul className="space-y-3 rounded-3xl border border-ink-950/15 bg-bone-100 p-6">
+                <ul className="space-y-3 rounded-3xl border border-lndink-950/15 bg-lndbone-100 p-6">
                   {TRUST_POINTS.map(({ icon: Icon, text }) => (
-                    <li key={text} className="flex items-start gap-3 text-sm text-ink-600">
+                    <li key={text} className="flex items-start gap-3 text-sm text-lndink-600">
                       <Icon
-                        className="mt-0.5 h-4 w-4 shrink-0 text-india-600"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-lndindia-600"
                         strokeWidth={1.8}
                         aria-hidden="true"
                       />
@@ -503,9 +503,9 @@ export const ContactPage = () => {
 
             {/* Form */}
             <Reveal delay={0.1}>
-              <div className="rounded-3xl border border-ink-950 bg-bone-50 p-7 shadow-block sm:p-8">
-                <h2 className="font-display text-2xl font-bold text-ink-950">Send us a message</h2>
-                <p className="mt-2 text-sm text-ink-600">
+              <div className="rounded-3xl border border-lndink-950 bg-lndbone-50 p-7 shadow-lndblock sm:p-8">
+                <h2 className="font-lnddisplay text-2xl font-bold text-lndink-950">Send us a message</h2>
+                <p className="mt-2 text-sm text-lndink-600">
                   Fill this in and the team will get back to you.
                 </p>
 
@@ -513,7 +513,7 @@ export const ContactPage = () => {
                   <div>
                     <label
                       htmlFor="lp-contact-name"
-                      className="mb-1.5 block text-sm font-semibold text-ink-950"
+                      className="mb-1.5 block text-sm font-semibold text-lndink-950"
                     >
                       Your name
                     </label>
@@ -533,7 +533,7 @@ export const ContactPage = () => {
                   <div>
                     <label
                       htmlFor="lp-contact-email"
-                      className="mb-1.5 block text-sm font-semibold text-ink-950"
+                      className="mb-1.5 block text-sm font-semibold text-lndink-950"
                     >
                       Your email
                     </label>
@@ -553,7 +553,7 @@ export const ContactPage = () => {
                   <div>
                     <label
                       htmlFor="lp-contact-message"
-                      className="mb-1.5 block text-sm font-semibold text-ink-950"
+                      className="mb-1.5 block text-sm font-semibold text-lndink-950"
                     >
                       Message
                     </label>
@@ -574,9 +574,9 @@ export const ContactPage = () => {
                       role="status"
                       className={`rounded-2xl border px-4 py-3 text-sm ${
                         status.type === 'success'
-                          ? 'border-india-600/30 bg-india-50 text-india-800'
+                          ? 'border-lndindia-600/30 bg-lndindia-50 text-lndindia-800'
                           : status.type === 'info'
-                          ? 'border-saffron-500/40 bg-saffron-50 text-saffron-800'
+                          ? 'border-lndsaffron-500/40 bg-lndsaffron-50 text-lndsaffron-800'
                           : 'border-red-300 bg-red-50 text-red-700'
                       }`}
                     >

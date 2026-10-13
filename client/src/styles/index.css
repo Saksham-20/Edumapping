@@ -9,6 +9,8 @@
    Archivo (variable width + weight) for headlines and figures, Public Sans for
    reading, JetBrains Mono for roll numbers and serials. */
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:ital,wght@0,300..800;1,400..600&display=swap');
+/* The public landing page keeps its original faces. */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 /* Global CSS Variables */
 :root {

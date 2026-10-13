@@ -52,7 +52,7 @@ const Hero = ({ onSelectAudience, loginPath = '/login/college' }) => {
   const itemProps = reduce ? {} : { variants: fadeUp };
 
   return (
-    <section className="relative overflow-hidden bg-bone-50 pb-14 pt-28 sm:pb-16 sm:pt-32 lg:pb-20 lg:pt-32">
+    <section className="relative overflow-hidden bg-lndbone-50 pb-14 pt-28 sm:pb-16 sm:pt-32 lg:pb-20 lg:pt-32">
       <GridTexture />
       <Grain />
 
@@ -72,7 +72,7 @@ const Hero = ({ onSelectAudience, loginPath = '/login/college' }) => {
             </motion.div>
 
             <motion.h1
-              className="lp-balance mt-6 font-display text-display font-bold text-ink-950"
+              className="lp-balance mt-6 font-lnddisplay text-display font-bold text-lndink-950"
               {...itemProps}
             >
               From classroom
@@ -105,7 +105,7 @@ const Hero = ({ onSelectAudience, loginPath = '/login/college' }) => {
             </motion.h1>
 
             <motion.p
-              className="mt-6 max-w-prose text-base leading-relaxed text-ink-600 sm:text-lg"
+              className="mt-6 max-w-prose text-base leading-relaxed text-lndink-600 sm:text-lg"
               {...itemProps}
             >
               EduMapping runs the whole journey from one place — industrial workshops, career
@@ -128,7 +128,7 @@ const Hero = ({ onSelectAudience, loginPath = '/login/college' }) => {
                 state={{ from: { pathname: '/dashboard' } }}
                 variant="outline"
                 size="lg"
-                className="border-transparent hover:border-ink-950/20"
+                className="border-transparent hover:border-lndink-950/20"
               >
                 <PlayCircleIcon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
                 See the demo
@@ -137,17 +137,17 @@ const Hero = ({ onSelectAudience, loginPath = '/login/college' }) => {
 
             {/* Stats — the proof, immediately under the CTAs where it does work. */}
             <motion.dl
-              className="mt-10 grid max-w-lg grid-cols-3 gap-6 border-t border-ink-950/10 pt-6"
+              className="mt-10 grid max-w-lg grid-cols-3 gap-6 border-t border-lndink-950/10 pt-6"
               {...itemProps}
             >
               {STATS.map(({ value, label }) => (
                 <div key={label}>
                   <dt className="sr-only">{label}</dt>
                   <dd>
-                    <span className="block font-display text-2xl font-bold text-ink-950 sm:text-3xl">
+                    <span className="block font-lnddisplay text-2xl font-bold text-lndink-950 sm:text-3xl">
                       <Counter value={value} />
                     </span>
-                    <span className="mt-1 block text-[10px] uppercase leading-tight tracking-[0.07em] text-ink-500">
+                    <span className="mt-1 block font-lndmono text-[10px] uppercase leading-tight tracking-wider text-lndink-500">
                       {label}
                     </span>
                   </dd>

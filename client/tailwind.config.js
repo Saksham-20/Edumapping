@@ -109,6 +109,49 @@ module.exports = {
           800: '#6C2415',
           900: '#4A190E',
         },
+        // ------------------------------------- legacy landing palette (lnd*)
+        // The public landing page keeps its original near-black and bone look
+        // while the signed-in app uses the attested-record palette above.
+        lndink: {
+          950: '#0B0C0E',
+          900: '#131519',
+          850: '#1A1D23',
+          800: '#22262E',
+          700: '#31363F',
+          600: '#4A505B',
+          500: '#5D646E',
+        },
+        lndbone: {
+          50: '#FBFAF7',
+          100: '#F5F2EA',
+          200: '#EBE6D9',
+          300: '#DBD4C2',
+          400: '#B9AF99',
+        },
+        lndsaffron: {
+          50: '#FFF6EC',
+          100: '#FFE8CE',
+          200: '#FFD1A0',
+          300: '#FFB871',
+          400: '#FFA451',
+          500: '#FF9933',
+          600: '#E77E1B',
+          700: '#B85F11',
+          800: '#8A460D',
+          900: '#5C2E08',
+        },
+        lndindia: {
+          50: '#EDFBEB',
+          100: '#D0F5CA',
+          200: '#A2E997',
+          300: '#6FD960',
+          400: '#3FC42D',
+          500: '#22A814',
+          600: '#138808',
+          700: '#0F6C06',
+          800: '#0B5005',
+          900: '#073503',
+        },
         azure: {
           400: '#2E8FC4',
           500: '#1E7AAD',
@@ -124,6 +167,10 @@ module.exports = {
         display: ['Archivo', '"Public Sans"', 'system-ui', 'sans-serif'],
         // Roll numbers, serials and figures only — never a costume.
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        // Legacy landing faces (lnd*).
+        lndsans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        lnddisplay: ['"Space Grotesk"', '"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        lndmono: ['"Space Grotesk"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       fontSize: {
         // Fluid editorial scale. Every headline on the landing page uses one of
@@ -152,6 +199,12 @@ module.exports = {
         'lift': '0 1px 2px rgba(12,20,38,.05), 0 10px 26px -16px rgba(12,20,38,.28)',
         'lift-lg': '0 2px 4px rgba(12,20,38,.06), 0 30px 60px -30px rgba(12,20,38,.42)',
         'folder': '0 1px 0 rgba(255,255,255,.04) inset, 0 30px 70px -30px rgba(0,0,0,.6)',
+        // Legacy landing depth (lnd*): the original hard offset blocks.
+        'lndblock': '4px 4px 0 0 #0B0C0E',
+        'lndblock-sm': '3px 3px 0 0 #0B0C0E',
+        'lndblock-saffron': '4px 4px 0 0 #FF9933',
+        'lndlift': '0 1px 2px rgba(11,12,14,.04), 0 8px 24px -12px rgba(11,12,14,.16)',
+        'lndlift-lg': '0 2px 4px rgba(11,12,14,.05), 0 28px 56px -28px rgba(11,12,14,.3)',
       },
       backgroundImage: {
         'tricolor': 'linear-gradient(90deg, #FF9933 0%, #FFFFFF 50%, #138808 100%)',

@@ -96,7 +96,7 @@ const METRICS = [
  * at a glance which part of the page is addressed to them.
  */
 const Recruiters = () => (
-  <section className="relative overflow-hidden bg-ink-950 py-20 sm:py-24 lg:py-28" id="recruiters">
+  <section className="relative overflow-hidden bg-lndink-950 py-20 sm:py-24 lg:py-28" id="recruiters">
     <GridTexture tone="dark" />
     <Grain />
 
@@ -104,7 +104,7 @@ const Recruiters = () => (
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-2xl">
           <Eyebrow tone="dark">For recruiters & employers</Eyebrow>
-          <h2 className="lp-balance mt-5 font-display text-display-sm font-bold text-white">
+          <h2 className="lp-balance mt-5 font-lnddisplay text-display-sm font-bold text-white">
             Hire from campus, without the chaos
           </h2>
           <p className="mt-4 max-w-prose text-base leading-relaxed text-white/65 sm:text-lg">
@@ -124,7 +124,7 @@ const Recruiters = () => (
           <Reveal key={title} delay={index * 0.05}>
             <Card tone="dark" interactive className="h-full">
               <IconTile icon={icon} accent={index % 2 === 0 ? 'saffron' : 'india'} tone="dark" />
-              <h3 className="mt-5 font-display text-base font-bold text-white">{title}</h3>
+              <h3 className="mt-5 font-lnddisplay text-base font-bold text-white">{title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-white/60">{desc}</p>
             </Card>
           </Reveal>
@@ -133,7 +133,7 @@ const Recruiters = () => (
 
       {/* How it works — oversized numerals carry the sequence, not arrows. */}
       <div className="mt-20">
-        <h3 className="font-display text-xl font-bold text-white sm:text-2xl">
+        <h3 className="font-lnddisplay text-xl font-bold text-white sm:text-2xl">
           How it works for recruiters
         </h3>
 
@@ -143,14 +143,14 @@ const Recruiters = () => (
               <li className="relative h-full overflow-hidden rounded-3xl border border-white/15 bg-white/[0.04] p-7">
                 <span
                   aria-hidden="true"
-                  className="absolute -right-2 -top-4 font-display text-[5.5rem] font-bold leading-none text-white/[0.06]"
+                  className="absolute -right-2 -top-4 font-lnddisplay text-[5.5rem] font-bold leading-none text-white/[0.06]"
                 >
                   {n}
                 </span>
-                <span className="relative text-[11px] uppercase tracking-[0.07em] text-saffron-400">
+                <span className="relative font-lndmono text-[11px] uppercase tracking-[0.18em] text-lndsaffron-400">
                   Step {n}
                 </span>
-                <h4 className="relative mt-3 font-display text-lg font-bold text-white">{title}</h4>
+                <h4 className="relative mt-3 font-lnddisplay text-lg font-bold text-white">{title}</h4>
                 <p className="relative mt-2 text-sm leading-relaxed text-white/60">{desc}</p>
               </li>
             </Reveal>
@@ -162,13 +162,13 @@ const Recruiters = () => (
       <Reveal className="mt-14">
         <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-3xl border border-white/15 bg-white/10 sm:grid-cols-3">
           {METRICS.map(({ value, label }) => (
-            <div key={label} className="bg-ink-950 px-7 py-8">
+            <div key={label} className="bg-lndink-950 px-7 py-8">
               <dt className="sr-only">{label}</dt>
               <dd>
-                <span className="block font-display text-3xl font-bold text-white sm:text-4xl">
+                <span className="block font-lnddisplay text-3xl font-bold text-white sm:text-4xl">
                   <Counter value={value} />
                 </span>
-                <span className="mt-2 block text-[10px] uppercase tracking-[0.07em] text-white/55">
+                <span className="mt-2 block font-lndmono text-[10px] uppercase tracking-wider text-white/55">
                   {label}
                 </span>
               </dd>
