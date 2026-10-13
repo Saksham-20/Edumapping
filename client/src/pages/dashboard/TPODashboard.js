@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import AnnounceModal from '../../components/notifications/AnnounceModal';
 import {
   Button,
   Card,
@@ -29,7 +30,8 @@ import {
   CheckCircleIcon,
   DocumentTextIcon,
   ArrowRightIcon,
-  ClipboardDocumentCheckIcon
+  ClipboardDocumentCheckIcon,
+  MegaphoneIcon
 } from '@heroicons/react/24/outline';
 
 const EMPTY = { students: {}, jobs: {}, applications: {}, events: {}, recentActivity: [] };
@@ -74,6 +76,7 @@ const TPODashboard = () => {
   const [stats, setStats] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [announcing, setAnnouncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,6 +116,9 @@ const TPODashboard = () => {
       lead="Placement tracking, job pipeline and student activity for your institution."
       actions={
         <>
+          <Button variant="secondary" icon={MegaphoneIcon} onClick={() => setAnnouncing(true)}>
+            Send announcement
+          </Button>
           <Button as={Link} to="/approvals" variant="secondary" icon={ClipboardDocumentCheckIcon}>
             Approvals
           </Button>
@@ -124,10 +130,15 @@ const TPODashboard = () => {
     />
   );
 
+  const announceModal = (
+    <AnnounceModal open={announcing} onClose={() => setAnnouncing(false)} role="tpo" />
+  );
+
   if (error && !loading) {
     return (
       <PageShell width="wide">
         {header}
+        {announceModal}
         <ErrorState title="Could not load placement statistics" description={error} onRetry={load} />
       </PageShell>
     );
@@ -136,6 +147,7 @@ const TPODashboard = () => {
   return (
     <PageShell width="wide">
       {header}
+      {announceModal}
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
@@ -156,7 +168,7 @@ const TPODashboard = () => {
         <StatTile
           label="Active jobs"
           value={toInt(jobs.active)}
-          hint={`${toInt(jobs.total)} posted in total`}
+          hint={`${toInt(jobs.total)} visible to your students`}
           icon={BriefcaseIcon}
           accent="saffron"
           to="/jobs"
@@ -188,7 +200,7 @@ const TPODashboard = () => {
                   {placementByStatus.map((row) => (
                     <DistributionRow
                       key={row.placementStatus}
-                      label={row.placementStatus || 'unplaced'}
+                      label={String(row.placementStatus || 'unplaced').replace(/_/g, ' ')}
                       count={toInt(row.count)}
                       total={toInt(students.total)}
                     />
@@ -200,13 +212,16 @@ const TPODashboard = () => {
             </Card>
 
             <Card>
-              <CardHeader title="Job pipeline" description="Postings visible to your students." />
+              <CardHeader
+                title="Job pipeline"
+                description="Live postings, plus any posting your students have applied to."
+              />
               {jobsByStatus.length > 0 ? (
                 <ul className="mt-4 divide-y divide-ink-950/10">
                   {jobsByStatus.map((row) => (
                     <DistributionRow
                       key={row.status}
-                      label={row.status}
+                      label={String(row.status).replace(/_/g, ' ')}
                       count={toInt(row.count)}
                       total={toInt(jobs.total)}
                     />
@@ -214,6 +229,19 @@ const TPODashboard = () => {
                 </ul>
               ) : (
                 <p className="mt-4 text-sm text-ink-600">No job data available yet.</p>
+              )}
+              {/* Not part of the pipeline above: a posting awaiting review is
+                  invisible to students until someone publishes it. */}
+              {toInt(jobs.pendingReview) > 0 && (
+                <Link
+                  to="/approvals"
+                  className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-saffron-500/40 bg-saffron-50 px-3 py-2.5 text-sm font-medium text-saffron-900 hover:border-saffron-500"
+                >
+                  <span>
+                    {toInt(jobs.pendingReview)} posting{toInt(jobs.pendingReview) === 1 ? '' : 's'} awaiting review
+                  </span>
+                  <ArrowRightIcon aria-hidden="true" className="h-4 w-4" />
+                </Link>
               )}
             </Card>
 
@@ -247,14 +275,17 @@ const TPODashboard = () => {
               <ul className="divide-y divide-ink-950/10 border-t border-ink-950/10">
                 {byCompany.slice(0, 10).map((row, index) => (
                   <li
-                    key={`${row.job?.id ?? 'unknown'}-${index}`}
+                    key={`${row.organizationId ?? 'unknown'}-${index}`}
                     className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
                   >
                     <div className="min-w-0">
                       <p className="font-display text-sm font-bold text-ink-950">
-                        {row.job?.organization?.name || 'Unknown company'}
+                        {row.name || 'Unknown company'}
                       </p>
-                      <p className="mt-0.5 text-sm text-ink-600">{row.job?.title || 'Untitled role'}</p>
+                      <p className="mt-0.5 text-sm text-ink-600">
+                        {toInt(row.jobs)} role{toInt(row.jobs) === 1 ? '' : 's'} ·{' '}
+                        {toInt(row.selected)} selected
+                      </p>
                     </div>
                     <p className="shrink-0 font-display text-lg font-bold tabular-nums text-ink-950">
                       {toInt(row.count)}

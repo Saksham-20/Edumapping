@@ -5,6 +5,16 @@ const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { body } = require('express-validator');
 
+// TPOs and admins share every route here; the controller scopes what each may
+// see and decide (TPO: companies and recruiters; admin: everything).
+const REVIEWERS = ['tpo', 'admin'];
+
+const decisionValidators = [
+  body('action').isIn(['approve', 'reject']).withMessage('Action must be either approve or reject'),
+  body('notes').optional({ nullable: true }).isString().withMessage('Notes must be a string')
+    .isLength({ max: 2000 }).withMessage('Notes must be 2000 characters or fewer')
+];
+
 /**
  * @swagger
  * /api/approvals/pending:
@@ -37,7 +47,7 @@ const { body } = require('express-validator');
  *       403:
  *         description: Forbidden - TPO access required
  */
-router.get('/pending', authenticateToken, requireRole('tpo'), approvalController.getPendingApprovals);
+router.get('/pending', authenticateToken, requireRole(...REVIEWERS), approvalController.getPendingApprovals);
 
 /**
  * @swagger
@@ -88,11 +98,8 @@ router.get('/pending', authenticateToken, requireRole('tpo'), approvalController
 // single-organization handler and died on `parseInt('bulk')`.
 router.patch('/organizations/:organizationId(\\d+)', 
   authenticateToken, 
-  requireRole('tpo'),
-  [
-    body('action').isIn(['approve', 'reject']).withMessage('Action must be either approve or reject'),
-    body('notes').optional().isString().withMessage('Notes must be a string')
-  ],
+  requireRole(...REVIEWERS),
+  decisionValidators,
   approvalController.approveOrganization
 );
 
@@ -139,13 +146,10 @@ router.patch('/organizations/:organizationId(\\d+)',
  *       404:
  *         description: User not found
  */
-router.patch('/recruiters/:userId', 
+router.patch('/recruiters/:userId(\\d+)', 
   authenticateToken, 
-  requireRole('tpo'),
-  [
-    body('action').isIn(['approve', 'reject']).withMessage('Action must be either approve or reject'),
-    body('notes').optional().isString().withMessage('Notes must be a string')
-  ],
+  requireRole(...REVIEWERS),
+  decisionValidators,
   approvalController.approveRecruiter
 );
 
@@ -191,12 +195,11 @@ router.patch('/recruiters/:userId',
  */
 router.patch('/organizations/bulk', 
   authenticateToken, 
-  requireRole('tpo'),
+  requireRole(...REVIEWERS),
   [
-    body('organizationIds').isArray().withMessage('Organization IDs must be an array'),
-    body('organizationIds.*').isInt().withMessage('Organization IDs must be integers'),
-    body('action').isIn(['approve', 'reject']).withMessage('Action must be either approve or reject'),
-    body('notes').optional().isString().withMessage('Notes must be a string')
+    body('organizationIds').isArray({ min: 1, max: 200 }).withMessage('Organization IDs must be a non-empty array (max 200)'),
+    body('organizationIds.*').isInt({ min: 1 }).withMessage('Organization IDs must be integers'),
+    ...decisionValidators
   ],
   approvalController.bulkApproveOrganizations
 );
@@ -233,6 +236,56 @@ router.patch('/organizations/bulk',
  *       403:
  *         description: Forbidden - TPO access required
  */
-router.get('/stats', authenticateToken, requireRole('tpo'), approvalController.getApprovalStats);
+/**
+ * @swagger
+ * /api/approvals/organizations:
+ *   get:
+ *     summary: Paginated organization approval queue (TPO sees companies only)
+ *     tags: [Approvals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: query, name: status, schema: { type: string, enum: [pending, approved, rejected] } }
+ *       - { in: query, name: type, schema: { type: string, enum: [university, college, school, company] } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer } }
+ *       - { in: query, name: limit, schema: { type: integer } }
+ */
+router.get('/organizations', authenticateToken, requireRole(...REVIEWERS), approvalController.listOrganizations);
+
+/**
+ * @swagger
+ * /api/approvals/users:
+ *   get:
+ *     summary: Paginated account approval queue (TPO sees recruiters only)
+ *     tags: [Approvals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: query, name: status, schema: { type: string, enum: [pending, approved, rejected, stuck] } }
+ *       - { in: query, name: role, schema: { type: string } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer } }
+ *       - { in: query, name: limit, schema: { type: integer } }
+ */
+router.get('/users', authenticateToken, requireRole(...REVIEWERS), approvalController.listUsers);
+
+/**
+ * @swagger
+ * /api/approvals/users/{userId}:
+ *   patch:
+ *     summary: Approve or reject any pending account (admin), or a recruiter (TPO)
+ *     tags: [Approvals]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/users/:userId(\\d+)',
+  authenticateToken,
+  requireRole(...REVIEWERS),
+  decisionValidators,
+  approvalController.approveUser
+);
+
+router.get('/stats', authenticateToken, requireRole(...REVIEWERS), approvalController.getApprovalStats);
 
 module.exports = router;

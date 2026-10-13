@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { openMeetingLink, shareUrl } from '../../utils/helpers';
+import AttendeesPanel from '../../components/events/AttendeesPanel';
 import {
   Badge,
   Button,
@@ -64,7 +65,7 @@ const EventDetails = () => {
   const fetchEvent = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await api.get(`/events/${id}`);
+      const response = await api.get(`/events/${id}`, { silent: true });
       setEvent(response.event || null);
       setIsRegistered(Boolean(response.event?.userRegistration));
     } catch (error) {
@@ -91,22 +92,36 @@ const EventDetails = () => {
   const canEdit =
     user && user.role !== 'student' && event?.organizationId === (user.organizationId || event?.organizationId);
 
+  // Who runs this event and may take its register: an admin, or non-student
+  // staff of the organizing organization (TPO, school staff, the recruiter
+  // whose company is hosting). Mirrors the server's own check on
+  // /events/:id/registrations — which, unlike `canEdit` above, does not let
+  // an admin-less account with no organization through.
+  const canManageAttendance = Boolean(
+    user &&
+      event &&
+      (user.role === 'admin' ||
+        (user.role !== 'student' && user.organizationId && event.organizationId === user.organizationId))
+  );
+
   const handleRegister = async (register = true) => {
     if (!event?.id) return;
     try {
       setActionLoading(true);
       if (register) {
-        await api.post(`/events/${event.id}/register`);
+        // `silent`: the catch below shows the one toast (the server's reason,
+        // e.g. "Event Full"), instead of the interceptor's plus ours.
+        await api.post(`/events/${event.id}/register`, {}, { silent: true });
         setIsRegistered(true);
         toast.success('Successfully registered for this event!');
       } else {
-        await api.post(`/events/${event.id}/cancel`);
+        await api.post(`/events/${event.id}/cancel`, {}, { silent: true });
         setIsRegistered(false);
         toast.success('Registration cancelled');
       }
       fetchEvent();
     } catch (error) {
-      toast.error(register ? 'Failed to register' : 'Failed to cancel registration');
+      toast.error(error?.message || (register ? 'Failed to register' : 'Failed to cancel registration'));
     } finally {
       setActionLoading(false);
     }
@@ -256,6 +271,8 @@ const EventDetails = () => {
           </Button>
         </div>
       </Card>
+
+      {canManageAttendance && <AttendeesPanel event={event} />}
     </PageShell>
   );
 };

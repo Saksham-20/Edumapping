@@ -151,6 +151,9 @@ class AdminService {
   }
 }
 
-export default new AdminService();
+// Named instance rather than an anonymous default export, which eslint's
+// import/no-anonymous-default-export flags.
+const adminService = new AdminService();
+export default adminService;
 
 

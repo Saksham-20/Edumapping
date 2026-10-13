@@ -3,6 +3,11 @@
 // Placement analytics for a TPO. The page was written but never routed and the
 // `/api/analytics` router was never mounted, so none of this had ever run.
 //
+// Scope: a TPO always sees their own institution (the server ignores any
+// organizationId they send). An admin has no institution of their own — the
+// screen used to show them nothing but zeros — so they pick one from the
+// institution selector, and every request carries it.
+//
 // Two server-side constraints shape what is on screen:
 //
 //   * `GET /analytics/tpo` returns 0 applications when the date range is
@@ -152,7 +157,14 @@ const MeterRow = ({ label, value, total, tone = 'ink' }) => {
 
 const TPOAnalytics = () => {
   const { user } = useAuth();
-  const allowed = user?.role === 'tpo' || user?.role === 'admin';
+  const isAdmin = user?.role === 'admin';
+  const allowed = user?.role === 'tpo' || isAdmin;
+
+  // Admin only: the institution being looked at.
+  const [institutions, setInstitutions] = useState([]);
+  const [institutionsLoaded, setInstitutionsLoaded] = useState(false);
+  const [orgId, setOrgId] = useState('');
+  const scoped = !isAdmin || Boolean(orgId);
 
   const [tab, setTab] = useState('overview');
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -174,16 +186,18 @@ const TPOAnalytics = () => {
     FILTERS_FOR_OVERVIEW.forEach((key) => {
       if (filters[key]) params.set(key, filters[key]);
     });
+    if (isAdmin && orgId) params.set('organizationId', orgId);
     return params.toString();
-  }, [filters]);
+  }, [filters, isAdmin, orgId]);
 
   const studentsQuery = useMemo(() => {
     const params = new URLSearchParams({ page: String(studentsPage), limit: String(PAGE_SIZE) });
     ['branch', 'yearOfStudy', 'placementStatus', 'search'].forEach((key) => {
       if (filters[key]) params.set(key, filters[key]);
     });
+    if (isAdmin && orgId) params.set('organizationId', orgId);
     return params.toString();
-  }, [filters, studentsPage]);
+  }, [filters, studentsPage, isAdmin, orgId]);
 
   /**
    * Download the full filtered roster from the server.
@@ -197,9 +211,12 @@ const TPOAnalytics = () => {
     setExporting(true);
     try {
       const params = new URLSearchParams();
-      ['branch', 'yearOfStudy', 'placementStatus'].forEach((key) => {
+      // `search` included so "Export all" is the roster on screen, not the
+      // whole campus regardless of what was typed.
+      ['branch', 'yearOfStudy', 'placementStatus', 'search'].forEach((key) => {
         if (filters[key]) params.set(key, filters[key]);
       });
+      if (isAdmin && orgId) params.set('organizationId', orgId);
       const blob = await api.get(`/analytics/tpo/export?${params.toString()}`, {
         responseType: 'blob',
         silent: true
@@ -217,7 +234,7 @@ const TPOAnalytics = () => {
     } finally {
       setExporting(false);
     }
-  }, [filters]);
+  }, [filters, isAdmin, orgId]);
 
   const loadAnalytics = useCallback(async () => {
     setLoading(true);
@@ -249,16 +266,38 @@ const TPOAnalytics = () => {
   }, [studentsQuery]);
 
   useEffect(() => {
-    if (!allowed) return undefined;
+    if (!allowed || !scoped) return undefined;
     const t = setTimeout(loadAnalytics, 300);
     return () => clearTimeout(t);
-  }, [allowed, loadAnalytics]);
+  }, [allowed, scoped, loadAnalytics]);
 
   useEffect(() => {
-    if (!allowed || tab !== 'students') return undefined;
+    if (!allowed || !scoped || tab !== 'students') return undefined;
     const t = setTimeout(loadStudents, 300);
     return () => clearTimeout(t);
-  }, [allowed, tab, loadStudents]);
+  }, [allowed, scoped, tab, loadStudents]);
+
+  // Admin: list the universities and colleges to choose from, and start on one
+  // so the page opens on real numbers rather than an empty prompt.
+  useEffect(() => {
+    if (!isAdmin) return;
+    Promise.all([
+      api.get('/admin/organizations', { params: { type: 'university', limit: 200 }, silent: true }),
+      api.get('/admin/organizations', { params: { type: 'college', limit: 200 }, silent: true })
+    ])
+      .then(([unis, colleges]) => {
+        const list = [...(unis.universities || []), ...(colleges.colleges || [])].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        );
+        setInstitutions(list);
+        // Open on the institution with the most students (universities carry
+        // a student count; colleges do not), not whichever sorts first.
+        const busiest = [...list].sort((a, b) => (b.stats?.students || 0) - (a.stats?.students || 0))[0];
+        setOrgId((prev) => prev || (busiest ? String(busiest.id) : ''));
+      })
+      .catch(() => setInstitutions([]))
+      .finally(() => setInstitutionsLoaded(true));
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -275,6 +314,9 @@ const TPOAnalytics = () => {
   };
 
   const detailedCompanies = analytics?.companies?.detailed || [];
+  const institutionName = isAdmin
+    ? institutions.find((o) => String(o.id) === orgId)?.name
+    : user?.organization?.name;
   const periodLabel =
     DATE_RANGES.find((d) => d.value === filters.dateRange)?.label.toLowerCase() || 'this year';
 
@@ -296,15 +338,18 @@ const TPOAnalytics = () => {
         eyebrow="Analytics"
         title="Placement analytics"
         lead={
-          user?.organization?.name
-            ? `Applications, companies and placements for ${user.organization.name}.`
+          institutionName
+            ? `Applications, companies and placements for ${institutionName}.`
+            : isAdmin
+            ? 'Choose an institution to see its placement analytics.'
             : 'Applications, companies and placements for your institution.'
         }
         actions={
           <Button
             variant="secondary"
             icon={ArrowPathIcon}
-            loading={loading}
+            loading={loading && scoped}
+            disabled={!scoped}
             onClick={() => {
               loadAnalytics();
               if (tab === 'students') loadStudents();
@@ -316,6 +361,29 @@ const TPOAnalytics = () => {
       />
 
       <Toolbar className="flex-wrap">
+        {isAdmin && (
+          <div className="w-full sm:w-64">
+            <Select
+              label="Institution"
+              value={orgId}
+              onChange={(e) => {
+                setOrgId(e.target.value);
+                setStudentsPage(1);
+              }}
+              options={[
+                {
+                  value: '',
+                  label: institutionsLoaded
+                    ? institutions.length
+                      ? 'Choose an institution'
+                      : 'No institutions yet'
+                    : 'Loading…'
+                },
+                ...institutions.map((o) => ({ value: String(o.id), label: o.name }))
+              ]}
+            />
+          </div>
+        )}
         <div className="w-full sm:w-44">
           <Select
             label="Period"
@@ -355,7 +423,10 @@ const TPOAnalytics = () => {
             options={[
               { value: '', label: 'All students' },
               { value: 'placed', label: 'Placed' },
-              { value: 'unplaced', label: 'Unplaced' }
+              { value: 'unplaced', label: 'Unplaced' },
+              { value: 'deferred', label: 'Deferred' },
+              { value: 'higher_studies', label: 'Higher studies' },
+              { value: 'opted_out', label: 'Opted out' }
             ]}
           />
         </div>
@@ -368,7 +439,15 @@ const TPOAnalytics = () => {
 
       <Tabs className="mb-6 w-fit" tabs={TABS} value={tab} onChange={setTab} />
 
-      {loading && (
+      {!scoped && institutionsLoaded && (
+        <EmptyState
+          icon={AcademicCapIcon}
+          title="Choose an institution"
+          description="Analytics are per institution. Pick a university or college above."
+        />
+      )}
+
+      {scoped && loading && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <SkeletonCard key={i} lines={2} />
@@ -376,11 +455,11 @@ const TPOAnalytics = () => {
         </div>
       )}
 
-      {!loading && error && (
+      {scoped && !loading && error && (
         <ErrorState title="Could not load analytics" description={error} onRetry={loadAnalytics} />
       )}
 
-      {!loading && !error && analytics && (
+      {scoped && !loading && !error && analytics && (
         <>
           {tab === 'overview' && (
             <>
@@ -388,7 +467,11 @@ const TPOAnalytics = () => {
                 <StatTile
                   label="Students"
                   value={analytics.students?.total ?? 0}
-                  hint="Active accounts at your institution"
+                  hint={
+                    analytics.students?.accounts != null
+                      ? `${analytics.students.activePercentage ?? 0}% of ${analytics.students.accounts} accounts active`
+                      : 'Active accounts at this institution'
+                  }
                   icon={UserGroupIcon}
                   accent="ink"
                 />

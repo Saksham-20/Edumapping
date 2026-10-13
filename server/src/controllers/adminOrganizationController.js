@@ -1,6 +1,8 @@
 // server/src/controllers/adminOrganizationController.js
-const { Organization, User, Job, Application, StudentProfile } = require('../models');
+const { Organization, User, Job, Application, StudentProfile, AuditLog, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
+const { cascadeOrganizationDecision } = require('../utils/approvalCascade');
 
 class AdminOrganizationController {
   // Create organization
@@ -17,10 +19,12 @@ class AdminOrganizationController {
       }
 
       // Validate type
-      if (!['university', 'company', 'school'].includes(type)) {
+      // `college` is a valid organization type (the enum has carried it since
+      // migration 27) but was missing here, so an admin could not create one.
+      if (!['university', 'college', 'company', 'school'].includes(type)) {
         return res.status(400).json({
           error: 'Validation Error',
-          message: 'Type must be either "university", "company", or "school"'
+          message: 'Type must be one of "university", "college", "company" or "school"'
         });
       }
 
@@ -479,14 +483,26 @@ class AdminOrganizationController {
     }
   }
 
-  // Verify/unverify organization
+  /**
+   * Verify/unverify an organization.
+   *
+   * Verifying also approves it — and, since this is the admin's approval step
+   * for an institution, approves the staff who were waiting on it: the TPO who
+   * registered a new college, a school's principal, a company's recruiters.
+   * It used to approve only the organization, leaving its TPO pending (and
+   * unable to sign in) behind an approved institution with nobody to run it.
+   *
+   * Unverifying only clears the badge; it does not revoke an approval.
+   */
   async verifyOrganization(req, res, next) {
+    const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
       const { isVerified } = req.body;
 
-      const organization = await Organization.findByPk(id);
+      const organization = await Organization.findByPk(id, { transaction });
       if (!organization) {
+        await transaction.rollback();
         return res.status(404).json({
           error: 'Organization Not Found',
           message: 'Organization not found'
@@ -494,19 +510,50 @@ class AdminOrganizationController {
       }
 
       const verified = isVerified === true || isVerified === 'true';
-      
-      await organization.update({
-        isVerified: verified,
-        approvalStatus: verified ? 'approved' : organization.approvalStatus, // Only change to approved if verifying, don't change if unverifying
-        approvedBy: verified ? req.user.id : organization.approvedBy,
-        approvedAt: verified ? new Date() : organization.approvedAt
-      });
+      const newlyApproved = verified && organization.approvalStatus !== 'approved';
+
+      await organization.update(
+        {
+          isVerified: verified,
+          ...(newlyApproved
+            ? { approvalStatus: 'approved', approvedBy: req.user.id, approvedAt: new Date() }
+            : {})
+        },
+        { transaction }
+      );
+
+      // Run on every verify, not only the first approval: an organization that
+      // was approved by the old path may still have staff stuck in pending,
+      // and re-verifying is the natural thing for an admin to try.
+      const usersUpdated = verified
+        ? await cascadeOrganizationDecision({
+            User,
+            organization,
+            action: 'approve',
+            approverId: req.user.id,
+            transaction
+          })
+        : 0;
+
+      await transaction.commit();
+
+      AuditLog.create({
+        userId: req.user.id,
+        action: verified ? 'organization_verified' : 'organization_unverified',
+        entityType: 'organization',
+        entityId: organization.id,
+        newValues: { name: organization.name, type: organization.type, staffAccountsApproved: usersUpdated },
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.get('user-agent')
+      }).catch((err) => logger.error('Audit log failed', err));
 
       res.json({
         message: `Organization ${verified ? 'verified' : 'unverified'} successfully`,
-        organization
+        organization,
+        usersUpdated
       });
     } catch (error) {
+      if (!transaction.finished) await transaction.rollback();
       next(error);
     }
   }
@@ -530,8 +577,20 @@ class AdminOrganizationController {
         });
       }
 
+      // Descriptive fields only. Approval goes through the approvals flow,
+      // which also cascades to the organisation's staff and audit-logs the
+      // decision; letting it through here bypassed both.
+      const BULK_FIELDS = ['region', 'state', 'city', 'zone', 'workMode', 'isVerified', 'website', 'contactEmail', 'contactPhone'];
+      const safeUpdates = Object.fromEntries(Object.entries(updates).filter(([k]) => BULK_FIELDS.includes(k)));
+      if (Object.keys(safeUpdates).length === 0) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: `Only these fields can be bulk-updated: ${BULK_FIELDS.join(', ')}`
+        });
+      }
+
       // Update organizations
-      const [affectedRows] = await Organization.update(updates, {
+      const [affectedRows] = await Organization.update(safeUpdates, {
         where: {
           id: {
             [Op.in]: organizationIds.map(id => parseInt(id))

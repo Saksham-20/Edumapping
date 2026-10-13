@@ -6,10 +6,13 @@
 // Modal, Tabs and form controls replace the hand-rolled ones, and every
 // destructive action now confirms in a real dialog instead of window.confirm.
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import statisticsService from '../../services/statistics';
 import adminService from '../../services/adminService';
 import api from '../../services/api';
+import approvalService from '../../services/approvals';
+import AnnounceModal from '../../components/notifications/AnnounceModal';
 import toast from 'react-hot-toast';
 import TabNavigation from '../../components/admin/TabNavigation';
 import StatCard from '../../components/admin/StatCard';
@@ -54,11 +57,17 @@ import {
   MagnifyingGlassIcon,
   AcademicCapIcon,
   ShieldCheckIcon,
+  ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   LockClosedIcon,
   CheckBadgeIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  MegaphoneIcon,
+  ClipboardDocumentCheckIcon,
+  ClipboardDocumentListIcon,
+  ArrowRightIcon
 } from '@heroicons/react/24/outline';
+import { downloadCredentialsCsv } from '../../utils/credentialsCsv';
 import { prepareLineChartData } from '../../utils/chartUtils';
 
 /** One row of a labelled proportion bar. The width is data, never decoration. */
@@ -113,6 +122,21 @@ const OrganizationFormFields = ({ value = {}, onChange, noun }) => {
       <Textarea label="Address" rows={3} value={value.address || ''} onChange={set('address')} />
     </div>
   );
+};
+
+/**
+ * Error toast that never doubles up.
+ *
+ * The shared axios instance already toasts every failed request except 401s,
+ * 403s and ones sent `silent`. Every catch on this page then toasted again, so
+ * one failure showed two toasts — usually one useful message and one generic
+ * "Failed to …" on top of it. This shows the fallback only when the
+ * interceptor stayed quiet (a 401/403, a silent call, or a non-HTTP error).
+ */
+const toastError = (error, fallback) => {
+  const interceptorShown =
+    Boolean(error?.config) && !error.config.silent && ![401, 403].includes(error?.status);
+  if (!interceptorShown) toast.error(error?.message || fallback);
 };
 
 /** Edit / delete controls for one table row. */
@@ -230,6 +254,13 @@ const AdminDashboard = () => {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
+  const [announcing, setAnnouncing] = useState(false);
+
+  const pendingOrgs = Number(stats.organizations?.pendingApproval || 0);
+  const pendingAccounts = Number(stats.users?.pendingApproval || 0);
+  const pendingPostings = Number(stats.jobs?.pendingReview || 0);
+  const pendingTotal = pendingOrgs + pendingAccounts + pendingPostings;
+
   const tabs = [
     { id: 'overview', label: 'Overview', icon: ChartBarIcon },
     { id: 'analytics', label: 'Analytics', icon: ChartBarIcon },
@@ -289,7 +320,7 @@ const AdminDashboard = () => {
       const response = await statisticsService.getAdminStats();
       setStats(response.stats);
     } catch (error) {
-      toast.error('Failed to load statistics');
+      toastError(error, 'Failed to load statistics');
     } finally {
       setIsLoading(false);
     }
@@ -301,7 +332,7 @@ const AdminDashboard = () => {
       const response = await adminService.getAdvancedAnalytics({ period: analyticsPeriod });
       setAnalytics(response.analytics);
     } catch (error) {
-      toast.error('Failed to load analytics');
+      toastError(error, 'Failed to load analytics');
     } finally {
       setIsLoading(false);
     }
@@ -348,7 +379,7 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      toast.error('Failed to load users');
+      toastError(error, 'Failed to load users');
     } finally {
       setIsLoading(false);
     }
@@ -370,7 +401,7 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      toast.error('Failed to load TPOs');
+      toastError(error, 'Failed to load TPOs');
     } finally {
       setIsLoading(false);
     }
@@ -392,7 +423,7 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      toast.error('Failed to load universities');
+      toastError(error, 'Failed to load universities');
     } finally {
       setIsLoading(false);
     }
@@ -414,7 +445,7 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      toast.error('Failed to load companies');
+      toastError(error, 'Failed to load companies');
     } finally {
       setIsLoading(false);
     }
@@ -436,8 +467,7 @@ const AdminDashboard = () => {
         limit: 20
       });
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to load schools';
-      toast.error(errorMessage);
+      toastError(error, 'Failed to load schools');
       // Set empty state on error
       setSchools([]);
       setSchoolsPagination({
@@ -460,7 +490,7 @@ const AdminDashboard = () => {
       const response = await api.get('/users?role=recruiter&limit=200');
       setRecruiters(response.users || []);
     } catch (error) {
-      toast.error('Failed to load recruiters');
+      toastError(error, 'Failed to load recruiters');
       setRecruiters([]);
     } finally {
       setIsLoading(false);
@@ -481,7 +511,7 @@ const AdminDashboard = () => {
       ].sort((a, b) => a.name.localeCompare(b.name));
       setInstitutions(list);
     } catch (error) {
-      toast.error('Failed to load institutions');
+      toastError(error, 'Failed to load institutions');
       setInstitutions([]);
     }
   };
@@ -530,7 +560,7 @@ const AdminDashboard = () => {
       fetchUsers();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to save user');
+      toastError(error, 'Failed to save user');
     }
   };
 
@@ -541,7 +571,7 @@ const AdminDashboard = () => {
       fetchUsers();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to delete user');
+      toastError(error, 'Failed to delete user');
     }
   };
 
@@ -585,7 +615,7 @@ const AdminDashboard = () => {
       fetchTPOs();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to save TPO');
+      toastError(error, 'Failed to save TPO');
     }
   };
 
@@ -596,7 +626,7 @@ const AdminDashboard = () => {
       fetchTPOs();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to delete TPO');
+      toastError(error, 'Failed to delete TPO');
     }
   };
 
@@ -658,7 +688,7 @@ const AdminDashboard = () => {
       fetchOrganizations();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to save university');
+      toastError(error, 'Failed to save university');
     }
   };
 
@@ -669,7 +699,7 @@ const AdminDashboard = () => {
       fetchUniversities();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to deactivate university');
+      toastError(error, 'Failed to deactivate university');
     }
   };
 
@@ -679,7 +709,7 @@ const AdminDashboard = () => {
       toast.success(`University ${isVerified ? 'verified' : 'unverified'} successfully`);
       fetchUniversities();
     } catch (error) {
-      toast.error(error.message || 'Failed to update verification');
+      toastError(error, 'Failed to update verification');
     }
   };
 
@@ -730,7 +760,7 @@ const AdminDashboard = () => {
       fetchOrganizations();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to save company');
+      toastError(error, 'Failed to save company');
     }
   };
 
@@ -741,7 +771,7 @@ const AdminDashboard = () => {
       fetchCompanies();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to deactivate company');
+      toastError(error, 'Failed to deactivate company');
     }
   };
 
@@ -751,7 +781,7 @@ const AdminDashboard = () => {
       toast.success(`Company ${isVerified ? 'verified' : 'unverified'} successfully`);
       fetchCompanies();
     } catch (error) {
-      toast.error(error.message || 'Failed to update verification');
+      toastError(error, 'Failed to update verification');
     }
   };
 
@@ -801,8 +831,7 @@ const AdminDashboard = () => {
       fetchOrganizations();
       fetchOverviewStats();
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to save school';
-      toast.error(errorMessage);
+      toastError(error, 'Failed to save school');
     }
   };
 
@@ -813,7 +842,7 @@ const AdminDashboard = () => {
       fetchSchools();
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to deactivate school');
+      toastError(error, 'Failed to deactivate school');
     }
   };
 
@@ -823,15 +852,23 @@ const AdminDashboard = () => {
       toast.success(`School ${isVerified ? 'verified' : 'unverified'} successfully`);
       fetchSchools();
     } catch (error) {
-      toast.error(error.message || 'Failed to update verification');
+      toastError(error, 'Failed to update verification');
     }
   };
 
+  // Approve / reject go through the approval endpoints rather than the generic
+  // organization update: those also decide the staff who registered with the
+  // organization (its TPO, school staff or recruiters) and write the audit
+  // trail. Rejecting via `PUT /admin/organizations/:id` used to flip only the
+  // organization and leave its staff pending indefinitely.
   const handleApproveOrganization = async (organizationId, type) => {
     try {
-      await adminService.verifyOrganization(organizationId, true);
+      const body = await approvalService.approveOrganization(organizationId, 'approve', '', { silent: true });
       const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
-      toast.success(`${typeLabel} approved successfully`);
+      const staff = body?.usersUpdated || 0;
+      toast.success(
+        `${typeLabel} approved${staff ? ` with ${staff} staff account${staff === 1 ? '' : 's'}` : ''}`
+      );
       if (type === 'university') {
         fetchUniversities();
       } else if (type === 'company') {
@@ -841,15 +878,13 @@ const AdminDashboard = () => {
       }
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to approve organization');
+      toast.error(error?.message || 'Failed to approve organization');
     }
   };
 
   const handleRejectOrganization = async (organizationId, type) => {
     try {
-      await adminService.updateOrganization(organizationId, {
-        approvalStatus: 'rejected'
-      });
+      await approvalService.approveOrganization(organizationId, 'reject', '', { silent: true });
       const typeLabel = type === 'university' ? 'University' : type === 'company' ? 'Company' : 'School';
       toast.success(`${typeLabel} rejected successfully`);
       if (type === 'university') {
@@ -861,7 +896,7 @@ const AdminDashboard = () => {
       }
       fetchOverviewStats();
     } catch (error) {
-      toast.error(error.message || 'Failed to reject organization');
+      toast.error(error?.message || 'Failed to reject organization');
     }
   };
 
@@ -885,7 +920,7 @@ const AdminDashboard = () => {
       setSelectedStates(Array.isArray(data.allowedStates) ? [...data.allowedStates] : []);
       setSelectedCities(Array.isArray(data.allowedCities) ? [...data.allowedCities] : []);
     } catch (err) {
-      toast.error('Failed to load permissions');
+      toastError(err, 'Failed to load permissions');
     } finally {
       setPermissionsLoading(false);
     }
@@ -942,8 +977,7 @@ const AdminDashboard = () => {
       setSelectedStates([]);
       setSelectedCities([]);
     } catch (error) {
-      const msg = error.response?.data?.message || error.message || 'Failed to update permissions';
-      toast.error(msg);
+      toastError(error, 'Failed to update permissions');
     } finally {
       setPermissionsSaving(false);
     }
@@ -976,7 +1010,7 @@ const AdminDashboard = () => {
       const input = document.getElementById('import-file-input');
       if (input) input.value = '';
     } catch (err) {
-      toast.error(err?.message || 'Import failed');
+      toastError(err, 'Import failed');
     } finally {
       setImporting(false);
     }
@@ -1020,6 +1054,25 @@ const AdminDashboard = () => {
 
   const renderOverviewTab = () => (
     <>
+      {pendingTotal > 0 && (
+        <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 border-saffron-500/40 bg-saffron-50 py-4">
+          <p className="text-sm text-saffron-900">
+            Waiting on review:{' '}
+            {[
+              pendingOrgs ? `${pendingOrgs} organization${pendingOrgs === 1 ? '' : 's'}` : null,
+              pendingAccounts ? `${pendingAccounts} account${pendingAccounts === 1 ? '' : 's'}` : null,
+              pendingPostings ? `${pendingPostings} job posting${pendingPostings === 1 ? '' : 's'}` : null
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            .
+          </p>
+          <Button as={Link} to="/approvals" size="sm" variant="secondary" iconRight={ArrowRightIcon}>
+            Open approval queue
+          </Button>
+        </Card>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total users"
@@ -1031,7 +1084,12 @@ const AdminDashboard = () => {
         <StatCard
           title="Organizations"
           value={stats.organizations?.total ?? 0}
-          subtitle="Universities, schools and companies"
+          subtitle={
+            (stats.organizations?.byType || [])
+              .filter((row) => Number(row.count) > 0)
+              .map((row) => `${row.count} ${row.type}`)
+              .join(' · ') || 'Universities, colleges, schools and companies'
+          }
           icon={BuildingOfficeIcon}
           color="green"
         />
@@ -1075,7 +1133,7 @@ const AdminDashboard = () => {
               {stats.jobs.byStatus.map((row) => (
                 <MeterRow
                   key={row.status}
-                  label={row.status}
+                  label={String(row.status).replace(/_/g, ' ')}
                   value={Number(row.count)}
                   total={Number(stats.jobs.total) || 0}
                   tone="saffron"
@@ -1084,6 +1142,41 @@ const AdminDashboard = () => {
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-ink-500">No job breakdown available.</p>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Applications by status">
+          {stats.applications?.byStatus?.length ? (
+            <div className="divide-y divide-ink-950/10">
+              {stats.applications.byStatus.map((row) => (
+                <MeterRow
+                  key={row.status}
+                  label={String(row.status).replace(/_/g, ' ')}
+                  value={Number(row.count)}
+                  total={Number(stats.applications.total) || 0}
+                  tone="india"
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-ink-500">No applications yet.</p>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Students by placement status">
+          {stats.placements?.byStatus?.length ? (
+            <div className="divide-y divide-ink-950/10">
+              {stats.placements.byStatus.map((row) => (
+                <MeterRow
+                  key={row.placementStatus}
+                  label={String(row.placementStatus).replace(/_/g, ' ')}
+                  value={Number(row.count)}
+                  total={Number(stats.placements.total) || 0}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-ink-500">No student profiles yet.</p>
           )}
         </ChartCard>
       </div>
@@ -1310,7 +1403,10 @@ const AdminDashboard = () => {
     ];
 
     const hasFilters = Boolean(
-      usersFilters.role || usersFilters.organizationType || usersFilters.search
+      usersFilters.role ||
+        usersFilters.organizationType ||
+        usersFilters.search ||
+        usersFilters.approvalStatus
     );
 
     return (
@@ -1340,6 +1436,24 @@ const AdminDashboard = () => {
                 { value: 'teacher', label: 'Teachers' },
                 { value: 'school_admin', label: 'School admins' },
                 { value: 'career_counselor', label: 'Career counsellors' }
+              ]}
+            />
+          </div>
+          <div className="w-full sm:w-44">
+            {/* Was state with no control: `approvalStatus` sat in the filter
+                object and was sent with every request, but nothing on screen
+                could ever set it. */}
+            <Select
+              label="Approval"
+              value={usersFilters.approvalStatus}
+              onChange={(e) =>
+                setUsersFilters((prev) => ({ ...prev, approvalStatus: e.target.value }))
+              }
+              options={[
+                { value: '', label: 'Any status' },
+                { value: 'pending', label: 'Pending' },
+                { value: 'approved', label: 'Approved' },
+                { value: 'rejected', label: 'Rejected' }
               ]}
             />
           </div>
@@ -1861,6 +1975,27 @@ const AdminDashboard = () => {
             </div>
           </div>
 
+          {importResult.created?.some((c) => c.temporaryPassword) && (
+            <div className="rounded-xl border border-ink-950/15 bg-bone-100 px-4 py-3">
+              <p className="text-sm font-semibold text-ink-900">Temporary passwords</p>
+              <p className="mt-1 text-sm text-ink-700">
+                Each new student has their own random temporary password. They are shown only
+                now and are not stored anywhere you can retrieve them later, so download the
+                file and share each password privately. Students should change it after their
+                first sign-in (Settings, Change password).
+              </p>
+              <Button
+                className="mt-3"
+                size="sm"
+                variant="secondary"
+                icon={ArrowDownTrayIcon}
+                onClick={() => downloadCredentialsCsv(importResult.created)}
+              >
+                Download credentials (CSV)
+              </Button>
+            </div>
+          )}
+
           {Number(importResult.summary?.skipped) > 0 && (
             <div className="rounded-xl border border-saffron-500/40 bg-saffron-50 px-4 py-3">
               <p className="text-sm font-semibold text-saffron-800">Why were rows skipped?</p>
@@ -2110,7 +2245,27 @@ const AdminDashboard = () => {
         eyebrow="Administration"
         title="Admin console"
         lead="Platform-wide statistics, accounts, institutions and recruiter access."
+        actions={
+          <>
+            <Button variant="secondary" icon={MegaphoneIcon} onClick={() => setAnnouncing(true)}>
+              Send announcement
+            </Button>
+            <Button as={Link} to="/audit" variant="secondary" icon={ClipboardDocumentListIcon}>
+              Audit log
+            </Button>
+            <Button as={Link} to="/approvals" icon={ClipboardDocumentCheckIcon}>
+              Approvals
+              {pendingTotal > 0 && (
+                <span className="rounded-full bg-saffron-500 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-ink-950">
+                  {pendingTotal}
+                </span>
+              )}
+            </Button>
+          </>
+        }
       />
+
+      <AnnounceModal open={announcing} onClose={() => setAnnouncing(false)} role="admin" />
 
       <TabNavigation tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 

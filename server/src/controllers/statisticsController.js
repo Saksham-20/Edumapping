@@ -2,137 +2,124 @@ const { User, Job, Application, Organization, StudentProfile, RecruiterProfile, 
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 
+/**
+ * Counts grouped by one column, with every value of the column's ENUM present
+ * (zero when absent) so a breakdown always sums to its total.
+ *
+ * The dashboards used to hand-list the statuses they knew about — four of the
+ * eight user roles, three of the five job statuses — so a platform with school
+ * staff or postings awaiting review showed breakdowns that summed to less than
+ * the headline number above them. Reading the values off the model means a new
+ * enum value shows up here without anyone remembering to add it.
+ */
+const groupedCounts = async (Model, column, { where = {}, include, key = column } = {}) => {
+  const values = Model.rawAttributes[column]?.values || [];
+  // Always table-qualified and by DB field name: these models are
+  // `underscored`, and `col()` is emitted verbatim with no attribute mapping.
+  const qualified = `${Model.name}.${Model.rawAttributes[column]?.field || column}`;
+  const rows = await Model.findAll({
+    where,
+    include,
+    attributes: [
+      [Model.sequelize.col(qualified), column],
+      [Model.sequelize.fn('COUNT', Model.sequelize.col(`${Model.name}.id`)), 'count']
+    ],
+    group: [Model.sequelize.col(qualified)],
+    raw: true
+  });
+  const byValue = new Map(rows.map((r) => [r[column], parseInt(r.count, 10) || 0]));
+  const out = values.map((value) => ({ [key]: value, count: byValue.get(value) || 0 }));
+  // Rows whose value is not in the enum (NULLs, mostly) still count toward the
+  // total, so they are reported rather than dropped.
+  rows.forEach((r) => {
+    if (!values.includes(r[column])) {
+      out.push({ [key]: r[column] ?? 'unknown', count: parseInt(r.count, 10) || 0 });
+    }
+  });
+  return out;
+};
+
+const sumCounts = (rows) => rows.reduce((sum, r) => sum + (r.count || 0), 0);
+const countOf = (rows, key, value) => rows.find((r) => r[key] === value)?.count || 0;
+
 class StatisticsController {
   // Get comprehensive admin statistics
   async getAdminStats(req, res, next) {
     try {
-      // Simple count queries without complex GROUP BY
-      const totalUsers = await User.count();
-      const totalOrganizations = await Organization.count();
-      const totalJobs = await Job.count();
-      const totalApplications = await Application.count();
-      
-      // Get user counts by role using simple queries
-      const adminUsers = await User.count({ where: { role: 'admin' } });
-      const tpoUsers = await User.count({ where: { role: 'tpo' } });
-      const studentUsers = await User.count({ where: { role: 'student' } });
-      const recruiterUsers = await User.count({ where: { role: 'recruiter' } });
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      // Get job counts by status
-      const activeJobs = await Job.count({ where: { status: 'active' } });
-      const closedJobs = await Job.count({ where: { status: 'closed' } });
-      const draftJobs = await Job.count({ where: { status: 'draft' } });
+      const [
+        usersByRole,
+        usersByApproval,
+        orgsByType,
+        orgsByApproval,
+        jobsByStatus,
+        applicationsByStatus,
+        placementsByStatus,
+        recentRegistrations,
+        recentPostings,
+        recentActivity
+      ] = await Promise.all([
+        groupedCounts(User, 'role'),
+        groupedCounts(User, 'approvalStatus'),
+        groupedCounts(Organization, 'type'),
+        groupedCounts(Organization, 'approvalStatus'),
+        groupedCounts(Job, 'status'),
+        groupedCounts(Application, 'status'),
+        groupedCounts(StudentProfile, 'placementStatus'),
+        User.count({ where: { createdAt: { [Op.gte]: thirtyDaysAgo } } }),
+        Job.count({ where: { createdAt: { [Op.gte]: sevenDaysAgo } } }),
+        Application.findAll({
+          include: [
+            {
+              model: Job,
+              as: 'job',
+              attributes: ['title'],
+              include: [{ model: Organization, as: 'organization', attributes: ['name'] }]
+            },
+            { model: User, as: 'student', attributes: ['firstName', 'lastName'] }
+          ],
+          where: { createdAt: { [Op.gte]: sevenDaysAgo } },
+          limit: 10,
+          order: [['createdAt', 'DESC']]
+        })
+      ]);
 
-      // Get application counts by status
-      const appliedApplications = await Application.count({ where: { status: 'applied' } });
-      const screeningApplications = await Application.count({ where: { status: 'screening' } });
-      const shortlistedApplications = await Application.count({ where: { status: 'shortlisted' } });
-      const interviewedApplications = await Application.count({ where: { status: 'interviewed' } });
-      const selectedApplications = await Application.count({ where: { status: 'selected' } });
-      const rejectedApplications = await Application.count({ where: { status: 'rejected' } });
-      const withdrawnApplications = await Application.count({ where: { status: 'withdrawn' } });
-
-      // Get placement counts
-      const placedStudents = await StudentProfile.count({ where: { placementStatus: 'placed' } });
-      const unplacedStudents = await StudentProfile.count({ where: { placementStatus: 'unplaced' } });
-      const deferredStudents = await StudentProfile.count({ where: { placementStatus: 'deferred' } });
-
-      // Recent activity (last 7 days)
-      const recentActivity = await Application.findAll({
-        include: [
-          {
-            model: Job,
-            as: 'job',
-            attributes: ['title'],
-            include: [{ model: Organization, as: 'organization', attributes: ['name'] }]
-          },
-          {
-            model: User,
-            as: 'student',
-            attributes: ['firstName', 'lastName']
-          }
-        ],
-        where: {
-          createdAt: {
-            [Op.gte]: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-          }
-        },
-        limit: 10,
-        order: [['createdAt', 'DESC']]
-      });
-
-      // Recent registrations (last 30 days)
-      const recentRegistrations = await User.count({
-        where: {
-          createdAt: {
-            [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          }
-        }
-      });
-
-      // Recent job postings (last 7 days)
-      const recentPostings = await Job.count({
-        where: {
-          createdAt: {
-            [Op.gte]: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-          }
-        }
-      });
+      // Totals are the sums of their own breakdowns, so the two can never
+      // disagree on screen.
+      const totalPlaced = countOf(placementsByStatus, 'placementStatus', 'placed');
 
       res.json({
         message: 'Admin statistics retrieved successfully',
         stats: {
           users: {
-            total: totalUsers,
-            byRole: [
-              { role: 'admin', count: adminUsers },
-              { role: 'tpo', count: tpoUsers },
-              { role: 'student', count: studentUsers },
-              { role: 'recruiter', count: recruiterUsers }
-            ],
+            total: sumCounts(usersByRole),
+            byRole: usersByRole,
+            byApprovalStatus: usersByApproval,
+            pendingApproval: countOf(usersByApproval, 'approvalStatus', 'pending'),
             recentRegistrations
           },
           organizations: {
-            total: totalOrganizations,
-            byType: await Organization.findAll({
-              attributes: ['type'],
-              raw: true
-            }).then(orgs => {
-              const typeCounts = {};
-              orgs.forEach(org => {
-                typeCounts[org.type] = (typeCounts[org.type] || 0) + 1;
-              });
-              return Object.entries(typeCounts).map(([type, count]) => ({ type, count }));
-            })
+            total: sumCounts(orgsByType),
+            byType: orgsByType,
+            byApprovalStatus: orgsByApproval,
+            pendingApproval: countOf(orgsByApproval, 'approvalStatus', 'pending')
           },
           jobs: {
-            total: totalJobs,
-            byStatus: [
-              { status: 'active', count: activeJobs },
-              { status: 'closed', count: closedJobs },
-              { status: 'draft', count: draftJobs }
-            ],
+            total: sumCounts(jobsByStatus),
+            byStatus: jobsByStatus,
+            pendingReview: countOf(jobsByStatus, 'status', 'pending_review'),
             recentPostings
           },
           applications: {
-            total: totalApplications,
-            byStatus: [
-              { status: 'applied', count: appliedApplications },
-              { status: 'screening', count: screeningApplications },
-              { status: 'shortlisted', count: shortlistedApplications },
-              { status: 'interviewed', count: interviewedApplications },
-              { status: 'selected', count: selectedApplications },
-              { status: 'rejected', count: rejectedApplications },
-              { status: 'withdrawn', count: withdrawnApplications }
-            ]
+            total: sumCounts(applicationsByStatus),
+            byStatus: applicationsByStatus
           },
           placements: {
-            byStatus: [
-              { placementStatus: 'placed', count: placedStudents },
-              { placementStatus: 'unplaced', count: unplacedStudents },
-              { placementStatus: 'deferred', count: deferredStudents }
-            ],
-            totalPlaced: placedStudents
+            total: sumCounts(placementsByStatus),
+            byStatus: placementsByStatus,
+            totalPlaced
           },
           recentActivity
         }
@@ -143,11 +130,22 @@ class StatisticsController {
     }
   }
 
-  // Get comprehensive TPO statistics
+  /**
+   * The placement officer's dashboard, scoped to their institution.
+   *
+   * Jobs: this used to be `Job.count()` — every posting on the platform, drafts
+   * and other companies' cancelled reqs included — under a heading that said
+   * "postings visible to your students". It is now exactly that set: every
+   * live posting (students can browse all of them) plus any posting, in any
+   * state, that one of this institution's students has applied to — a closed
+   * drive still matters to the cell if their students are in its pipeline.
+   * Postings awaiting review are not visible to students and are reported
+   * separately as the review queue.
+   */
   async getTPOStats(req, res, next) {
     try {
       const { organizationId } = req.user;
-      
+
       if (!organizationId) {
         return res.status(400).json({
           error: 'Organization Not Found',
@@ -155,213 +153,135 @@ class StatisticsController {
         });
       }
 
-      // Get students count for this organization
-      const totalStudents = await StudentProfile.count({
-        include: [
-          {
-            model: User,
-            as: 'user',
-            where: { organizationId },
-            attributes: []
-          }
+      const ownStudents = { model: User, as: 'student', where: { organizationId }, attributes: [] };
+      const ownProfiles = { model: User, as: 'user', where: { organizationId }, attributes: [] };
+
+      const [placementByStatus, courseRows, applicationsByStatus, appliedJobRows, pendingReview] =
+        await Promise.all([
+          groupedCounts(StudentProfile, 'placementStatus', { include: [ownProfiles] }),
+          StudentProfile.findAll({
+            include: [ownProfiles],
+            attributes: [
+              'course',
+              [StudentProfile.sequelize.fn('COUNT', StudentProfile.sequelize.col('StudentProfile.id')), 'count']
+            ],
+            group: ['course'],
+            raw: true
+          }),
+          groupedCounts(Application, 'status', { include: [ownStudents] }),
+          Application.findAll({
+            include: [ownStudents],
+            attributes: [[Application.sequelize.fn('DISTINCT', Application.sequelize.col('job_id')), 'jobId']],
+            raw: true
+          }),
+          Job.count({ where: { status: 'pending_review' } })
+        ]);
+
+      const appliedJobIds = appliedJobRows.map((r) => r.jobId).filter(Boolean);
+      const visibleJobs = {
+        [Op.or]: [
+          { status: 'active' },
+          ...(appliedJobIds.length ? [{ id: { [Op.in]: appliedJobIds } }] : [])
         ]
-      });
+      };
 
-      // Get placement statistics for this organization
-      const placedStudents = await StudentProfile.count({
-        include: [
-          {
-            model: User,
-            as: 'user',
-            where: { organizationId },
-            attributes: []
-          }
-        ],
-        where: { placementStatus: 'placed' }
-      });
+      const [jobsByStatusAll, byCompanyRows, totalEvents, recentActivity] = await Promise.all([
+        groupedCounts(Job, 'status', { where: visibleJobs }),
+        // Applications by hiring company. Grouped in SQL so a campus with
+        // thousands of applications does not ship them all to Node to count.
+        Application.findAll({
+          include: [
+            ownStudents,
+            {
+              model: Job,
+              as: 'job',
+              attributes: [],
+              include: [{ model: Organization, as: 'organization', attributes: [] }]
+            }
+          ],
+          attributes: [
+            [Application.sequelize.col('job->organization.id'), 'organizationId'],
+            [Application.sequelize.col('job->organization.name'), 'name'],
+            [Application.sequelize.col('job->organization.logo_url'), 'logoUrl'],
+            [Application.sequelize.fn('COUNT', Application.sequelize.col('Application.id')), 'applications'],
+            [
+              Application.sequelize.fn(
+                'SUM',
+                Application.sequelize.literal(`CASE WHEN "Application"."status" = 'selected' THEN 1 ELSE 0 END`)
+              ),
+              'selected'
+            ],
+            [Application.sequelize.fn('COUNT', Application.sequelize.fn('DISTINCT', Application.sequelize.col('job.id'))), 'jobs']
+          ],
+          group: [
+            Application.sequelize.col('job->organization.id'),
+            Application.sequelize.col('job->organization.name'),
+            Application.sequelize.col('job->organization.logo_url')
+          ],
+          raw: true
+        }),
+        Event.count({ where: { organizationId } }),
+        Application.findAll({
+          include: [
+            {
+              model: Job,
+              as: 'job',
+              attributes: ['title', 'id'],
+              include: [{ model: Organization, as: 'organization', attributes: ['name', 'id'] }]
+            },
+            {
+              model: User,
+              as: 'student',
+              where: { organizationId },
+              attributes: ['firstName', 'lastName', 'id']
+            }
+          ],
+          limit: 10,
+          order: [['createdAt', 'DESC']]
+        })
+      ]);
 
-      const unplacedStudents = await StudentProfile.count({
-        include: [
-          {
-            model: User,
-            as: 'user',
-            where: { organizationId },
-            attributes: []
-          }
-        ],
-        where: { placementStatus: 'unplaced' }
-      });
+      // pending_review postings cannot be in the visible set unless a student
+      // somehow applied to one; drop the row from the pipeline either way so
+      // the pipeline is "what students see" and the queue is reported apart.
+      const jobsByStatus = jobsByStatusAll.filter((r) => r.status !== 'pending_review' || r.count > 0);
+      const totalStudents = sumCounts(placementByStatus);
+      const placedStudents = countOf(placementByStatus, 'placementStatus', 'placed');
 
-      const deferredStudents = await StudentProfile.count({
-        include: [
-          {
-            model: User,
-            as: 'user',
-            where: { organizationId },
-            attributes: []
-          }
-        ],
-        where: { placementStatus: 'deferred' }
-      });
-
-      // Get course statistics for this organization
-      const courseStats = await StudentProfile.findAll({
-        include: [
-          {
-            model: User,
-            as: 'user',
-            where: { organizationId },
-            attributes: []
-          }
-        ],
-        attributes: ['course'],
-        raw: true
-      }).then(profiles => {
-        const courseCounts = {};
-        profiles.forEach(profile => {
-          if (profile.course) {
-            courseCounts[profile.course] = (courseCounts[profile.course] || 0) + 1;
-          }
-        });
-        return Object.entries(courseCounts).map(([course, count]) => ({ course, count }));
-      });
-
-      // Get all students in this university
-      const studentsInUniversity = await User.findAll({
-        where: { 
-          organizationId,
-          role: 'student'
-        },
-        attributes: ['id']
-      });
-      const studentIds = studentsInUniversity.map(s => s.id);
-
-      // Job statistics - TPOs see all jobs in the system (to know what's available for their students)
-      const totalJobs = await Job.count();
-      const activeJobs = await Job.count({ where: { status: 'active' } });
-      const closedJobs = await Job.count({ where: { status: 'closed' } });
-      const draftJobs = await Job.count({ where: { status: 'draft' } });
-
-      // Application statistics - TPOs see applications from their students (regardless of job company)
-      const totalApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds }
-        }
-      });
-
-      const appliedApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'applied'
-        }
-      });
-
-      const screeningApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'screening'
-        }
-      });
-
-      const shortlistedApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'shortlisted'
-        }
-      });
-
-      const interviewedApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'interviewed'
-        }
-      });
-
-      const selectedApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'selected'
-        }
-      });
-
-      const rejectedApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'rejected'
-        }
-      });
-
-      const withdrawnApplications = await Application.count({
-        where: {
-          studentId: { [Op.in]: studentIds },
-          status: 'withdrawn'
-        }
-      });
-
-      // Event statistics
-      const totalEvents = await Event.count({ where: { organizationId } });
-
-      // Get recent activity - applications from students in this university
-      const recentActivity = await Application.findAll({
-        where: {
-          studentId: { [Op.in]: studentIds }
-        },
-        include: [
-          {
-            model: Job,
-            as: 'job',
-            attributes: ['title', 'id'],
-            include: [{ 
-              model: Organization, 
-              as: 'organization', 
-              attributes: ['name', 'id'] 
-            }]
-          },
-          {
-            model: User,
-            as: 'student',
-            attributes: ['firstName', 'lastName', 'id']
-          }
-        ],
-        limit: 10,
-        order: [['createdAt', 'DESC']]
-      });
+      const byCompany = byCompanyRows
+        .map((r) => ({
+          organizationId: r.organizationId,
+          name: r.name,
+          logoUrl: r.logoUrl,
+          count: parseInt(r.applications, 10) || 0,
+          selected: parseInt(r.selected, 10) || 0,
+          jobs: parseInt(r.jobs, 10) || 0
+        }))
+        .sort((a, b) => b.count - a.count);
 
       res.json({
         message: 'TPO statistics retrieved successfully',
         stats: {
           students: {
             total: totalStudents,
-            byPlacementStatus: [
-              { placementStatus: 'placed', count: placedStudents },
-              { placementStatus: 'unplaced', count: unplacedStudents },
-              { placementStatus: 'deferred', count: deferredStudents }
-            ],
-            byCourse: courseStats,
+            byPlacementStatus: placementByStatus,
+            byCourse: courseRows
+              .filter((r) => r.course)
+              .map((r) => ({ course: r.course, count: parseInt(r.count, 10) || 0 })),
             placed: placedStudents,
             placementRate: totalStudents > 0 ? ((placedStudents / totalStudents) * 100).toFixed(1) : 0
           },
           jobs: {
-            total: totalJobs,
-            byStatus: [
-              { status: 'active', count: activeJobs },
-              { status: 'closed', count: closedJobs },
-              { status: 'draft', count: draftJobs }
-            ],
-            active: activeJobs
+            total: sumCounts(jobsByStatus),
+            byStatus: jobsByStatus,
+            active: countOf(jobsByStatus, 'status', 'active'),
+            appliedTo: appliedJobIds.length,
+            pendingReview
           },
           applications: {
-            total: totalApplications,
-            byStatus: [
-              { status: 'applied', count: appliedApplications },
-              { status: 'screening', count: screeningApplications },
-              { status: 'shortlisted', count: shortlistedApplications },
-              { status: 'interviewed', count: interviewedApplications },
-              { status: 'selected', count: selectedApplications },
-              { status: 'rejected', count: rejectedApplications },
-              { status: 'withdrawn', count: withdrawnApplications }
-            ],
-            byCompany: [] // Simplified for now
+            total: sumCounts(applicationsByStatus),
+            byStatus: applicationsByStatus,
+            byCompany
           },
           events: {
             total: totalEvents

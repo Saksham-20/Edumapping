@@ -3,11 +3,69 @@ const { User, Application, Job, Organization, StudentProfile } = require('../mod
 const { Op, fn, col, literal } = require('sequelize');
 const logger = require('../utils/logger');
 
+const INSTITUTION_TYPES = ['university', 'college', 'school'];
+
+/**
+ * Which institution these analytics are about.
+ *
+ * A TPO always gets their own — an `organizationId` they send is ignored, not
+ * honoured, or any TPO could read another campus's roster by changing a query
+ * parameter. An admin has no institution of their own (`organizationId` is
+ * null), which is why this screen used to show them a wall of zeros: every
+ * query was filtering on `organization_id IS NULL`. An admin now names the
+ * institution explicitly.
+ *
+ * Returns `{ organizationId, organization }` or `{ error: { status, message } }`.
+ */
+const resolveScope = async (req) => {
+  if (req.user.role !== 'admin') {
+    if (!req.user.organizationId) {
+      return { error: { status: 403, message: 'Your account is not attached to an institution' } };
+    }
+    return { organizationId: req.user.organizationId };
+  }
+
+  const id = parseInt(req.query.organizationId, 10);
+  if (!id) {
+    return { error: { status: 400, message: 'Choose an institution (organizationId) to view its analytics' } };
+  }
+  const organization = await Organization.findByPk(id, { attributes: ['id', 'name', 'type'] });
+  if (!organization || !INSTITUTION_TYPES.includes(organization.type)) {
+    return { error: { status: 404, message: 'Institution not found' } };
+  }
+  return { organizationId: id, organization };
+};
+
+const scopeError = (res, error) =>
+  res.status(error.status).json({
+    error: error.status === 400 ? 'Validation Error' : error.status === 404 ? 'Not Found' : 'Access Forbidden',
+    message: error.message
+  });
+
+/**
+ * One CSV cell: RFC 4180 quoting plus formula-injection defence.
+ *
+ * Every field is wrapped and embedded quotes doubled, so a comma in a name
+ * cannot shift the columns. And a value that begins with `=`, `+`, `-`, `@`,
+ * tab or carriage return is prefixed with an apostrophe: Excel and Sheets
+ * evaluate such a cell as a formula, so a student who registers with the name
+ * `=HYPERLINK("http://evil",…)` would otherwise plant a live link — or worse —
+ * in the placement cell's spreadsheet. The apostrophe makes the spreadsheet
+ * treat it as text and is not displayed.
+ */
+const csvCell = (value) => {
+  let s = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+};
+
 class AnalyticsController {
   // TPO Analytics with advanced filtering
   async getTPOAnalytics(req, res, next) {
     try {
-      const { user } = req;
+      const scope = await resolveScope(req);
+      if (scope.error) return scopeError(res, scope.error);
+      const { organizationId } = scope;
       const {
         company,
         jobStatus,
@@ -63,15 +121,6 @@ class AnalyticsController {
         jobFilters.status = jobStatus;
       }
 
-      // Build organization filters
-      const orgFilters = {
-        id: user.organizationId // TPO can only see their organization's data
-      };
-
-      if (company) {
-        orgFilters.id = company;
-      }
-
       // Build student profile filters
       const studentFilters = {};
       if (branch) {
@@ -115,7 +164,7 @@ class AnalyticsController {
               model: User,
               as: 'user',
               where: {
-                organizationId: user.organizationId,
+                organizationId,
                 isActive: true
               },
               attributes: []
@@ -133,7 +182,7 @@ class AnalyticsController {
               model: User,
               as: 'user',
               where: {
-                organizationId: user.organizationId,
+                organizationId,
                 isActive: true
               },
               attributes: []
@@ -153,7 +202,7 @@ class AnalyticsController {
               model: User,
               as: 'user',
               where: {
-                organizationId: user.organizationId,
+                organizationId,
                 isActive: true
               },
               attributes: []
@@ -176,7 +225,7 @@ class AnalyticsController {
               model: User,
               as: 'student',
               where: {
-                organizationId: user.organizationId
+                organizationId
               },
               include: studentFilters.branch || studentFilters.yearOfStudy ? [
                 {
@@ -223,7 +272,7 @@ class AnalyticsController {
               model: User,
               as: 'student',
               where: {
-                organizationId: user.organizationId
+                organizationId
               },
               include: studentFilters.branch || studentFilters.yearOfStudy ? [
                 {
@@ -270,7 +319,7 @@ class AnalyticsController {
               model: User,
               as: 'student',
               where: {
-                organizationId: user.organizationId
+                organizationId
               },
               include: studentFilters.branch || studentFilters.yearOfStudy ? [
                 {
@@ -356,7 +405,7 @@ class AnalyticsController {
                     model: User,
                     as: 'student',
                     where: {
-                      organizationId: user.organizationId
+                      organizationId
                     },
                     include: studentFilters.branch || studentFilters.yearOfStudy ? [
                       {
@@ -421,7 +470,7 @@ class AnalyticsController {
             model: User,
             as: 'student',
             where: {
-              organizationId: user.organizationId
+              organizationId
             },
             attributes: []
           },
@@ -446,10 +495,21 @@ class AnalyticsController {
         ]
       });
 
+      // Share of the institution's student accounts that are active. This was
+      // a hardcoded 100: deactivated and still-pending accounts were invisible.
+      const [allStudentAccounts, activeStudentAccounts] = await Promise.all([
+        User.count({ where: { organizationId, role: 'student' } }),
+        User.count({ where: { organizationId, role: 'student', isActive: true } })
+      ]);
+
       const analytics = {
+        organization: scope.organization || null,
         students: {
           total: totalStudents,
-          activePercentage: 100 // Assuming all counted students are active
+          accounts: allStudentAccounts,
+          activeAccounts: activeStudentAccounts,
+          activePercentage:
+            allStudentAccounts > 0 ? Math.round((activeStudentAccounts / allStudentAccounts) * 100) : 0
         },
         placements: {
           placed: placedStudents,
@@ -491,27 +551,41 @@ class AnalyticsController {
    */
   async exportTPOAnalytics(req, res, next) {
     try {
-      const { user } = req;
-      const { branch, yearOfStudy, placementStatus } = req.query;
+      const scope = await resolveScope(req);
+      if (scope.error) return scopeError(res, scope.error);
+      const { organizationId } = scope;
+      const { branch, yearOfStudy, placementStatus, search } = req.query;
 
       const studentProfileFilters = {};
       if (branch) studentProfileFilters.branch = branch;
       if (yearOfStudy) studentProfileFilters.yearOfStudy = parseInt(yearOfStudy, 10);
       if (placementStatus) studentProfileFilters.placementStatus = placementStatus;
+      const profileFiltered = Object.keys(studentProfileFilters).length > 0;
+
+      const where = { organizationId, role: 'student', isActive: true };
+      // The same search the roster screen applies, so "Export all" exports
+      // what the officer is looking at rather than silently the whole campus.
+      // Roll number is searchable here too: there is no LIMIT on this query,
+      // so the profile join can be referenced from the top-level WHERE.
+      if (search && String(search).trim()) {
+        const term = `%${String(search).trim()}%`;
+        where[Op.or] = [
+          { firstName: { [Op.iLike]: term } },
+          { lastName: { [Op.iLike]: term } },
+          { email: { [Op.iLike]: term } },
+          { '$studentProfile.student_id$': { [Op.iLike]: term } }
+        ];
+      }
 
       const students = await User.findAll({
-        where: {
-          organizationId: user.organizationId,
-          role: 'student',
-          isActive: true
-        },
+        where,
         attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
         include: [
           {
             model: StudentProfile,
             as: 'studentProfile',
-            required: Object.keys(studentProfileFilters).length > 0,
-            where: Object.keys(studentProfileFilters).length > 0 ? studentProfileFilters : undefined
+            required: profileFiltered,
+            where: profileFiltered ? studentProfileFilters : undefined
           },
           {
             model: Application,
@@ -520,38 +594,39 @@ class AnalyticsController {
             attributes: ['id', 'status']
           }
         ],
-        order: [['firstName', 'ASC']]
+        order: [['firstName', 'ASC'], ['lastName', 'ASC']]
       });
 
+      // "Roll number" is the college-issued id (student_profiles.student_id).
+      // This column used to carry users.id — an internal database key that
+      // means nothing to a placement cell and cannot be matched to their
+      // records.
       const columns = [
-        'Student ID', 'First name', 'Last name', 'Email', 'Phone',
-        'Branch', 'Year of study', 'CGPA', 'Placement status',
+        'Roll number', 'First name', 'Last name', 'Email', 'Phone',
+        'Branch', 'Year of study', 'Graduation year', 'CGPA', 'Placement status',
         'Applications', 'Selected'
       ];
-
-      // RFC 4180 quoting: wrap every field and double any embedded quote. A
-      // name containing a comma would otherwise shift every later column.
-      const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
       const rows = students.map((student) => {
         const profile = student.studentProfile;
         const applications = student.applications || [];
         return [
-          student.id,
+          profile?.studentId,
           student.firstName,
           student.lastName,
           student.email,
           student.phone,
           profile?.branch,
           profile?.yearOfStudy,
+          profile?.graduationYear,
           profile?.cgpa,
           profile?.placementStatus,
           applications.length,
           applications.filter((a) => a.status === 'selected').length
-        ].map(cell).join(',');
+        ].map(csvCell).join(',');
       });
 
-      const csv = [columns.map(cell).join(','), ...rows].join('\r\n');
+      const csv = [columns.map(csvCell).join(','), ...rows].join('\r\n');
       const filename = `placement-report-${new Date().toISOString().slice(0, 10)}.csv`;
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -568,13 +643,15 @@ class AnalyticsController {
   // Student Analytics for TPO
   async getStudentAnalytics(req, res, next) {
     try {
-      const { user } = req;
+      const scope = await resolveScope(req);
+      if (scope.error) return scopeError(res, scope.error);
+      const { organizationId } = scope;
       const { page = 1, limit = 20, ...filters } = req.query;
       const offset = (page - 1) * limit;
 
       // Build filters similar to main analytics
       const whereClause = {
-        organizationId: user.organizationId,
+        organizationId,
         role: 'student',
         isActive: true
       };

@@ -1,17 +1,26 @@
 // client/src/pages/approvals/ApprovalManagement.js
 //
-// A TPO's queue of companies, recruiters and job postings waiting on their
-// campus. The file never parsed before it was routed, so nothing here had ever
-// executed until now.
+// The approval queue, for both kinds of reviewer:
 //
-// Both `/approvals/*` list endpoints require the `tpo` role, so an admin gets
-// a 403 — this page says so rather than showing an empty queue and implying
-// there is nothing to approve.
+//   * a TPO vets companies and recruiters asking to recruit from campus, and
+//     the job postings they submit;
+//   * an admin vets everything — new universities, colleges and schools, the
+//     TPOs and school staff who registered them, companies, every pending
+//     account, and the posting queue.
+//
+// The server scopes each list to the caller (`/api/approvals/*`), so this page
+// only changes labels and filters by role; it never decides what a TPO may
+// see. Every list is paginated server-side — the old screen loaded the first
+// 100 postings and 40 activity rows and silently dropped the rest.
+//
+// Errors: every request here is `silent` and the catch toasts exactly once.
+// The shared axios instance toasts on its own otherwise, which is how this
+// page used to show two identical error toasts for one failure.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
-import api from '../../services/api';
+import approvalService from '../../services/approvals';
 import {
   Avatar,
   Badge,
@@ -20,13 +29,17 @@ import {
   Checkbox,
   EmptyState,
   ErrorState,
+  Input,
   PageHeader,
   PageShell,
+  Pagination,
+  Select,
   SkeletonCard,
   StatTile,
   StatusBadge,
   Tabs,
   Textarea,
+  Toolbar,
   Modal
 } from '../../components/ui';
 import {
@@ -38,7 +51,10 @@ import {
   InboxStackIcon,
   CheckIcon,
   XMarkIcon,
-  LockClosedIcon
+  LockClosedIcon,
+  MagnifyingGlassIcon,
+  ExclamationTriangleIcon,
+  ArrowRightIcon
 } from '@heroicons/react/24/outline';
 
 /**
@@ -47,79 +63,191 @@ import {
  */
 const PAST_TENSE = { approve: 'approved', reject: 'rejected' };
 
+const PAGE_SIZE = 20;
+
 /** Pulls one status count out of the `[{ approvalStatus, count }]` shape. */
 const countFor = (rows, status) => {
   const hit = (rows || []).find((r) => r.approvalStatus === status);
   return hit ? Number(hit.count) : 0;
 };
 
+const ORG_TYPE_OPTIONS = [
+  { value: '', label: 'All types' },
+  { value: 'university', label: 'Universities' },
+  { value: 'college', label: 'Colleges' },
+  { value: 'school', label: 'Schools' },
+  { value: 'company', label: 'Companies' }
+];
+
+const ROLE_OPTIONS = [
+  { value: '', label: 'All roles' },
+  { value: 'tpo', label: 'TPOs' },
+  { value: 'recruiter', label: 'Recruiters' },
+  { value: 'principal', label: 'Principals' },
+  { value: 'teacher', label: 'Teachers' },
+  { value: 'school_admin', label: 'School admins' },
+  { value: 'career_counselor', label: 'Career counsellors' },
+  { value: 'student', label: 'Students' }
+];
+
+const ORG_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' }
+];
+
+const USER_STATUS_OPTIONS_ADMIN = [
+  ...ORG_STATUS_OPTIONS,
+  // Accounts marked approved that still cannot sign in — what the old
+  // approval path left behind. Re-approving one repairs it.
+  { value: 'stuck', label: 'Approved, cannot sign in' }
+];
+
+const formatDate = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+};
+
+const humanRole = (role) => String(role || '').replace(/_/g, ' ');
+
+/** Debounces a value so a search box does not fire one request per keystroke. */
+const useDebounced = (value, ms = 350) => {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+};
+
 const ApprovalManagement = () => {
   const { user } = useAuth();
   const isTpo = user?.role === 'tpo';
-
-  const [pending, setPending] = useState({ organizations: [], recruiters: [], total: 0 });
-  // Job postings waiting to be published. Recruiters are approved but their
-  // postings were not, so this queue is the step between an approved company
-  // and a listing reaching every eligible student.
-  const [pendingJobs, setPendingJobs] = useState([]);
-  // The institution's activity trail. Written from several places already —
-  // approvals, posting decisions, bulk status changes, recruiter access — and
-  // until now never read back anywhere.
-  const [activity, setActivity] = useState(null);
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const isAdmin = user?.role === 'admin';
+  const allowed = isTpo || isAdmin;
 
   const [tab, setTab] = useState('organizations');
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState(null);
+
+  // One paginated list per tab: `{ rows, pagination, loading, error }`.
+  const emptyList = { rows: [], pagination: { currentPage: 1, totalPages: 1, totalItems: 0 }, loading: true, error: null };
+  const [orgList, setOrgList] = useState(emptyList);
+  const [userList, setUserList] = useState(emptyList);
+  const [jobList, setJobList] = useState(emptyList);
+  const [activityList, setActivityList] = useState(emptyList);
+
+  const [orgFilters, setOrgFilters] = useState({ status: 'pending', type: '', search: '', page: 1 });
+  const [userFilters, setUserFilters] = useState({ status: 'pending', role: '', search: '', page: 1 });
+  const [jobPage, setJobPage] = useState(1);
+  const [activityPage, setActivityPage] = useState(1);
+
+  const orgSearch = useDebounced(orgFilters.search);
+  const userSearch = useDebounced(userFilters.search);
+
   const [selected, setSelected] = useState([]);
-  // `{ action, scope: 'bulk' | 'one', type, item }`
+  // `{ action, scope: 'bulk' | 'one', type: 'organization'|'user'|'posting', item }`
   const [confirm, setConfirm] = useState(null);
   const [notes, setNotes] = useState('');
   const [working, setWorking] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadStats = useCallback(async () => {
+    setStatsError(null);
     try {
-      const [approvals, statsBody, jobQueue] = await Promise.all([
-        api.get('/approvals/pending', { silent: true }),
-        api.get('/approvals/stats', { silent: true }),
-        api.get('/jobs/pending-review', { params: { limit: 100 }, silent: true })
-      ]);
-      setPending(approvals.data || { organizations: [], recruiters: [], total: 0 });
-      setStats(statsBody.stats || null);
-      setPendingJobs(jobQueue.jobs || []);
-      setSelected([]);
+      const body = await approvalService.getApprovalStats({ silent: true });
+      setStats(body.stats || null);
     } catch (err) {
-      setError(err?.message || 'Could not load the approval queue.');
-    } finally {
-      setLoading(false);
+      setStatsError(err?.message || 'Could not load the approval queue.');
     }
   }, []);
 
-  useEffect(() => {
-    if (isTpo) load();
-    else setLoading(false);
-  }, [isTpo, load]);
+  const loadOrgs = useCallback(async () => {
+    setOrgList((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const body = await approvalService.listOrganizations(
+        {
+          status: orgFilters.status,
+          ...(orgFilters.type ? { type: orgFilters.type } : {}),
+          ...(orgSearch ? { search: orgSearch } : {}),
+          page: orgFilters.page,
+          limit: PAGE_SIZE
+        },
+        { silent: true }
+      );
+      setOrgList({ rows: body.organizations || [], pagination: body.pagination || emptyList.pagination, loading: false, error: null });
+    } catch (err) {
+      setOrgList({ ...emptyList, loading: false, error: err?.message || 'Could not load organizations.' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgFilters.status, orgFilters.type, orgFilters.page, orgSearch]);
+
+  const loadUsers = useCallback(async () => {
+    setUserList((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const body = await approvalService.listUsers(
+        {
+          status: userFilters.status,
+          ...(userFilters.role ? { role: userFilters.role } : {}),
+          ...(userSearch ? { search: userSearch } : {}),
+          page: userFilters.page,
+          limit: PAGE_SIZE
+        },
+        { silent: true }
+      );
+      setUserList({ rows: body.users || [], pagination: body.pagination || emptyList.pagination, loading: false, error: null });
+    } catch (err) {
+      setUserList({ ...emptyList, loading: false, error: err?.message || 'Could not load accounts.' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userFilters.status, userFilters.role, userFilters.page, userSearch]);
+
+  const loadJobs = useCallback(async () => {
+    setJobList((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const body = await approvalService.listPendingJobs({ page: jobPage, limit: PAGE_SIZE }, { silent: true });
+      setJobList({ rows: body.jobs || [], pagination: body.pagination || emptyList.pagination, loading: false, error: null });
+    } catch (err) {
+      setJobList({ ...emptyList, loading: false, error: err?.message || 'Could not load postings.' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobPage]);
+
+  const loadActivity = useCallback(async () => {
+    setActivityList((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const body = await approvalService.getAuditLog({ page: activityPage, limit: 25 }, { silent: true });
+      setActivityList({ rows: body.entries || [], pagination: body.pagination || emptyList.pagination, loading: false, error: null });
+    } catch (err) {
+      setActivityList({ ...emptyList, loading: false, error: err?.message || 'Could not load activity.' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityPage]);
 
   useEffect(() => {
-    // Only when the tab is opened — the queue is the point of this screen, and
-    // the trail is a much larger read.
-    if (tab !== 'activity' || activity) return;
-    api
-      .get('/audit', { params: { limit: 40 }, silent: true })
-      .then((res) => setActivity(res.entries || []))
-      .catch(() => setActivity([]));
-  }, [tab, activity]);
+    if (allowed) loadStats();
+  }, [allowed, loadStats]);
 
-  const orgs = pending.organizations || [];
-  const recruiters = pending.recruiters || [];
+  // Only the open tab loads, and reloads when its own filters change.
+  useEffect(() => {
+    if (!allowed) return;
+    if (tab === 'organizations') loadOrgs();
+    if (tab === 'users') loadUsers();
+    if (tab === 'postings') loadJobs();
+    if (tab === 'activity') loadActivity();
+  }, [allowed, tab, loadOrgs, loadUsers, loadJobs, loadActivity]);
 
+  // A selection never survives a change of page or filter: approving "3
+  // selected" must mean the three rows on screen.
+  useEffect(() => {
+    setSelected([]);
+  }, [orgFilters.status, orgFilters.type, orgFilters.page, orgSearch]);
+
+  const orgs = orgList.rows;
+  const bulkable = orgFilters.status === 'pending';
   const allSelected = orgs.length > 0 && selected.length === orgs.length;
-
   const toggleOne = (id) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-
   const toggleAll = () => setSelected(allSelected ? [] : orgs.map((o) => o.id));
 
   const openConfirm = (action, scope, type, item) => {
@@ -134,31 +262,32 @@ const ApprovalManagement = () => {
       if (scope === 'one' && type === 'posting') {
         // A posting review lives on the job itself, not under /approvals, since
         // approving it publishes the job and fans the alert out to students.
-        await api.patch(`/jobs/${item.id}/review`, { action, notes }, { silent: true });
+        await approvalService.reviewJob(item.id, action, notes, { silent: true });
         toast.success(action === 'approve' ? 'Posting published' : 'Posting sent back');
-      } else if (scope === 'one') {
-        const path =
-          type === 'organization'
-            ? `/approvals/organizations/${item.id}`
-            : `/approvals/recruiters/${item.id}`;
-        await api.patch(path, { action, notes }, { silent: true });
+        await loadJobs();
+      } else if (scope === 'one' && type === 'organization') {
+        const body = await approvalService.approveOrganization(item.id, action, notes, { silent: true });
+        const staff = body?.usersUpdated || 0;
         toast.success(
-          `${type === 'organization' ? 'Company' : 'Recruiter'} ${PAST_TENSE[action]}`
+          `${item.name} ${PAST_TENSE[action]}${staff ? ` with ${staff} staff account${staff === 1 ? '' : 's'}` : ''}`
         );
+        await loadOrgs();
+      } else if (scope === 'one') {
+        await approvalService.approveUser(item.id, action, notes, { silent: true });
+        toast.success(`${item.firstName} ${item.lastName} ${PAST_TENSE[action]}`);
+        await loadUsers();
       } else {
         // One request for the whole selection: the server applies it in a
         // single transaction, so the batch cannot land half-applied the way a
         // request-per-organization loop can.
-        const body = await api.patch(
-          '/approvals/organizations/bulk',
-          { organizationIds: selected, action, notes },
-          { silent: true }
-        );
+        const body = await approvalService.bulkApproveOrganizations(selected, action, notes, { silent: true });
         const count = body?.updatedCount ?? selected.length;
-        toast.success(`${count} compan${count === 1 ? 'y' : 'ies'} ${PAST_TENSE[action]}`);
+        toast.success(`${count} organization${count === 1 ? '' : 's'} ${PAST_TENSE[action]}`);
+        setSelected([]);
+        await loadOrgs();
       }
       setConfirm(null);
-      await load();
+      loadStats();
     } catch (err) {
       toast.error(err?.message || `Could not ${action} that record.`);
     } finally {
@@ -166,217 +295,218 @@ const ApprovalManagement = () => {
     }
   };
 
+  const pendingOrgs = countFor(stats?.organizations, 'pending');
+  const pendingUsers = countFor(stats?.users || stats?.recruiters, 'pending');
+  const pendingJobs = Number(stats?.pendingJobs || 0);
+  const stuckUsers = Number(stats?.stuckUsers || 0);
+
   const tabs = useMemo(
     () => [
-      { value: 'organizations', label: 'Companies', icon: BuildingOfficeIcon, count: orgs.length },
-      { value: 'recruiters', label: 'Recruiters', icon: UserGroupIcon, count: recruiters.length },
-      { value: 'postings', label: 'Job postings', icon: BriefcaseIcon, count: pendingJobs.length },
+      {
+        value: 'organizations',
+        label: isAdmin ? 'Organizations' : 'Companies',
+        icon: BuildingOfficeIcon,
+        count: stats ? pendingOrgs : undefined
+      },
+      {
+        value: 'users',
+        label: isAdmin ? 'Accounts' : 'Recruiters',
+        icon: UserGroupIcon,
+        count: stats ? pendingUsers : undefined
+      },
+      { value: 'postings', label: 'Job postings', icon: BriefcaseIcon, count: stats ? pendingJobs : undefined },
       { value: 'activity', label: 'Activity', icon: ClockIcon }
     ],
-    [orgs.length, recruiters.length, pendingJobs.length]
+    [isAdmin, stats, pendingOrgs, pendingUsers, pendingJobs]
   );
 
-  if (!isTpo) {
+  if (!allowed) {
     return (
       <PageShell>
         <PageHeader eyebrow="Approvals" title="Approval queue" />
         <EmptyState
           icon={LockClosedIcon}
-          title="This queue belongs to a TPO"
-          description="Company and recruiter approvals are scoped to one institution's placement officer. Administrators manage organizations from the admin dashboard instead."
+          title="Reviewers only"
+          description="The approval queue is for placement officers and administrators."
         />
       </PageShell>
     );
   }
 
-  return (
-    <PageShell width="wide">
-      <PageHeader
-        eyebrow="Approvals"
-        title="Approval queue"
-        lead={
-          user?.organization?.name
-            ? `Companies, recruiters and job postings waiting on ${user.organization.name}.`
-            : 'Companies, recruiters and job postings waiting on your institution.'
-        }
-      />
+  const setOrgFilter = (name) => (e) =>
+    setOrgFilters((prev) => ({ ...prev, [name]: e.target.value, page: 1 }));
+  const setUserFilter = (name) => (e) =>
+    setUserFilters((prev) => ({ ...prev, [name]: e.target.value, page: 1 }));
 
-      {loading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+  const orgNoun = isAdmin ? 'organization' : 'company';
+
+  const confirmTitle = () => {
+    if (!confirm) return '';
+    const verb = confirm.action === 'approve' ? 'Approve' : 'Reject';
+    if (confirm.scope === 'bulk') {
+      const plural = orgNoun === 'company' ? 'companies' : 'organizations';
+      return `${verb} ${selected.length} ${selected.length === 1 ? orgNoun : plural}?`;
+    }
+    if (confirm.type === 'organization') return `${verb} ${confirm.item?.name}?`;
+    if (confirm.type === 'posting') {
+      return `${confirm.action === 'approve' ? 'Publish' : 'Send back'} ${confirm.item?.title}?`;
+    }
+    return `${verb} ${confirm.item?.firstName} ${confirm.item?.lastName}?`;
+  };
+
+  const confirmDescription = () => {
+    if (!confirm) return '';
+    const approve = confirm.action === 'approve';
+    if (confirm.type === 'posting') {
+      return approve
+        ? 'The posting goes live and every eligible student is notified.'
+        : 'The posting returns to the recruiter as a draft. Your note is sent with it.';
+    }
+    if (confirm.scope === 'bulk') {
+      return approve
+        ? 'Each goes live, and the staff waiting on it are approved with it and can sign in.'
+        : 'Each is marked rejected, and the staff waiting on it are rejected with it. A reason helps.';
+    }
+    if (confirm.type === 'organization') {
+      const type = confirm.item?.type;
+      const staff =
+        type === 'company' || !isAdmin
+          ? 'any recruiters waiting on it'
+          : type === 'school'
+          ? 'any school staff waiting on it'
+          : 'any placement officer waiting on it';
+      return approve
+        ? `It goes live, and ${staff} can sign in from now on.`
+        : `It is marked rejected, and ${staff} is rejected with it. A reason helps.`;
+    }
+    return approve
+      ? 'They can sign in immediately.'
+      : 'Their account is rejected and they cannot sign in. A reason helps.';
+  };
+
+  /* ------------------------------------------------------------- sections */
+
+  const listState = (list, retry, emptyProps) => {
+    if (list.loading) {
+      return (
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
             <SkeletonCard key={i} lines={2} />
           ))}
         </div>
-      )}
+      );
+    }
+    if (list.error) return <ErrorState title="Could not load this list" description={list.error} onRetry={retry} />;
+    if (list.rows.length === 0) return <EmptyState {...emptyProps} />;
+    return null;
+  };
 
-      {!loading && error && (
-        <ErrorState title="Could not load approvals" description={error} onRetry={load} />
-      )}
-
-      {!loading && !error && (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Waiting"
-              // The postings queue is part of this queue, so it belongs in the
-              // headline count. Leaving it out meant the tab could read 1 while
-              // the tile above it read 0.
-              value={(pending.total ?? 0) + pendingJobs.length}
-              hint="Companies, recruiters and postings"
-              icon={InboxStackIcon}
-              accent="saffron"
-            />
-            <StatTile
-              label="Companies pending"
-              value={orgs.length}
-              icon={BuildingOfficeIcon}
-              accent="ink"
-            />
-            <StatTile
-              label="Recruiters pending"
-              value={recruiters.length}
-              icon={UserGroupIcon}
-              accent="azure"
-            />
-            <StatTile
-              label="Approved to date"
-              value={
-                countFor(stats?.organizations, 'approved') + countFor(stats?.recruiters, 'approved')
-              }
-              hint="Companies and recruiters"
-              icon={CheckCircleIcon}
-              accent="india"
-            />
+  const renderOrganizations = () => (
+    <>
+      <Toolbar className="flex-wrap">
+        <div className="min-w-[200px] flex-1">
+          <Input
+            label="Search"
+            icon={MagnifyingGlassIcon}
+            placeholder="Name, domain or contact email"
+            value={orgFilters.search}
+            onChange={setOrgFilter('search')}
+          />
+        </div>
+        {isAdmin && (
+          <div className="w-full sm:w-44">
+            <Select label="Type" value={orgFilters.type} onChange={setOrgFilter('type')} options={ORG_TYPE_OPTIONS} />
           </div>
+        )}
+        <div className="w-full sm:w-40">
+          <Select label="Status" value={orgFilters.status} onChange={setOrgFilter('status')} options={ORG_STATUS_OPTIONS} />
+        </div>
+      </Toolbar>
 
-          <Tabs className="mb-6 mt-8 w-fit" tabs={tabs} value={tab} onChange={setTab} />
-
-          {tab === 'organizations' && (
-            <>
-              {orgs.length > 0 && (
-                <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 py-3">
-                  <Checkbox
-                    checked={allSelected}
-                    onChange={toggleAll}
-                    label={`Select all (${selected.length}/${orgs.length})`}
-                  />
-                  {selected.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="success"
-                        icon={CheckIcon}
-                        onClick={() => openConfirm('approve', 'bulk')}
-                      >
-                        Approve {selected.length}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        icon={XMarkIcon}
-                        onClick={() => openConfirm('reject', 'bulk')}
-                      >
-                        Reject {selected.length}
-                      </Button>
-                    </div>
-                  )}
-                </Card>
-              )}
-
-              {orgs.length === 0 ? (
-                <EmptyState
-                  icon={BuildingOfficeIcon}
-                  title="No companies waiting"
-                  description="Every company that asked for access has been reviewed."
-                />
-              ) : (
-                <ul className="space-y-3">
-                  {orgs.map((org) => (
-                    <li key={org.id}>
-                      <Card className="flex flex-wrap items-start justify-between gap-4">
-                        <div className="flex min-w-0 flex-1 items-start gap-3">
-                          <Checkbox
-                            checked={selected.includes(org.id)}
-                            onChange={() => toggleOne(org.id)}
-                            label={<span className="sr-only">Select {org.name}</span>}
-                          />
-                          <Avatar src={org.logoUrl} name={org.name} size="md" />
-                          <div className="min-w-0">
-                            <h3 className="font-display text-base font-bold text-ink-950">
-                              {org.name}
-                            </h3>
-                            {org.contactEmail && (
-                              <p className="truncate text-sm text-ink-600">{org.contactEmail}</p>
-                            )}
-                            {org.address && (
-                              <p className="truncate text-xs text-ink-500">{org.address}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-2">
-                          <StatusBadge status={org.approvalStatus} />
-                          <Button
-                            size="sm"
-                            variant="success"
-                            icon={CheckIcon}
-                            onClick={() => openConfirm('approve', 'one', 'organization', org)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            icon={XMarkIcon}
-                            onClick={() => openConfirm('reject', 'one', 'organization', org)}
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      </Card>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+      {bulkable && orgs.length > 0 && !orgList.loading && (
+        <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 py-3">
+          <Checkbox
+            checked={allSelected}
+            onChange={toggleAll}
+            label={`Select all on this page (${selected.length}/${orgs.length})`}
+          />
+          {selected.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="success" icon={CheckIcon} onClick={() => openConfirm('approve', 'bulk')}>
+                Approve {selected.length}
+              </Button>
+              <Button size="sm" variant="danger" icon={XMarkIcon} onClick={() => openConfirm('reject', 'bulk')}>
+                Reject {selected.length}
+              </Button>
+            </div>
           )}
+        </Card>
+      )}
 
-          {tab === 'recruiters' &&
-            (recruiters.length === 0 ? (
-              <EmptyState
-                icon={UserGroupIcon}
-                title="No recruiters waiting"
-                description="Every recruiter that asked for access has been reviewed."
-              />
-            ) : (
-              <ul className="space-y-3">
-                {recruiters.map((r) => (
-                  <li key={r.id}>
-                    <Card className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <Avatar
-                          src={r.profilePicture}
-                          name={`${r.firstName} ${r.lastName}`}
-                          size="md"
-                        />
-                        <div className="min-w-0">
-                          <h3 className="font-display text-base font-bold text-ink-950">
-                            {r.firstName} {r.lastName}
-                          </h3>
-                          <p className="truncate text-sm text-ink-600">{r.email}</p>
-                          <p className="truncate text-xs text-ink-500">
-                            {[r.organization?.name, r.recruiterProfile?.position]
-                              .filter(Boolean)
-                              .join(' · ') || 'No company on record'}
-                          </p>
-                        </div>
+      {listState(orgList, loadOrgs, {
+        icon: BuildingOfficeIcon,
+        title: orgFilters.status === 'pending' ? `No ${orgNoun === 'company' ? 'companies' : 'organizations'} waiting` : 'Nothing here',
+        description:
+          orgFilters.status === 'pending'
+            ? `Every ${orgNoun} that asked for access has been reviewed.`
+            : 'No records match these filters.'
+      }) || (
+        <ul className="space-y-3">
+          {orgs.map((org) => {
+            const staff = (org.users || []).filter((u) => u.role !== 'student');
+            return (
+              <li key={org.id}>
+                <Card className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    {bulkable && (
+                      <Checkbox
+                        checked={selected.includes(org.id)}
+                        onChange={() => toggleOne(org.id)}
+                        label={<span className="sr-only">Select {org.name}</span>}
+                      />
+                    )}
+                    <Avatar src={org.logoUrl} name={org.name} size="md" />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-display text-base font-bold text-ink-950">{org.name}</h3>
+                        <Badge tone={org.type === 'company' ? 'info' : 'purple'}>{org.type}</Badge>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <StatusBadge status={r.approvalStatus} />
+                      <p className="truncate text-sm text-ink-600">
+                        {[org.domain, org.contactEmail, org.contactPhone].filter(Boolean).join(' · ')}
+                      </p>
+                      {(org.city || org.state || org.address) && (
+                        <p className="truncate text-xs text-ink-500">
+                          {[org.city, org.state].filter(Boolean).join(', ') || org.address}
+                        </p>
+                      )}
+                      {staff.length > 0 && (
+                        <p className="mt-1 text-xs text-ink-600">
+                          Registered by{' '}
+                          {staff
+                            .slice(0, 3)
+                            .map((u) => `${u.firstName} ${u.lastName} (${humanRole(u.role)}, ${u.email})`)
+                            .join('; ')}
+                          {staff.length > 3 ? ` and ${staff.length - 3} more` : ''}
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs text-ink-500">
+                        {org.approvalStatus === 'pending'
+                          ? `Requested ${formatDate(org.createdAt)}`
+                          : `${org.approvalStatus === 'approved' ? 'Approved' : 'Rejected'} ${formatDate(org.approvedAt)}${
+                              org.approver ? ` by ${org.approver.firstName} ${org.approver.lastName}` : ''
+                            }${org.approvalNotes ? ` — “${org.approvalNotes}”` : ''}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <StatusBadge status={org.approvalStatus} />
+                    {org.approvalStatus === 'pending' && (
+                      <>
                         <Button
                           size="sm"
                           variant="success"
                           icon={CheckIcon}
-                          onClick={() => openConfirm('approve', 'one', 'recruiter', r)}
+                          onClick={() => openConfirm('approve', 'one', 'organization', org)}
                         >
                           Approve
                         </Button>
@@ -384,126 +514,321 @@ const ApprovalManagement = () => {
                           size="sm"
                           variant="danger"
                           icon={XMarkIcon}
-                          onClick={() => openConfirm('reject', 'one', 'recruiter', r)}
+                          onClick={() => openConfirm('reject', 'one', 'organization', org)}
                         >
                           Reject
                         </Button>
-                      </div>
-                    </Card>
-                  </li>
-                ))}
-              </ul>
-            ))}
+                      </>
+                    )}
+                  </div>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <Pagination
+        className="mt-6"
+        page={orgList.pagination.currentPage}
+        pages={orgList.pagination.totalPages}
+        onChange={(page) => setOrgFilters((prev) => ({ ...prev, page }))}
+      />
+    </>
+  );
 
-          {tab === 'postings' &&
-            (pendingJobs.length === 0 ? (
-              <EmptyState
-                icon={BriefcaseIcon}
-                title="No postings waiting"
-                description="Every job a recruiter submitted has been reviewed. Approved postings go live to eligible students immediately."
-              />
-            ) : (
-              <ul className="space-y-3">
-                {pendingJobs.map((j) => (
-                  <li key={j.id}>
-                    <Card className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
+  const renderUsers = () => (
+    <>
+      <Toolbar className="flex-wrap">
+        <div className="min-w-[200px] flex-1">
+          <Input
+            label="Search"
+            icon={MagnifyingGlassIcon}
+            placeholder="Name or email"
+            value={userFilters.search}
+            onChange={setUserFilter('search')}
+          />
+        </div>
+        {isAdmin && (
+          <div className="w-full sm:w-48">
+            <Select label="Role" value={userFilters.role} onChange={setUserFilter('role')} options={ROLE_OPTIONS} />
+          </div>
+        )}
+        <div className="w-full sm:w-56">
+          <Select
+            label="Status"
+            value={userFilters.status}
+            onChange={setUserFilter('status')}
+            options={isAdmin ? USER_STATUS_OPTIONS_ADMIN : ORG_STATUS_OPTIONS}
+          />
+        </div>
+      </Toolbar>
+
+      {isAdmin && stuckUsers > 0 && userFilters.status !== 'stuck' && (
+        <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-saffron-500/40 bg-saffron-50 py-3">
+          <p className="flex items-center gap-2 text-sm text-saffron-900">
+            <ExclamationTriangleIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            {stuckUsers} account{stuckUsers === 1 ? ' is' : 's are'} marked approved but cannot sign in.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            iconRight={ArrowRightIcon}
+            onClick={() => setUserFilters((prev) => ({ ...prev, status: 'stuck', page: 1 }))}
+          >
+            Review
+          </Button>
+        </Card>
+      )}
+
+      {listState(userList, loadUsers, {
+        icon: UserGroupIcon,
+        title: userFilters.status === 'pending' ? `No ${isAdmin ? 'accounts' : 'recruiters'} waiting` : 'Nothing here',
+        description:
+          userFilters.status === 'pending'
+            ? 'Every account that asked for access has been reviewed.'
+            : 'No accounts match these filters.'
+      }) || (
+        <ul className="space-y-3">
+          {userList.rows.map((u) => {
+            const decidable = u.approvalStatus === 'pending' || (u.approvalStatus === 'approved' && !u.isActive);
+            const orgBlocked =
+              u.organization && u.organization.approvalStatus !== 'approved' && u.role !== 'student';
+            return (
+              <li key={u.id}>
+                <Card className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <Avatar src={u.profilePicture} name={`${u.firstName} ${u.lastName}`} size="md" />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-display text-base font-bold text-ink-950">
-                          <Link to={`/jobs/${j.id}`} className="underline-offset-2 hover:underline">
-                            {j.title}
-                          </Link>
+                          {u.firstName} {u.lastName}
                         </h3>
-                        <p className="truncate text-sm text-ink-600">
-                          {j.organization?.name}
-                          {j.location ? ` · ${j.location}` : ''}
-                          {j.jobType ? ` · ${j.jobType.replace('_', ' ')}` : ''}
-                        </p>
-                        <p className="truncate text-xs text-ink-500">
-                          Submitted by {j.creator?.firstName} {j.creator?.lastName}
-                        </p>
-                        <p className="mt-2 line-clamp-2 text-sm text-ink-700">{j.description}</p>
+                        <Badge tone="neutral">{humanRole(u.role)}</Badge>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <p className="truncate text-sm text-ink-600">
+                        {[u.email, u.phone].filter(Boolean).join(' · ')}
+                      </p>
+                      <p className="truncate text-xs text-ink-500">
+                        {[u.organization?.name, u.recruiterProfile?.position].filter(Boolean).join(' · ') ||
+                          'No organization on record'}
+                        {` · Signed up ${formatDate(u.createdAt)}`}
+                      </p>
+                      {orgBlocked && (
+                        <p className="mt-1 text-xs font-medium text-saffron-800">
+                          {u.organization.name} is {u.organization.approvalStatus}. Approve the organization —
+                          its waiting staff are approved with it.
+                        </p>
+                      )}
+                      {u.approvalNotes && u.approvalStatus !== 'pending' && (
+                        <p className="mt-1 text-xs text-ink-500">Note: “{u.approvalNotes}”</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {u.approvalStatus === 'approved' && !u.isActive ? (
+                      <Badge tone="warning" dot>
+                        cannot sign in
+                      </Badge>
+                    ) : (
+                      <StatusBadge status={u.approvalStatus} />
+                    )}
+                    {decidable && (
+                      <>
                         <Button
                           size="sm"
                           variant="success"
                           icon={CheckIcon}
-                          onClick={() => openConfirm('approve', 'one', 'posting', j)}
+                          disabled={orgBlocked}
+                          onClick={() => openConfirm('approve', 'one', 'user', u)}
                         >
-                          Publish
+                          {u.approvalStatus === 'approved' ? 'Re-approve' : 'Approve'}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          icon={XMarkIcon}
-                          onClick={() => openConfirm('reject', 'one', 'posting', j)}
-                        >
-                          Send back
-                        </Button>
-                      </div>
-                    </Card>
-                  </li>
-                ))}
-              </ul>
-            ))}
-          {tab === 'activity' &&
-            (activity === null ? (
-              <p className="text-sm text-ink-500">Loading…</p>
-            ) : activity.length === 0 ? (
-              <EmptyState
-                icon={ClockIcon}
-                title="Nothing recorded yet"
-                description="Approvals, posting decisions, bulk status changes and recruiter access to student records all appear here."
-              />
-            ) : (
-              <Card>
-                <ul className="divide-y divide-ink-950/10">
-                  {activity.map((e) => (
-                    <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-ink-950">{e.description}</p>
-                        <p className="text-sm text-ink-600">
-                          {e.by ? `${e.by.name} · ${e.by.role}` : 'System'}
-                          {e.by?.organization ? ` · ${e.by.organization}` : ''}
-                        </p>
-                      </div>
-                      <time className="shrink-0 text-xs tabular-nums text-ink-500" dateTime={e.at}>
-                        {new Date(e.at).toLocaleString()}
-                      </time>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            ))}
-        </>
+                        {u.approvalStatus === 'pending' && (
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            icon={XMarkIcon}
+                            onClick={() => openConfirm('reject', 'one', 'user', u)}
+                          >
+                            Reject
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
       )}
+      <Pagination
+        className="mt-6"
+        page={userList.pagination.currentPage}
+        pages={userList.pagination.totalPages}
+        onChange={(page) => setUserFilters((prev) => ({ ...prev, page }))}
+      />
+    </>
+  );
+
+  const renderPostings = () => (
+    <>
+      {listState(jobList, loadJobs, {
+        icon: BriefcaseIcon,
+        title: 'No postings waiting',
+        description:
+          'Every job a recruiter submitted has been reviewed. Approved postings go live to eligible students immediately.'
+      }) || (
+        <ul className="space-y-3">
+          {jobList.rows.map((j) => (
+            <li key={j.id}>
+              <Card className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-display text-base font-bold text-ink-950">
+                    <Link to={`/jobs/${j.id}`} className="underline-offset-2 hover:underline">
+                      {j.title}
+                    </Link>
+                  </h3>
+                  <p className="truncate text-sm text-ink-600">
+                    {j.organization?.name}
+                    {j.location ? ` · ${j.location}` : ''}
+                    {j.jobType ? ` · ${j.jobType.replace(/_/g, ' ')}` : ''}
+                  </p>
+                  <p className="truncate text-xs text-ink-500">
+                    Submitted by {j.creator?.firstName} {j.creator?.lastName}
+                    {j.createdAt ? ` on ${formatDate(j.createdAt)}` : ''}
+                  </p>
+                  <p className="mt-2 line-clamp-2 text-sm text-ink-700">{j.description}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <Button size="sm" variant="success" icon={CheckIcon} onClick={() => openConfirm('approve', 'one', 'posting', j)}>
+                    Publish
+                  </Button>
+                  <Button size="sm" variant="danger" icon={XMarkIcon} onClick={() => openConfirm('reject', 'one', 'posting', j)}>
+                    Send back
+                  </Button>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Pagination
+        className="mt-6"
+        page={jobList.pagination.currentPage}
+        pages={jobList.pagination.totalPages}
+        onChange={setJobPage}
+      />
+    </>
+  );
+
+  const renderActivity = () => (
+    <>
+      {listState(activityList, loadActivity, {
+        icon: ClockIcon,
+        title: 'Nothing recorded yet',
+        description:
+          'Approvals, posting decisions, announcements, bulk status changes and recruiter access to student records all appear here.'
+      }) || (
+        <Card>
+          <ul className="divide-y divide-ink-950/10">
+            {activityList.rows.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink-950">{e.description}</p>
+                  <p className="text-sm text-ink-600">
+                    {e.by ? `${e.by.name} · ${humanRole(e.by.role)}` : 'System'}
+                    {e.by?.organization ? ` · ${e.by.organization}` : ''}
+                  </p>
+                </div>
+                <time className="shrink-0 text-xs tabular-nums text-ink-500" dateTime={e.at}>
+                  {new Date(e.at).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <Pagination
+          page={activityList.pagination.currentPage}
+          pages={activityList.pagination.totalPages}
+          onChange={setActivityPage}
+        />
+        <Button as={Link} to="/audit" size="sm" variant="ghost" iconRight={ArrowRightIcon}>
+          Full audit log
+        </Button>
+      </div>
+    </>
+  );
+
+  return (
+    <PageShell width="wide">
+      <PageHeader
+        eyebrow="Approvals"
+        title="Approval queue"
+        lead={
+          isAdmin
+            ? 'Institutions, companies, accounts and job postings waiting on the platform.'
+            : user?.organization?.name
+            ? `Companies, recruiters and job postings waiting on ${user.organization.name}.`
+            : 'Companies, recruiters and job postings waiting on your institution.'
+        }
+      />
+
+      {statsError && (
+        <ErrorState className="mb-6" title="Could not load the queue counts" description={statsError} onRetry={loadStats} />
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Waiting"
+          // The postings queue is part of this queue, so it belongs in the
+          // headline count.
+          value={pendingOrgs + pendingUsers + pendingJobs}
+          hint={isAdmin ? 'Organizations, accounts and postings' : 'Companies, recruiters and postings'}
+          icon={InboxStackIcon}
+          accent="saffron"
+          loading={!stats && !statsError}
+        />
+        <StatTile
+          label={isAdmin ? 'Organizations pending' : 'Companies pending'}
+          value={pendingOrgs}
+          icon={BuildingOfficeIcon}
+          accent="ink"
+          loading={!stats && !statsError}
+        />
+        <StatTile
+          label={isAdmin ? 'Accounts pending' : 'Recruiters pending'}
+          value={pendingUsers}
+          hint={isAdmin && stuckUsers > 0 ? `${stuckUsers} approved but cannot sign in` : undefined}
+          icon={UserGroupIcon}
+          accent="azure"
+          loading={!stats && !statsError}
+        />
+        <StatTile
+          label="Approved to date"
+          value={countFor(stats?.organizations, 'approved') + countFor(stats?.users || stats?.recruiters, 'approved')}
+          hint={isAdmin ? 'Organizations and accounts' : 'Companies and recruiters'}
+          icon={CheckCircleIcon}
+          accent="india"
+          loading={!stats && !statsError}
+        />
+      </div>
+
+      <Tabs className="mb-6 mt-8 w-fit max-w-full" tabs={tabs} value={tab} onChange={setTab} />
+
+      {tab === 'organizations' && renderOrganizations()}
+      {tab === 'users' && renderUsers()}
+      {tab === 'postings' && renderPostings()}
+      {tab === 'activity' && renderActivity()}
 
       <Modal
         open={Boolean(confirm)}
         onClose={() => setConfirm(null)}
         size="sm"
-        title={
-          confirm
-            ? `${confirm.action === 'approve' ? 'Approve' : 'Reject'} ${
-                confirm.scope === 'bulk'
-                  ? `${selected.length} compan${selected.length === 1 ? 'y' : 'ies'}`
-                  : confirm.type === 'organization'
-                  ? confirm.item?.name
-                  : confirm.type === 'posting'
-                  ? confirm.item?.title
-                  : `${confirm.item?.firstName} ${confirm.item?.lastName}`
-              }?`
-            : ''
-        }
-        description={
-          confirm?.type === 'posting'
-            ? confirm?.action === 'approve'
-              ? 'The posting goes live and every eligible student is notified.'
-              : 'The posting returns to the recruiter as a draft. Your note is sent with it.'
-            : confirm?.action === 'approve'
-            ? 'They will immediately gain access to your institution.'
-            : 'They will be told the request was declined. A reason helps.'
-        }
+        title={confirmTitle()}
+        description={confirmDescription()}
         footer={
           <>
             <Button variant="secondary" onClick={() => setConfirm(null)}>
@@ -514,7 +839,13 @@ const ApprovalManagement = () => {
               loading={working}
               onClick={runConfirmed}
             >
-              {confirm?.action === 'approve' ? 'Approve' : 'Reject'}
+              {confirm?.type === 'posting'
+                ? confirm?.action === 'approve'
+                  ? 'Publish'
+                  : 'Send back'
+                : confirm?.action === 'approve'
+                ? 'Approve'
+                : 'Reject'}
             </Button>
           </>
         }
@@ -522,6 +853,7 @@ const ApprovalManagement = () => {
         <Textarea
           label="Notes"
           rows={4}
+          maxLength={2000}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder={confirm?.action === 'approve' ? 'Optional' : 'Why is this being declined?'}
