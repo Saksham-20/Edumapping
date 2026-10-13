@@ -29,13 +29,21 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
 
   if (!rounds || rounds.length === 0) return null;
 
-  // Upcoming first, then the rest; cancelled rounds last.
+  // What the student still has to show up for comes first: rounds they are in
+  // with no result yet, then rounds of their drives they have not reached,
+  // then rounds already decided; cancelled last. Within a group, by date.
   const now = Date.now();
-  const sorted = [...rounds].sort((a, b) => {
-    const rank = (r) => (r.status === 'cancelled' ? 2 : r.scheduledAt && new Date(r.scheduledAt) < now ? 1 : 0);
-    return rank(a) - rank(b) || new Date(a.scheduledAt || 0) - new Date(b.scheduledAt || 0);
-  });
-  const shown = limit ? sorted.slice(0, limit) : sorted;
+  const rank = (r) => {
+    if (r.status === 'cancelled') return 4;
+    if (r.participation?.result === 'pending') return 0;
+    if (!r.participation) return 1;
+    return 2;
+  };
+  const sorted = [...rounds].sort(
+    (a, b) => rank(a) - rank(b) || new Date(a.scheduledAt || 0) - new Date(b.scheduledAt || 0)
+  );
+  const ordered = applicationId ? [...rounds].sort((a, b) => a.sequence - b.sequence) : sorted;
+  const shown = limit ? ordered.slice(0, limit) : ordered;
 
   return (
     <Card className={compact ? '' : 'mb-8'}>
@@ -44,7 +52,7 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
         {shown.map((r) => {
           const p = r.participation;
           const [tone, label] = p ? RESULT[p.result] : ['neutral', 'Not shortlisted yet'];
-          const upcoming = p && r.status !== 'cancelled' && r.scheduledAt && new Date(r.scheduledAt) > now;
+          const upcoming = p?.result === 'pending' && r.status !== 'cancelled' && r.scheduledAt && new Date(r.scheduledAt) > now;
           return (
             <li
               key={r.id}

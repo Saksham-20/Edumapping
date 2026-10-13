@@ -335,7 +335,7 @@ const Students = () => {
                       <Badge tone={OUTCOME_TONES[s.placementStatus]}>{OUTCOME_LABELS[s.placementStatus] || s.placementStatus}</Badge>
                       <span className="text-xs text-ink-500">
                         {s.applications} applied
-                        {s.liveOffers > 0 && ` · ${s.liveOffers} offer${s.liveOffers > 1 ? 's' : ''} (best ${formatSalary(s.bestOfferCtc)})`}
+                        {s.liveOffers > 0 && ` · ${s.liveOffers} offer${s.liveOffers > 1 ? 's' : ''} (best ${formatSalary(s.bestOfferCtc, s.bestOfferCtc)})`}
                       </span>
                       {s.placementSanction !== 'none' && <Badge tone="danger">{s.placementSanction === 'removed' ? 'Removed' : 'Blocked'}</Badge>}
                     </div>
