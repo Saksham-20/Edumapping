@@ -154,6 +154,11 @@ router.get('/', optionalAuth, async (req, res, next) => {
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
+    // A non-numeric id (e.g. /organizations/public) reached Postgres as an
+    // integer cast and came back as a 500.
+    if (!/^\d+$/.test(String(id))) {
+      return res.status(404).json({ error: 'Not Found', message: 'Organization not found' });
+    }
 
     const organization = await Organization.findByPk(id, {
       attributes: [
