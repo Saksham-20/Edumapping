@@ -25,6 +25,8 @@
 const profileNumber = (value) =>
   value === null || value === undefined || String(value).trim() === '' ? NaN : Number(value);
 
+const { branchLabel } = require('./branches');
+
 const readNumber = (criteria, ...keys) => {
   for (const key of keys) {
     const value = criteria?.[key];
@@ -55,7 +57,8 @@ const readGraduationYears = (criteria) => {
 const readAllowedBranches = (criteria) => {
   const value = criteria?.allowedBranches ?? criteria?.allowed_branches;
   if (!value) return [];
-  const list = Array.isArray(value) ? value : [value];
+  // "CSE, IT" typed into one box is two branches, not one called "CSE, IT".
+  const list = (Array.isArray(value) ? value : [value]).flatMap((b) => String(b).split(/[,;]/));
   return list.map((b) => String(b).trim()).filter(Boolean);
 };
 
@@ -70,10 +73,18 @@ const readAllowedBranches = (criteria) => {
  * so one name containing the other counts as a match.
  */
 const branchesMatch = (a, b) => {
+  // Short codes first: "CSE" and "Computer Science Engineering" share no
+  // substring, so the loose comparison below turned eligible students away.
+  const ca = branchLabel(a);
+  const cb = branchLabel(b);
+  if (ca && cb && ca !== 'Unspecified' && ca === cb) return true;
   const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const x = norm(a);
   const y = norm(b);
   if (!x || !y) return false;
+  // Whole words only: "it" must not match inside "mechanical engineering
+  // with it" style substrings, and very short codes never match loosely.
+  if (x.length <= 3 || y.length <= 3) return x === y;
   return x === y || x.includes(y) || y.includes(x);
 };
 
