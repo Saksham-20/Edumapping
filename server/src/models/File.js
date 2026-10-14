@@ -14,6 +14,17 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
+    // The stored file's own name. Migration 13 created `files.filename` NOT
+    // NULL with no default, but the model never declared it, so every insert
+    // on a migrated database (production) failed with a not-null violation:
+    // no student could generate or upload a resume. Development hid it,
+    // because `sync({ alter: true })` drops columns the model does not know.
+    filename: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: 'unnamed_file',
+      field: 'filename'
+    },
     originalName: {
       type: DataTypes.STRING(255),
       allowNull: false,

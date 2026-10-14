@@ -58,6 +58,7 @@ class FileController {
 
       const file = await File.create({
         userId: req.user.id,
+        filename: path.basename(filePath),
         originalName: req.file.originalname,
         filePath,
         fileSize: req.file.size,

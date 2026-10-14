@@ -88,6 +88,7 @@ class ResumeService {
     // Save file record
     const fileRecord = await File.create({
       userId: user.id,
+      filename: path.basename(filePath),
       originalName: fileName,
       filePath, // Keep original path/object name for file management
       fileSize: pdfBuffer.length,
@@ -414,6 +415,7 @@ class ResumeService {
     // Save file record
     const fileRecord = await File.create({
       userId,
+      filename: path.basename(filePath),
       originalName: file.originalname,
       filePath, // Keep original path/object name
       fileSize: file.size,
