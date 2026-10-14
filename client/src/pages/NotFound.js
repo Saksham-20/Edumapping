@@ -5,13 +5,19 @@
 // page — indistinguishable from a working navigation, and impossible to report
 // as a bug. This says what happened instead.
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui';
 
 const NotFound = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const home = isAuthenticated ? '/dashboard' : '/';
+  // Opened straight from a bookmark or a pasted link there is no earlier page
+  // in this tab, and history.back() did nothing at all. React Router marks
+  // that first entry with the key "default".
+  const goBack = () => (location.key === 'default' ? navigate(home, { replace: true }) : navigate(-1));
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-bone-50 px-5 py-16">
@@ -30,13 +36,13 @@ const NotFound = () => {
           . It may have moved, or the link that brought you here may be out of date.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Button as={Link} to={isAuthenticated ? '/dashboard' : '/'} size="lg">
+          <Button as={Link} to={home} size="lg">
             {isAuthenticated ? 'Back to dashboard' : 'Back to home'}
           </Button>
           <Button
             variant="secondary"
             size="lg"
-            onClick={() => window.history.back()}
+            onClick={goBack}
           >
             Go back
           </Button>

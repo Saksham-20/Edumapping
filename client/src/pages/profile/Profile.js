@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api, { fieldErrorsFrom } from '../../services/api';
 import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
-import { calculateProfileCompletion } from '../../utils/helpers';
+import computeCompletion from '../../components/profile/completion';
 import { formatRole } from '../../components/common/navigation';
 import VerificationCard from '../../components/profile/VerificationCard';
 import {
@@ -54,6 +54,13 @@ const ACHIEVEMENT_TONES = {
   publication: 'danger',
   other: 'neutral'
 };
+
+// A school student's "year" is their class. The API accepts 1-12; the college
+// list stopped at 6th year, so a Class 11 or 12 student could not say so.
+const SCHOOL_CLASS_OPTIONS = [
+  { value: '', label: 'Select class' },
+  ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `Class ${i + 1}` }))
+];
 
 const YEAR_OPTIONS = [
   { value: '', label: 'Select year' },
@@ -201,6 +208,10 @@ const Profile = () => {
   // Per-field messages from the last save attempt (client check or server).
   const [errors, setErrors] = useState({});
   const [deletingAchievement, setDeletingAchievement] = useState(null);
+  // Why the profile could not be loaded: 'not_found' (404, or 403 — the API
+  // answers both for a profile this viewer may not see) or 'error'. Without it
+  // the page rendered an empty "Profile, completion 0%" shell.
+  const [loadError, setLoadError] = useState(null);
   // The route param is a string and `user.id` a number; compared strictly,
   // a student opening their own /users/:id link counted as "someone else".
   const isViewingOtherUser = Boolean(id) && String(id) !== String(user?.id);
@@ -247,9 +258,11 @@ const Profile = () => {
   const fetchProfile = useCallback(async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
       // If viewing another user's profile, use /users/:id, otherwise use /users/profile
       const endpoint = id ? `/users/${id}` : '/users/profile';
-      const response = await api.get(endpoint);
+      // Silent: the failure is explained on the page itself below.
+      const response = await api.get(endpoint, { silent: true });
       const userData = response.user || response; // Handle different response formats
       setProfile(userData);
 
@@ -282,7 +295,9 @@ const Profile = () => {
 
       setAchievements(userData.achievements || []);
     } catch (error) {
-      toast.error('Failed to load profile data');
+      const status = error?.status || error?.response?.status;
+      setProfile(null);
+      setLoadError(status === 404 || status === 403 ? 'not_found' : 'error');
     } finally {
       setIsLoading(false);
     }
@@ -327,7 +342,10 @@ const Profile = () => {
     if (Object.keys(clientErrors).length > 0) {
       setErrors(clientErrors);
       showFirstError(clientErrors);
-      toast.error('Some details need fixing. Check the highlighted fields.');
+      // One id, so a second failed attempt replaces the toast and a later
+      // successful save can take it down instead of leaving it beside
+      // "Profile updated successfully".
+      toast.error('Some details need fixing. Check the highlighted fields.', { id: 'profile-validation' });
       return;
     }
     setErrors({});
@@ -368,10 +386,13 @@ const Profile = () => {
 
       const response = await api.put('/users/profile', updateData);
 
-      setProfile(response.user);
+      // Merged: the save response does not carry achievements or every
+      // association the page loaded.
+      setProfile((prev) => ({ ...prev, ...response.user }));
       updateUser(response.user);
       setIsEditing(false);
       setLockedFieldsHit([]);
+      toast.dismiss('profile-validation');
       toast.success('Profile updated successfully');
     } catch (error) {
       // 423: the placement cell verified these fields and they are locked.
@@ -529,6 +550,11 @@ const Profile = () => {
   };
 
   const isStudentProfile = profile?.role === 'student';
+  // The profile owner's school, not the viewer's: a school student has a class,
+  // not a year of a degree, and no roll number, CGPA, backlogs or graduating
+  // batch for a placement cell to check.
+  const isSchoolStudent = isStudentProfile && profile?.organization?.type === 'school';
+  const yearOptions = isSchoolStudent ? SCHOOL_CLASS_OPTIONS : YEAR_OPTIONS;
   // Once the placement cell has verified the academic record the server
   // refuses changes to it (423); show those fields read-only instead.
   const academicLocked =
@@ -576,7 +602,35 @@ const Profile = () => {
     );
   }
 
-  const profileCompletion = profile ? calculateProfileCompletion(profile, user?.role || 'student') : 0;
+  if (loadError || !profile) {
+    const notFound = loadError === 'not_found';
+    return (
+      <PageShell width="narrow">
+        <EmptyState
+          icon={notFound ? ShieldCheckIcon : UserCircleIcon}
+          title={notFound ? 'This profile is not available' : 'Could not load this profile'}
+          description={
+            notFound
+              ? 'It does not exist, or your account is not allowed to see it.'
+              : 'Check your connection and try again.'
+          }
+          action={
+            notFound ? (
+              <Button as={Link} to="/dashboard">
+                Back to dashboard
+              </Button>
+            ) : (
+              <Button onClick={fetchProfile}>Try again</Button>
+            )
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  // The owner's role, not the viewer's: a TPO opening a student's profile was
+  // scored as a TPO. Achievements from state, which add/delete keep current.
+  const profileCompletion = profile ? computeCompletion({ ...profile, achievements }) : 0;
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
   const studentProfile = profile?.studentProfile;
   const hasResume = Boolean(studentProfile?.resumeUrl || studentProfile?.resumeFileId);
@@ -616,9 +670,13 @@ const Profile = () => {
             )}
           </div>
           {profileCompletion === 100 ? (
-            <Badge tone="success" dot>
-              Profile complete
-            </Badge>
+            // Its own row on a phone, like the progress bar below: squeezed
+            // beside the avatar it wrapped the name onto two lines.
+            <div className="w-full sm:w-auto">
+              <Badge tone="success" dot>
+                Profile complete
+              </Badge>
+            </div>
           ) : (
             <div className="w-full sm:w-56">
               <div className="flex items-center justify-between text-xs">
@@ -667,7 +725,7 @@ const Profile = () => {
         )}
       </Card>
 
-      {isStudentProfile && !isViewingOtherUser && studentProfile && (
+      {isStudentProfile && !isSchoolStudent && !isViewingOtherUser && studentProfile && (
         <VerificationCard profile={studentProfile} onChange={fetchProfile} />
       )}
 
@@ -811,83 +869,93 @@ const Profile = () => {
                   ask your placement cell to unlock your profile.
                 </p>
               )}
-              <Input
-                label="Roll number"
-                name="studentId"
-                placeholder="e.g. 22CSE031"
-                help="As printed on your college ID card. Companies shortlist by it."
-                error={errors.studentId}
-                disabled={academicLocked}
-                value={formData.studentId}
-                onChange={handleInputChange}
-              />
+              {!isSchoolStudent && (
+                <Input
+                  label="Roll number"
+                  name="studentId"
+                  placeholder="e.g. 22CSE031"
+                  help="As printed on your college ID card. Companies shortlist by it."
+                  error={errors.studentId}
+                  disabled={academicLocked}
+                  value={formData.studentId}
+                  onChange={handleInputChange}
+                />
+              )}
               <div className="grid gap-5 sm:grid-cols-2">
                 <Input
-                  label="Course"
+                  label={isSchoolStudent ? 'Stream' : 'Course'}
                   name="course"
                   error={errors.course}
                   disabled={academicLocked}
                   value={formData.course}
                   onChange={handleInputChange}
-                  placeholder="e.g. Bachelor of Technology"
+                  placeholder={
+                    isSchoolStudent ? 'e.g. Science (PCM), for Class 11 and 12' : 'e.g. Bachelor of Technology'
+                  }
                 />
-                <Input
-                  label="Branch / specialization"
-                  name="branch"
-                  error={errors.branch}
-                  disabled={academicLocked}
-                  value={formData.branch}
-                  onChange={handleInputChange}
-                  placeholder="e.g. Computer Science Engineering"
-                />
+                {!isSchoolStudent && (
+                  <Input
+                    label="Branch / specialization"
+                    name="branch"
+                    error={errors.branch}
+                    disabled={academicLocked}
+                    value={formData.branch}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Computer Science Engineering"
+                  />
+                )}
               </div>
               <div className="grid gap-5 sm:grid-cols-3">
                 <Select
-                  label="Year of study"
+                  label={isSchoolStudent ? 'Class' : 'Year of study'}
                   name="yearOfStudy"
                   error={errors.yearOfStudy}
                   disabled={academicLocked}
                   value={formData.yearOfStudy}
                   onChange={handleInputChange}
-                  options={YEAR_OPTIONS}
+                  options={yearOptions}
                 />
-                <Input
-                  label="Graduation year"
-                  type="number"
-                  min="2020"
-                  max="2030"
-                  name="graduationYear"
-                  error={errors.graduationYear}
-                  disabled={academicLocked}
-                  value={formData.graduationYear}
-                  onChange={handleInputChange}
-                />
-                <Input
-                  label="CGPA"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  max="10"
-                  placeholder="e.g. 8.5"
-                  name="cgpa"
-                  error={errors.cgpa}
-                  disabled={academicLocked}
-                  value={formData.cgpa}
-                  onChange={handleInputChange}
-                />
-                <Input
-                  label="Active backlogs"
-                  type="number"
-                  step="1"
-                  min="0"
-                  max="100"
-                  name="activeBacklogs"
-                  error={errors.activeBacklogs}
-                  disabled={academicLocked}
-                  value={formData.activeBacklogs}
-                  onChange={handleInputChange}
-                />
+                {!isSchoolStudent && (
+                  <>
+                    <Input
+                      label="Graduation year"
+                      type="number"
+                      min="2020"
+                      max="2030"
+                      name="graduationYear"
+                      error={errors.graduationYear}
+                      disabled={academicLocked}
+                      value={formData.graduationYear}
+                      onChange={handleInputChange}
+                    />
+                    <Input
+                      label="CGPA"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      max="10"
+                      placeholder="e.g. 8.5"
+                      name="cgpa"
+                      error={errors.cgpa}
+                      disabled={academicLocked}
+                      value={formData.cgpa}
+                      onChange={handleInputChange}
+                    />
+                    <Input
+                      label="Active backlogs"
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="100"
+                      name="activeBacklogs"
+                      error={errors.activeBacklogs}
+                      disabled={academicLocked}
+                      value={formData.activeBacklogs}
+                      onChange={handleInputChange}
+                    />
+                  </>
+                )}
                 <Input
                   label="Class X %"
                   type="number"
@@ -900,42 +968,46 @@ const Profile = () => {
                   value={formData.class10Percentage}
                   onChange={handleInputChange}
                 />
-                <Input
-                  label="Class XII %"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  name="class12Percentage"
-                  error={errors.class12Percentage}
-                  disabled={academicLocked}
-                  value={formData.class12Percentage}
-                  onChange={handleInputChange}
-                />
-                <Input
-                  label="Diploma % (if lateral entry)"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  name="diplomaPercentage"
-                  error={errors.diplomaPercentage}
-                  disabled={academicLocked}
-                  value={formData.diplomaPercentage}
-                  onChange={handleInputChange}
-                />
-                <Input
-                  label="Gap in education (years)"
-                  type="number"
-                  step="1"
-                  min="0"
-                  max="20"
-                  name="educationGapYears"
-                  error={errors.educationGapYears}
-                  disabled={academicLocked}
-                  value={formData.educationGapYears}
-                  onChange={handleInputChange}
-                />
+                {!isSchoolStudent && (
+                  <>
+                    <Input
+                      label="Class XII %"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      name="class12Percentage"
+                      error={errors.class12Percentage}
+                      disabled={academicLocked}
+                      value={formData.class12Percentage}
+                      onChange={handleInputChange}
+                    />
+                    <Input
+                      label="Diploma % (if lateral entry)"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      name="diplomaPercentage"
+                      error={errors.diplomaPercentage}
+                      disabled={academicLocked}
+                      value={formData.diplomaPercentage}
+                      onChange={handleInputChange}
+                    />
+                    <Input
+                      label="Gap in education (years)"
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="20"
+                      name="educationGapYears"
+                      error={errors.educationGapYears}
+                      disabled={academicLocked}
+                      value={formData.educationGapYears}
+                      onChange={handleInputChange}
+                    />
+                  </>
+                )}
               </div>
 
               <div>
@@ -1073,43 +1145,57 @@ const Profile = () => {
           {activeTab === 'academic' && isStudentProfile && (
             <Card>
               <dl>
-                <DetailRow label="Roll number">
-                  {studentProfile?.studentId || 'Not provided'}
+                {!isSchoolStudent && (
+                  <DetailRow label="Roll number">
+                    {studentProfile?.studentId || 'Not provided'}
+                  </DetailRow>
+                )}
+                <DetailRow label={isSchoolStudent ? 'Stream' : 'Course'}>
+                  {studentProfile?.course || 'Not provided'}
                 </DetailRow>
-                <DetailRow label="Course">{studentProfile?.course || 'Not provided'}</DetailRow>
-                <DetailRow label="Branch">{studentProfile?.branch || 'Not provided'}</DetailRow>
-                <DetailRow label="Year of study">
+                {!isSchoolStudent && (
+                  <DetailRow label="Branch">{studentProfile?.branch || 'Not provided'}</DetailRow>
+                )}
+                <DetailRow label={isSchoolStudent ? 'Class' : 'Year of study'}>
                   {studentProfile?.yearOfStudy
-                    ? YEAR_OPTIONS.find((o) => o.value === String(studentProfile.yearOfStudy))?.label ||
+                    ? yearOptions.find((o) => o.value === String(studentProfile.yearOfStudy))?.label ||
                       `Year ${studentProfile.yearOfStudy}`
                     : 'Not provided'}
                 </DetailRow>
-                <DetailRow label="Graduation year">
-                  {studentProfile?.graduationYear || 'Not provided'}
-                </DetailRow>
-                <DetailRow label="CGPA">{studentProfile?.cgpa || 'Not provided'}</DetailRow>
-                {/* The fields companies screen on. They are what the placement
-                    cell verifies and locks, so the student has to be able to
-                    see them without opening the edit form. */}
-                <DetailRow label="Active backlogs">
-                  {studentProfile?.activeBacklogs ?? 'Not provided'}
-                </DetailRow>
+                {!isSchoolStudent && (
+                  <>
+                    <DetailRow label="Graduation year">
+                      {studentProfile?.graduationYear || 'Not provided'}
+                    </DetailRow>
+                    <DetailRow label="CGPA">{studentProfile?.cgpa || 'Not provided'}</DetailRow>
+                    {/* The fields companies screen on. They are what the placement
+                        cell verifies and locks, so the student has to be able to
+                        see them without opening the edit form. */}
+                    <DetailRow label="Active backlogs">
+                      {studentProfile?.activeBacklogs ?? 'Not provided'}
+                    </DetailRow>
+                  </>
+                )}
                 <DetailRow label="Class X">
                   {studentProfile?.class10Percentage != null ? `${Number(studentProfile.class10Percentage)}%` : 'Not provided'}
                 </DetailRow>
-                <DetailRow label="Class XII">
-                  {studentProfile?.class12Percentage != null ? `${Number(studentProfile.class12Percentage)}%` : 'Not provided'}
-                </DetailRow>
-                {studentProfile?.diplomaPercentage != null && (
-                  <DetailRow label="Diploma">{`${Number(studentProfile.diplomaPercentage)}%`}</DetailRow>
+                {!isSchoolStudent && (
+                  <>
+                    <DetailRow label="Class XII">
+                      {studentProfile?.class12Percentage != null ? `${Number(studentProfile.class12Percentage)}%` : 'Not provided'}
+                    </DetailRow>
+                    {studentProfile?.diplomaPercentage != null && (
+                      <DetailRow label="Diploma">{`${Number(studentProfile.diplomaPercentage)}%`}</DetailRow>
+                    )}
+                    <DetailRow label="Gap in education">
+                      {studentProfile?.educationGapYears != null
+                        ? studentProfile.educationGapYears === 0
+                          ? 'None'
+                          : `${studentProfile.educationGapYears} year${studentProfile.educationGapYears === 1 ? '' : 's'}`
+                        : 'Not provided'}
+                    </DetailRow>
+                  </>
                 )}
-                <DetailRow label="Gap in education">
-                  {studentProfile?.educationGapYears != null
-                    ? studentProfile.educationGapYears === 0
-                      ? 'None'
-                      : `${studentProfile.educationGapYears} year${studentProfile.educationGapYears === 1 ? '' : 's'}`
-                    : 'Not provided'}
-                </DetailRow>
                 {studentProfile?.percentage && (
                   <DetailRow label="Percentage">{`${studentProfile.percentage}%`}</DetailRow>
                 )}

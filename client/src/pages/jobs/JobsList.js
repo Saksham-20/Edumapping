@@ -101,10 +101,43 @@ const formatDeadline = (deadline) =>
 const filled = (value) =>
   value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 
+// One branch, many spellings: a recruiter types "CSE, IT", the student's
+// profile says "Computer Science Engineering". Same table as the server's
+// utils/branches.js, so the preview agrees with the verdict at Apply. Two-letter
+// codes that mean different branches at different universities ("CE") are
+// deliberately absent.
+const BRANCH_CANON = {
+  'Computer Science Engineering': ['cse', 'cs', 'computerscience', 'computerscienceengineering', 'computerengineering', 'coe', 'comp'],
+  'Information Technology': ['it', 'informationtechnology'],
+  'Electronics and Communication Engineering': ['ece', 'ec', 'electronicscommunication', 'electronicscommunicationengineering', 'electronicstelecommunication', 'electronicstelecommunicationengineering', 'entc', 'extc'],
+  'Electrical and Electronics Engineering': ['eee', 'electricalelectronics', 'electricalelectronicsengineering'],
+  'Electrical Engineering': ['electrical', 'electricalengineering'],
+  'Mechanical Engineering': ['mech', 'mechanical', 'mechanicalengineering'],
+  'Civil Engineering': ['civil', 'civilengineering'],
+  'Chemical Engineering': ['che', 'chemical', 'chemicalengineering'],
+  'Artificial Intelligence and Data Science': ['aids', 'aiandds', 'ads', 'artificialintelligencedatascience'],
+  'Artificial Intelligence and Machine Learning': ['aiml', 'artificialintelligencemachinelearning']
+};
+const BRANCH_ALIASES = Object.entries(BRANCH_CANON).reduce((acc, [label, keys]) => {
+  keys.forEach((k) => {
+    acc[k] = label;
+  });
+  return acc;
+}, {});
+const branchLabel = (branch) => {
+  const raw = String(branch || '').trim();
+  const key = raw
+    .toLowerCase()
+    .replace(/\bengg\b\.?|\bengg\./g, 'engineering')
+    .replace(/&|\band\b/g, '')
+    .replace(/[^a-z]/g, '');
+  return BRANCH_ALIASES[key] || raw;
+};
+
 const sameBranch = (a, b) => {
   const norm = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const x = norm(a);
-  const y = norm(b);
+  const x = norm(branchLabel(a));
+  const y = norm(branchLabel(b));
   return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
 };
 
@@ -378,7 +411,7 @@ const JobsList = () => {
         <h3 className="mt-3 font-display text-lg font-bold tracking-tight text-ink-950">
           <Link
             to={`/jobs/${job.id}`}
-            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+            className="inline-block rounded py-0.5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
           >
             {job.title}
           </Link>

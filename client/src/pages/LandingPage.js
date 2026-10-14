@@ -17,7 +17,6 @@ import EventsSection from '../components/landing/EventsSection';
 import { CtaBand, Impact } from '../components/landing/Closers';
 import { AboutPage, ContactPage, FeaturesPage } from '../components/landing/InnerPages';
 import Footer from '../components/landing/Footer';
-import WhatsAppChat from '../components/common/WhatsAppChat';
 
 import '../styles/carousel.css';
 import './LandingPage.css';
@@ -39,10 +38,25 @@ const LandingPage = () => {
     document.title = PAGE_TITLES[currentPage] || PAGE_TITLES.home;
   }, [currentPage]);
 
-  const handleNavigate = useCallback((page) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'auto' });
+  // The page swap waits for the outgoing page's exit animation, and the root
+  // stylesheet sets `scroll-behavior: smooth`. Scrolling up at click time
+  // started a smooth scroll that the swap then interrupted, so a footer link
+  // left the visitor part-way down the new page (about 500px on a phone, past
+  // its heading). Jumping once the new page is in place lands on its top.
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, []);
+
+  const handleNavigate = useCallback(
+    (page) => {
+      if (page === currentPage) {
+        scrollToTop();
+        return;
+      }
+      setCurrentPage(page);
+    },
+    [currentPage, scrollToTop]
+  );
 
   // Choosing an audience scrolls to the section that changed, rather than
   // silently mutating content somewhere off-screen.
@@ -94,7 +108,7 @@ const LandingPage = () => {
       />
 
       <main id="lp-main">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence mode="wait" initial={false} onExitComplete={scrollToTop}>
           <motion.div key={currentPage} {...transition}>
             {currentPage === 'home' && (
               <>
@@ -117,7 +131,8 @@ const LandingPage = () => {
       </main>
 
       <Footer onNavigate={handleNavigate} />
-      <WhatsAppChat />
+      {/* The WhatsApp bubble is rendered once, app-wide, by App.js. A second
+          copy here put two identical links on top of each other. */}
     </div>
   );
 };

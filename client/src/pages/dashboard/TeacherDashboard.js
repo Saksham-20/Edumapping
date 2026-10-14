@@ -234,7 +234,7 @@ const TeacherDashboard = () => {
           title="You have not scheduled a live class"
           description="Create one and every student at your school will see it on their dashboard and be able to join."
           action={
-            <Button as={Link} to="/conferences" icon={PlusIcon}>
+            <Button as={Link} to="/conferences?new=1" icon={PlusIcon}>
               Create a live class
             </Button>
           }

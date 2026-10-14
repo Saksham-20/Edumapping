@@ -63,6 +63,11 @@ import {
   VideoCameraIcon
 } from '@heroicons/react/24/outline';
 
+// A brand-new account's first visit should not say "Welcome back"; see
+// StudentDashboard for why createdAt, not lastLogin, decides this.
+const isNewAccount = (user) =>
+  Boolean(user?.createdAt) && Date.now() - new Date(user.createdAt).getTime() < 24 * 60 * 60 * 1000;
+
 /**
  * The shared API layer already toasts every failure except 401/403, so a
  * second toast in a catch block doubled every error. Only the ones it stays
@@ -143,14 +148,18 @@ const EventCard = ({ event, busy, onRegister, onCancel }) => {
             <Badge tone="success" dot>
               You are registered
             </Badge>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={busy}
-              onClick={() => onCancel(event)}
-            >
-              Cancel registration
-            </Button>
+            {/* Same rule as the Events page and the server: once registration
+                has closed the seat is final, so there is nothing to cancel. */}
+            {canRegister && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={busy}
+                onClick={() => onCancel(event)}
+              >
+                Cancel registration
+              </Button>
+            )}
           </>
         ) : (
           <Button
@@ -291,6 +300,7 @@ const SchoolDashboard = () => {
   const [events, setEvents] = useState([]);
   const [assessments, setAssessments] = useState([]);
   const [conferences, setConferences] = useState([]);
+  const [liveAvailable, setLiveAvailable] = useState(true);
   const [achievements, setAchievements] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
@@ -335,6 +345,7 @@ const SchoolDashboard = () => {
 
     if (conferencesRes.status === 'fulfilled') {
       setConferences(conferencesRes.value.conferences || []);
+      setLiveAvailable(conferencesRes.value.liveAvailable !== false);
     } else {
       nextErrors.live =
         conferencesRes.reason?.response?.status === 503
@@ -558,33 +569,42 @@ const SchoolDashboard = () => {
       );
     }
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {liveClasses.map((c) => (
-          <Card key={c.id} className="flex flex-col">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
-              <StatusBadge status={c.status} />
-            </div>
-            <p className="mt-1 text-xs text-ink-600">
-              {c.host ? `${c.host.firstName} ${c.host.lastName}` : 'Unknown host'}
-            </p>
-            {c.scheduledStart && (
-              <p className="mt-3 text-xs text-ink-500">{formatEventWhen(c.scheduledStart)}</p>
-            )}
-            <div className="mt-5">
-              <Button
-                as={Link}
-                to={`/conference/${c.id}`}
-                size="sm"
-                variant={c.status === 'live' ? 'saffron' : 'secondary'}
-                icon={c.status === 'live' ? SignalIcon : VideoCameraIcon}
-              >
-                {c.status === 'live' ? 'Join now' : 'Open room'}
-              </Button>
-            </div>
-          </Card>
-        ))}
-      </div>
+      <>
+        {/* Without this, every "Open room" below led to a dead end. */}
+        {!liveAvailable && (
+          <p className="mb-4 rounded-xl border border-saffron-200 bg-saffron-50 px-4 py-3 text-sm text-ink-800">
+            Live video is not switched on yet, so these rooms will not open. Your
+            classes are listed so you know what is planned; check back later.
+          </p>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {liveClasses.map((c) => (
+            <Card key={c.id} className="flex flex-col">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-display text-base font-bold text-ink-950">{c.title}</h3>
+                <StatusBadge status={c.status} />
+              </div>
+              <p className="mt-1 text-xs text-ink-600">
+                {c.host ? `${c.host.firstName} ${c.host.lastName}` : 'Unknown host'}
+              </p>
+              {c.scheduledStart && (
+                <p className="mt-3 text-xs text-ink-500">{formatEventWhen(c.scheduledStart)}</p>
+              )}
+              <div className="mt-5">
+                <Button
+                  as={Link}
+                  to={`/conference/${c.id}`}
+                  size="sm"
+                  variant={c.status === 'live' ? 'saffron' : 'secondary'}
+                  icon={c.status === 'live' ? SignalIcon : VideoCameraIcon}
+                >
+                  {c.status === 'live' ? 'Join now' : 'Open room'}
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </>
     );
   };
 
@@ -640,7 +660,7 @@ const SchoolDashboard = () => {
     <PageShell>
       <PageHeader
         eyebrow={user?.organization?.name || 'School'}
-        title={`Welcome back, ${user?.firstName || 'student'}`}
+        title={`${isNewAccount(user) ? 'Welcome' : 'Welcome back'}, ${user?.firstName || 'student'}`}
         lead="Events and live classes open to you, and your achievements."
         actions={
           <Button as={Link} to="/events" variant="secondary" icon={CalendarIcon}>

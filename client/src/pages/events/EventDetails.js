@@ -269,7 +269,11 @@ const EventDetails = () => {
             {String(event.eventType || 'other').replace(/_/g, ' ')}
           </Badge>
           {isGlobal && <Badge tone="purple">Global</Badge>}
-          {event.status && <StatusBadge status={event.status} />}
+          {/* Nothing moves a past event off "scheduled" server-side, so a
+              workshop from last January was still stamped SCHEDULED. */}
+          {event.status && (
+            <StatusBadge status={event.status === 'scheduled' && ended ? 'ended' : event.status} />
+          )}
           {isRegistered && (
             <Badge tone="success">
               <CheckIcon aria-hidden="true" className="h-3.5 w-3.5" />

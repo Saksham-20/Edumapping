@@ -57,7 +57,28 @@ import {
   ExclamationTriangleIcon,
   ArrowRightIcon
 } from '@heroicons/react/24/outline';
-import { formatJobType } from '../../utils/helpers';
+import { formatJobType, formatSalary } from '../../utils/helpers';
+
+/**
+ * What a reviewer needs to decide on a drive: the package and who may apply.
+ * The card used to show only the title and description.
+ */
+const postingTerms = (j) => {
+  const e = j.eligibilityCriteria || {};
+  const minCgpa = e.minCGPA ?? e.min_cgpa;
+  const branches = e.allowedBranches || e.allowed_branches || [];
+  const batches = e.graduationYear || e.graduation_year || [];
+  const backlogs = e.maxBacklogs ?? e.max_backlogs;
+  return [
+    `CTC ${formatSalary(j.salaryMin, j.salaryMax)}`,
+    j.totalPositions ? `${j.totalPositions} opening${Number(j.totalPositions) === 1 ? '' : 's'}` : null,
+    minCgpa != null && minCgpa !== '' ? `Min CGPA ${minCgpa}` : 'No CGPA cut-off',
+    branches.length ? `Branches: ${branches.join(', ')}` : 'All branches',
+    batches.length ? `Batch ${[].concat(batches).join(', ')}` : 'Any batch',
+    backlogs != null && backlogs !== '' ? `Max ${backlogs} backlog${Number(backlogs) === 1 ? '' : 's'}` : null,
+    j.applicationDeadline ? `Apply by ${formatDate(j.applicationDeadline)}` : null
+  ].filter(Boolean);
+};
 
 /**
  * Past tense of an action, for the confirmation toast. `${action}d` reads
@@ -130,6 +151,12 @@ const ApprovalManagement = () => {
   const allowed = isTpo || isAdmin;
 
   const [tab, setTab] = useState('organizations');
+  // Once the officer picks a tab themselves, the counts stop steering it.
+  const [tabChosen, setTabChosen] = useState(false);
+  const chooseTab = (value) => {
+    setTabChosen(true);
+    setTab(value);
+  };
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState(null);
 
@@ -305,6 +332,15 @@ const ApprovalManagement = () => {
   const pendingJobs = Number(stats?.pendingJobs || 0);
   const stuckUsers = Number(stats?.stuckUsers || 0);
 
+  // Open on the first tab with something waiting: a TPO with one drive to
+  // review used to land on an empty Companies tab.
+  useEffect(() => {
+    if (!stats || tabChosen) return;
+    if (pendingOrgs > 0) setTab('organizations');
+    else if (pendingUsers > 0) setTab('users');
+    else if (pendingJobs > 0) setTab('postings');
+  }, [stats, tabChosen, pendingOrgs, pendingUsers, pendingJobs]);
+
   const tabs = useMemo(
     () => [
       {
@@ -383,9 +419,11 @@ const ApprovalManagement = () => {
           : type === 'school'
           ? 'any school staff waiting on it'
           : 'any placement officer waiting on it';
+      // "any recruiters … is rejected" — the verb follows the noun.
+      const be = staff.startsWith('any placement officer') ? 'is' : 'are';
       return approve
         ? `It goes live, and ${staff} can sign in from now on.`
-        : `It is marked rejected, and ${staff} is rejected with it. A reason helps.`;
+        : `It is marked rejected, and ${staff} ${be} rejected with it. A reason helps.`;
     }
     return approve
       ? 'They can sign in immediately.'
@@ -482,6 +520,18 @@ const ApprovalManagement = () => {
                       <p className="truncate text-sm text-ink-600">
                         {[org.domain, org.contactEmail, org.contactPhone].filter(Boolean).join(' · ')}
                       </p>
+                      {org.website && (
+                        <p className="truncate text-sm">
+                          <a
+                            href={/^https?:\/\//i.test(org.website) ? org.website : `https://${org.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-azure-700 underline-offset-2 hover:underline"
+                          >
+                            {org.website.replace(/^https?:\/\//i, '').replace(/\/$/, '')}
+                          </a>
+                        </p>
+                      )}
                       {(org.city || org.state || org.address) && (
                         <p className="truncate text-xs text-ink-500">
                           {[org.city, org.state].filter(Boolean).join(', ') || org.address}
@@ -706,6 +756,15 @@ const ApprovalManagement = () => {
                     Submitted by {j.creator?.firstName} {j.creator?.lastName}
                     {j.createdAt ? ` on ${formatDate(j.createdAt)}` : ''}
                   </p>
+                  <ul className="mt-2 flex min-w-0 flex-wrap gap-1.5" aria-label="Terms and eligibility">
+                    {postingTerms(j).map((t) => (
+                      <li key={t} className="max-w-full">
+                        <Badge tone="neutral" className="max-w-full !whitespace-normal break-words">
+                          {t}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
                   <p className="mt-2 line-clamp-2 text-sm text-ink-700">{j.description}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -743,7 +802,10 @@ const ApprovalManagement = () => {
             {activityList.rows.map((e) => (
               <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
                 <div className="min-w-0">
-                  <p className="font-semibold text-ink-950">{e.description}</p>
+                  <p className="font-semibold text-ink-950">
+                    {e.description}
+                    {e.entityName && <span className="font-normal text-ink-700"> · {e.entityName}</span>}
+                  </p>
                   <p className="text-sm text-ink-600">
                     {e.by ? `${e.by.name} · ${humanRole(e.by.role)}` : 'System'}
                     {e.by?.organization ? ` · ${e.by.organization}` : ''}
@@ -816,15 +878,18 @@ const ApprovalManagement = () => {
         />
         <StatTile
           label="Approved to date"
-          value={countFor(stats?.organizations, 'approved') + countFor(stats?.users || stats?.recruiters, 'approved')}
-          hint={isAdmin ? 'Organizations and accounts' : 'Companies and recruiters'}
+          value={
+            stats?.approvedToDate ??
+            countFor(stats?.organizations, 'approved') + countFor(stats?.users || stats?.recruiters, 'approved')
+          }
+          hint={isAdmin ? 'Organizations and accounts' : 'Companies and recruiters your cell approved'}
           icon={CheckCircleIcon}
           accent="india"
           loading={!stats && !statsError}
         />
       </StatStrip>
 
-      <Tabs className="mb-6 mt-8 w-fit max-w-full" tabs={tabs} value={tab} onChange={setTab} />
+      <Tabs className="mb-6 mt-8 w-fit max-w-full" tabs={tabs} value={tab} onChange={chooseTab} />
 
       {tab === 'organizations' && renderOrganizations()}
       {tab === 'users' && renderUsers()}

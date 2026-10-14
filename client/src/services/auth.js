@@ -13,14 +13,15 @@ class AuthService {
       const response = await api.post('/auth/login', { email, password });
       
       if (!response || !response.tokens) {
-        console.error('Login response missing tokens:', response);
         throw new Error('Invalid response from server. Please try again.');
       }
       
       this.setTokens(response.tokens);
       return response;
     } catch (error) {
-      console.error('Auth service login error:', error);
+      // Not logged: a mistyped password is an expected answer, which the
+      // sign-in form shows under its heading. It used to print the error
+      // and its stack to the console as well, on every failed attempt.
       throw error;
     }
   };
@@ -47,18 +48,29 @@ class AuthService {
     return response.user;
   };
 
-  refreshTokens = async () => {
-    const tokens = this.getTokens();
-    if (!tokens || !tokens.refreshToken) {
-      throw new Error('No refresh token available');
-    }
+  // One refresh at a time. A dashboard fires a dozen requests at once; when
+  // the access token had expired each of them got a 401 and started its own
+  // refresh, so a single expiry cost a dozen extra calls against the
+  // per-user rate limit. Callers that arrive while one is in flight share it.
+  refreshInFlight = null;
 
-    const response = await api.post('/auth/refresh', {
-      refreshToken: tokens.refreshToken
-    });
-    
-    this.setTokens(response.tokens);
-    return response.tokens;
+  refreshTokens = () => {
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = (async () => {
+        const tokens = this.getTokens();
+        if (!tokens || !tokens.refreshToken) {
+          throw new Error('No refresh token available');
+        }
+        const response = await api.post('/auth/refresh', {
+          refreshToken: tokens.refreshToken
+        });
+        this.setTokens(response.tokens);
+        return response.tokens;
+      })().finally(() => {
+        this.refreshInFlight = null;
+      });
+    }
+    return this.refreshInFlight;
   };
 
   setTokens = (tokens) => {
@@ -71,8 +83,16 @@ class AuthService {
       if (!tokens) return null;
       
       const parsedTokens = JSON.parse(tokens);
-      // Validate that tokens have the expected structure
-      if (parsedTokens && typeof parsedTokens === 'object' && parsedTokens.accessToken) {
+      // A session is alive while either token is. Requiring the access token
+      // here meant that once it was gone (cleared, or dropped by the browser)
+      // the still-valid refresh token was never read: the app treated the
+      // person as signed out and sent them to the sign-in page instead of
+      // refreshing.
+      if (
+        parsedTokens &&
+        typeof parsedTokens === 'object' &&
+        (parsedTokens.accessToken || parsedTokens.refreshToken)
+      ) {
         return parsedTokens;
       }
       return null;

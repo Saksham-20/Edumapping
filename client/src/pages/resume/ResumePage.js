@@ -1,11 +1,11 @@
 // client/src/pages/resume/ResumePage.js
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import openProtectedFile from '../../utils/openProtectedFile';
 import toast from 'react-hot-toast';
-import { calculateProfileCompletion } from '../../utils/helpers';
+import computeCompletion from '../../components/profile/completion';
 import {
   Badge,
   Button,
@@ -201,6 +201,13 @@ const ResumePreview = ({ resumeData }) => {
 
 const ResumePage = () => {
   const { user } = useAuth();
+  // Sent here from a job's Apply button: where to go back to, and what to call
+  // it. Only a job page is accepted, so the parameter cannot become an open
+  // redirect.
+  const [searchParams] = useSearchParams();
+  const rawReturn = searchParams.get('return') || '';
+  const returnTo = /^\/jobs\/\d+$/.test(rawReturn) ? rawReturn : null;
+  const returnLabel = (searchParams.get('job') || '').slice(0, 120);
   const [resumeData, setResumeData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -282,7 +289,7 @@ const ResumePage = () => {
 
   const getProfileCompletionScore = () => {
     if (!resumeData) return 0;
-    return calculateProfileCompletion(
+    return computeCompletion(
       {
         ...resumeData.personalInfo,
         studentProfile: resumeData.profile,
@@ -361,6 +368,21 @@ const ResumePage = () => {
           </>
         }
       />
+      {returnTo && (
+        <div
+          role="status"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-azure-600/25 bg-azure-500/10 px-4 py-3 text-sm text-ink-800"
+        >
+          <span>
+            {hasResume
+              ? `Your resume is ready. Go back to ${returnLabel || 'the job'} and apply.`
+              : `You need a resume to apply${returnLabel ? ` for ${returnLabel}` : ''}. Generate one from your profile or upload your own PDF, then come back to the job.`}
+          </span>
+          <Button as={Link} to={returnTo} size="sm" variant={hasResume ? 'primary' : 'secondary'}>
+            Back to {returnLabel || 'the job'}
+          </Button>
+        </div>
+      )}
       <input
         ref={fileRef}
         type="file"

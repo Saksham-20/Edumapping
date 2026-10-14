@@ -125,7 +125,7 @@ const VerificationCard = ({ profile, onChange }) => {
             <button
               type="button"
               onClick={() => openProtectedFile(profile.marksheetUrl)}
-              className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-azure-700 hover:underline"
+              className="mt-1 inline-flex min-h-[32px] items-center gap-1 text-sm font-medium text-azure-700 hover:underline"
             >
               <DocumentTextIcon className="h-4 w-4" aria-hidden="true" /> View uploaded marksheets
             </button>

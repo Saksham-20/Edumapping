@@ -107,6 +107,9 @@ const Offers = () => {
   const [reason, setReason] = useState('');
   // The answer the student is about to give, held until they confirm it.
   const [confirming, setConfirming] = useState(null);
+  // Verifying a letter counts the student as placed and locks the letter;
+  // unverifying undoes that. Both were one stray tap away.
+  const [verifying, setVerifying] = useState(null);
   const [policy, setPolicy] = useState(null);
   const isCell = user?.role === 'tpo' || user?.role === 'admin';
 
@@ -138,6 +141,7 @@ const Offers = () => {
     try {
       await placementService.verifyOfferLetter(offer.id, verified);
       toast.success(verified ? 'Offer letter verified' : 'Verification removed');
+      setVerifying(null);
       load();
     } catch {
       // api toasts
@@ -321,7 +325,7 @@ const Offers = () => {
                             <button
                               type="button"
                               onClick={() => openProtectedFile(offer.offerLetterUrl)}
-                              className="inline-flex items-center gap-1 font-medium text-azure-700 hover:underline"
+                              className="inline-flex min-h-[28px] items-center gap-1 font-medium text-azure-700 hover:underline"
                             >
                               <DocumentTextIcon aria-hidden="true" className="h-3.5 w-3.5" /> Offer letter
                             </button>
@@ -337,7 +341,7 @@ const Offers = () => {
                     {isStudent && offer.applicationId && (
                       <Link
                         to={`/applications/${offer.applicationId}`}
-                        className="mt-2 inline-block text-xs font-semibold text-ink-950 hover:underline"
+                        className="mt-1 inline-flex min-h-[28px] items-center text-xs font-semibold text-ink-950 hover:underline"
                       >
                         View application →
                       </Link>
@@ -374,7 +378,11 @@ const Offers = () => {
                       </Button>
                     </>
                   )}
-                  {['offered', 'accepted'].includes(offer.status) && !(isCell && offer.offerLetterUrl) && (
+                  {/* A verified letter is the record behind a placement: only the
+                      cell may change it (the server refuses anyone else). */}
+                  {['offered', 'accepted'].includes(offer.status) &&
+                    !(isCell && offer.offerLetterUrl) &&
+                    !offer.letterVerified && (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -391,7 +399,7 @@ const Offers = () => {
                       variant={offer.letterVerified ? 'secondary' : 'success'}
                       icon={ShieldCheckIcon}
                       loading={busyId === offer.id}
-                      onClick={() => verifyLetter(offer, !offer.letterVerified)}
+                      onClick={() => setVerifying({ offer, verified: !offer.letterVerified })}
                     >
                       {offer.letterVerified ? 'Unverify' : 'Verify letter'}
                     </Button>
@@ -426,6 +434,40 @@ const Offers = () => {
           </div>
         </Card>
       )}
+
+      <Modal
+        open={Boolean(verifying)}
+        onClose={() => setVerifying(null)}
+        size="sm"
+        title={verifying?.verified ? 'Verify this offer letter?' : 'Remove verification?'}
+        description={
+          verifying
+            ? `${[verifying.offer.student?.firstName, verifying.offer.student?.lastName].filter(Boolean).join(' ') || 'Student'}: ${
+                verifying.offer.roleTitle || verifying.offer.job?.title || 'offer'
+              } at ${verifying.offer.organization?.name || 'the company'}.`
+            : ''
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setVerifying(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={verifying?.verified ? 'success' : 'danger'}
+              loading={busyId === verifying?.offer.id}
+              onClick={() => verifyLetter(verifying.offer, verifying.verified)}
+            >
+              {verifying?.verified ? 'Yes, verify' : 'Yes, remove'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-700">
+          {verifying?.verified
+            ? 'Check that the letter matches the company, role and CTC. Once verified, the student cannot replace it and the offer counts in placement reports.'
+            : 'The offer will no longer count as verified in reports, and the student can replace the letter again.'}
+        </p>
+      </Modal>
 
       <Modal
         open={Boolean(confirming)}

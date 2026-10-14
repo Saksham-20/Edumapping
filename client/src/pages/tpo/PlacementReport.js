@@ -4,6 +4,7 @@
 // NAAC criterion 5.2 ask for: placed and higher-studies rates over students
 // who did not opt out, median and spread of CTC, per programme, with the
 // recruiters behind them. Downloadable as an Excel workbook for submission.
+import { Link } from 'react-router-dom';
 import React, { useEffect, useState } from 'react';
 import { ArrowDownTrayIcon, DocumentChartBarIcon } from '@heroicons/react/24/outline';
 import {
@@ -87,6 +88,16 @@ const PlacementReport = () => {
   };
 
   const s = report?.summary;
+  // Students outside this report, so "0 of 1 eligible" for a college with
+  // five accounts explains itself.
+  const nc = report?.notCounted || {};
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const notCountedParts = [
+    nc.otherBatches > 0 && `${plural(nc.otherBatches, 'student is', 'students are')} in other batches`,
+    nc.noBatch > 0 && `${plural(nc.noBatch, 'has', 'have')} no graduation year`,
+    nc.noProfile > 0 && `${plural(nc.noProfile, 'account has', 'accounts have')} no student profile yet`
+  ].filter(Boolean);
+  const notCountedNote = notCountedParts.length ? `Not counted here: ${notCountedParts.join('; ')}.` : '';
 
   return (
     <PageShell width="wide">
@@ -140,8 +151,22 @@ const PlacementReport = () => {
             <StatTile label="Placement rate" value={`${s.placementRate}%`} hint={`${s.placed} of ${s.eligible} eligible students`} accent="india" />
             <StatTile label="Placed + higher studies" value={`${s.outcomeRate}%`} hint={`${s.higherStudies} went on to higher studies`} accent="azure" />
             <StatTile label="Median CTC" value={ctc(s.medianCtc)} hint={`Average ${ctc(s.averageCtc)}`} accent="saffron" />
-            <StatTile label="Highest CTC" value={ctc(s.highestCtc)} hint={`${s.totalOffers} offers · ${s.ppos} PPO${s.ppos === 1 ? '' : 's'}`} />
+            <StatTile label="Highest CTC" value={ctc(s.highestCtc)} hint={`${s.totalOffers} offer${s.totalOffers === 1 ? '' : 's'} · ${s.ppos} PPO${s.ppos === 1 ? '' : 's'}`} />
           </StatStrip>
+
+          {notCountedNote && (
+            <p className="-mt-4 mb-8 rounded-xl border border-ink-950/10 bg-bone-50 px-4 py-3 text-sm text-ink-700">
+              {notCountedNote}
+              {!isAdmin && (
+                <>
+                  {' '}
+                  <Link to="/tpo/students" className="font-medium text-azure-700 underline-offset-2 hover:underline">
+                    Review the roster
+                  </Link>
+                </>
+              )}
+            </p>
+          )}
 
           <Card padded={false} className="mb-8">
             <div className="p-5 sm:p-6">

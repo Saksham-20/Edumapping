@@ -414,15 +414,19 @@ export const ContactPage = () => {
 
     try {
       // Posts to the real /api/contact endpoint, which emails the team.
-      await api.post('/contact', form);
+      // Silent: a failure is handled below by handing off to the visitor's
+      // mail client, so the generic "Something went wrong" toast the API
+      // layer would add only contradicted that.
+      await api.post('/contact', form, { silent: true });
       setStatus({
         type: 'success',
         message: "Thanks — your message is on its way. We'll be in touch shortly."
       });
       setForm({ name: '', email: '', message: '' });
     } catch (error) {
-      // If the API is unreachable, hand off to the visitor's mail client rather
-      // than losing the message entirely.
+      // If the message could not be sent from here (the API is unreachable,
+      // or the server has no mail delivery set up, which answers 500), hand
+      // off to the visitor's mail client rather than losing the message.
       const subject = `Contact form enquiry from ${form.name}`;
       const body = `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`;
       window.location.href = `mailto:hello@edumapping.com?subject=${encodeURIComponent(
@@ -430,7 +434,8 @@ export const ContactPage = () => {
       )}&body=${encodeURIComponent(body)}`;
       setStatus({
         type: 'info',
-        message: "We couldn't reach the server, so we've opened your email app instead."
+        message:
+          "We couldn't send this from the website, so we've opened your email app with your message filled in. Press send there, or write to hello@edumapping.com."
       });
     } finally {
       setSubmitting(false);

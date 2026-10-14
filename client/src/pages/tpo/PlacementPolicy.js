@@ -67,6 +67,12 @@ const PlacementPolicy = () => {
   const setTier = (i, patch) => set({ tiers: policy.tiers.map((t, j) => (i === j ? { ...t, ...patch } : t)) });
 
   const save = async () => {
+    // Caught here rather than by a 400 from the server, so the officer is
+    // told before anything is sent.
+    if (policy.placedRule === 'ctc_multiplier' && !(Number(policy.ctcMultiplier) >= 1)) {
+      toast.error('Set a CTC multiple of at least 1 (for example 1.5) for the multiple rule.');
+      return;
+    }
     setSaving(true);
     try {
       const res = await placementService.savePolicy({

@@ -6,7 +6,7 @@
 // Modal, Tabs and form controls replace the hand-rolled ones, and every
 // destructive action now confirms in a real dialog instead of window.confirm.
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import statisticsService from '../../services/statistics';
 import adminService from '../../services/adminService';
@@ -66,10 +66,12 @@ import {
   MegaphoneIcon,
   ClipboardDocumentCheckIcon,
   ClipboardDocumentListIcon,
-  ArrowRightIcon
+  ArrowRightIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import { downloadCredentialsCsv } from '../../utils/credentialsCsv';
 import { prepareLineChartData } from '../../utils/chartUtils';
+import { saveBlob } from '../../services/placement';
 
 /** One row of a labelled proportion bar. The width is data, never decoration. */
 const MeterRow = ({ label, value, total, tone = 'ink' }) => {
@@ -167,6 +169,32 @@ const OrganizationFormFields = ({ value = {}, onChange, noun, errors = {}, showH
         onChange={set('address')}
         error={errors.address}
       />
+      {/* Recruiter permissions can narrow access by region, state and city,
+          but nothing ever set them, so those filters always read "None in
+          the data". */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Input
+          label="City"
+          value={value.city || ''}
+          onChange={set('city')}
+          error={errors.city}
+          placeholder="e.g. Mohali"
+        />
+        <Input
+          label="State"
+          value={value.state || ''}
+          onChange={set('state')}
+          error={errors.state}
+          placeholder="e.g. Punjab"
+        />
+        <Input
+          label="Region"
+          value={value.region || ''}
+          onChange={set('region')}
+          error={errors.region}
+          placeholder="e.g. North"
+        />
+      </div>
     </div>
   );
 };
@@ -194,6 +222,19 @@ const USER_ROLE_OPTIONS = [
 ];
 
 const ORG_LABELS = { university: 'University', college: 'College', company: 'Company', school: 'School' };
+
+// The same sample sheet the TPO import offers. The admin import had only a
+// paragraph listing the columns, so an admin had to build the sheet by hand.
+const IMPORT_TEMPLATE = [
+  ['Roll No', 'Name', 'Email', 'Mobile', 'Course', 'Branch', 'Batch', 'Year of study', 'CGPA', 'Active backlogs', '10th %', '12th %', 'Gender', 'Date of birth'],
+  ['22CSE001', 'Aarav Sharma', 'aarav.sharma@college.edu.in', '98765 43210', 'B.Tech', 'Computer Science Engineering', '2026', '4', '8.4', '0', '91.2', '88.4', 'Male', '12/05/2004'],
+  ['22ECE014', 'R.K. Iyer', 'rk.iyer@gmail.com', '+91 98765 43211', 'B.Tech', 'Electronics and Communication', '2026', '4', '7.65', '1', '84', '79.6', 'Female', '03/11/2003']
+];
+
+const downloadImportTemplate = () => {
+  const csv = IMPORT_TEMPLATE.map((row) => row.join(',')).join('\n');
+  saveBlob(new Blob([`\uFEFF${csv}\n`], { type: 'text/csv;charset=utf-8' }), 'student-import-template.csv');
+};
 
 /**
  * Error toast that never doubles up.
@@ -228,15 +269,22 @@ const RowActions = ({ children }) => (
  */
 const orgPayload = (formData, type) => {
   const out = { ...formData, type };
-  ['website', 'address', 'contactPhone', 'domain', 'contactEmail'].forEach((key) => {
+  ['website', 'address', 'contactPhone', 'domain', 'contactEmail', 'city', 'state', 'region'].forEach((key) => {
     if (typeof out[key] === 'string' && out[key].trim() === '') out[key] = null;
+  });
+  ['city', 'state', 'region'].forEach((key) => {
+    if (typeof out[key] === 'string') out[key] = out[key].trim();
   });
   return out;
 };
 
 const AdminDashboard = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  // ?tab= opens a tab directly, and ?recruiter= opens that recruiter's
+  // permissions, so other admin screens can link straight here.
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'overview');
+  const [pendingRecruiterId, setPendingRecruiterId] = useState(() => searchParams.get('recruiter'));
   const [isLoading, setIsLoading] = useState(true);
   
   // Overview tab state
@@ -669,10 +717,25 @@ const AdminDashboard = () => {
     try {
       await adminService.deleteUser(userId);
       toast.success('User deactivated');
-      fetchUsers();
+      fetchUsers(usersPagination.currentPage || 1);
       fetchOverviewStats();
     } catch (error) {
       toastError(error, 'Failed to delete user');
+    }
+  };
+
+  // Deactivating used to be one-way on this console: the row kept saying
+  // "Approved" with the same Deactivate button, so an admin could neither
+  // see who was locked out nor let them back in. Goes through the admin
+  // update endpoint so the change is audited.
+  const handleReactivateUser = async (row, refresh) => {
+    try {
+      await adminService.updateUser(row.id, { isActive: true });
+      toast.success(`${row.firstName} ${row.lastName} can sign in again`);
+      refresh();
+      fetchOverviewStats();
+    } catch (error) {
+      toastError(error, 'Could not reactivate the account');
     }
   };
 
@@ -724,7 +787,7 @@ const AdminDashboard = () => {
     try {
       await adminService.deleteTPO(tpoId);
       toast.success('TPO deactivated');
-      fetchTPOs();
+      fetchTPOs(tposPagination.currentPage || 1);
       fetchOverviewStats();
     } catch (error) {
       toastError(error, 'Could not deactivate the TPO');
@@ -742,7 +805,10 @@ const AdminDashboard = () => {
       contactEmail: '',
       contactPhone: '',
       website: '',
-      address: ''
+      address: '',
+      city: '',
+      state: '',
+      region: ''
     });
     setApprovalInfoType('university');
     setShowApprovalInfo(true);
@@ -770,7 +836,10 @@ const AdminDashboard = () => {
       contactEmail: university.contactEmail,
       contactPhone: university.contactPhone || '',
       website: university.website || '',
-      address: university.address || ''
+      address: university.address || '',
+      city: university.city || '',
+      state: university.state || '',
+      region: university.region || ''
     });
     setShowUniversityModal(true);
   };
@@ -825,7 +894,10 @@ const AdminDashboard = () => {
       contactEmail: '',
       contactPhone: '',
       website: '',
-      address: ''
+      address: '',
+      city: '',
+      state: '',
+      region: ''
     });
     setApprovalInfoType('company');
     setShowApprovalInfo(true);
@@ -841,7 +913,10 @@ const AdminDashboard = () => {
       contactEmail: company.contactEmail,
       contactPhone: company.contactPhone || '',
       website: company.website || '',
-      address: company.address || ''
+      address: company.address || '',
+      city: company.city || '',
+      state: company.state || '',
+      region: company.region || ''
     });
     setShowCompanyModal(true);
   };
@@ -877,7 +952,7 @@ const AdminDashboard = () => {
   const handleVerifyCompany = async (companyId, isVerified) => {
     try {
       await adminService.verifyOrganization(companyId, isVerified);
-      toast.success(`Company ${isVerified ? 'verified' : 'unverified'} successfully`);
+      toast.success(isVerified ? 'Verified' : 'Verified badge removed');
       fetchCompanies();
     } catch (error) {
       toastError(error, 'Failed to update verification');
@@ -894,7 +969,10 @@ const AdminDashboard = () => {
       contactEmail: '',
       contactPhone: '',
       website: '',
-      address: ''
+      address: '',
+      city: '',
+      state: '',
+      region: ''
     });
     setApprovalInfoType('school');
     setShowApprovalInfo(true);
@@ -909,7 +987,10 @@ const AdminDashboard = () => {
       contactEmail: school.contactEmail,
       contactPhone: school.contactPhone || '',
       website: school.website || '',
-      address: school.address || ''
+      address: school.address || '',
+      city: school.city || '',
+      state: school.state || '',
+      region: school.region || ''
     });
     setShowSchoolModal(true);
   };
@@ -945,7 +1026,7 @@ const AdminDashboard = () => {
   const handleVerifySchool = async (schoolId, isVerified) => {
     try {
       await adminService.verifyOrganization(schoolId, isVerified);
-      toast.success(`School ${isVerified ? 'verified' : 'unverified'} successfully`);
+      toast.success(isVerified ? 'Verified' : 'Verified badge removed');
       fetchSchools();
     } catch (error) {
       toastError(error, 'Failed to update verification');
@@ -1021,6 +1102,16 @@ const AdminDashboard = () => {
       setPermissionsLoading(false);
     }
   };
+
+  // Linked from Users → user details with ?recruiter=<id>: open that
+  // recruiter's permissions once the list has loaded.
+  useEffect(() => {
+    if (!pendingRecruiterId || activeTab !== 'recruiter-permissions' || recruiters.length === 0) return;
+    const target = recruiters.find((r) => String(r.id) === String(pendingRecruiterId));
+    setPendingRecruiterId(null);
+    if (target) handleOpenPermissions(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRecruiterId, activeTab, recruiters]);
 
   const handlePermissionsToggle = (orgId) => {
     setSelectedOrgIds((prev) =>
@@ -1498,7 +1589,12 @@ const AdminDashboard = () => {
       {
         key: 'approvalStatus',
         label: 'Status',
-        render: (value) => <StatusBadge status={value} />
+        render: (value, row) => (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge status={value} />
+            {row.isActive === false && <StatusBadge status="inactive" />}
+          </span>
+        )
       }
     ];
 
@@ -1610,6 +1706,14 @@ const AdminDashboard = () => {
                 label={`Edit ${row.firstName} ${row.lastName}`}
                 onClick={() => handleEditUser(row)}
               />
+              {row.isActive === false ? (
+                <IconButton
+                  size="sm"
+                  icon={ArrowPathIcon}
+                  label={`Reactivate ${row.firstName} ${row.lastName}`}
+                  onClick={() => handleReactivateUser(row, () => fetchUsers(usersPagination.currentPage || 1))}
+                />
+              ) : (
               <IconButton
                 size="sm"
                 variant="danger"
@@ -1624,6 +1728,7 @@ const AdminDashboard = () => {
                   })
                 }
               />
+              )}
             </RowActions>
           )}
           pagination={usersPagination}
@@ -1771,6 +1876,14 @@ const AdminDashboard = () => {
                 label={`Edit ${row.firstName} ${row.lastName}`}
                 onClick={() => handleEditTPO(row)}
               />
+              {row.isActive === false ? (
+                <IconButton
+                  size="sm"
+                  icon={ArrowPathIcon}
+                  label={`Reactivate ${row.firstName} ${row.lastName}`}
+                  onClick={() => handleReactivateUser(row, () => fetchTPOs(tposPagination.currentPage || 1))}
+                />
+              ) : (
               <IconButton
                 size="sm"
                 variant="danger"
@@ -1779,12 +1892,13 @@ const AdminDashboard = () => {
                 onClick={() =>
                   askToConfirm({
                     title: 'Deactivate this TPO?',
-                    description: `${row.firstName} ${row.lastName} (${row.email}) will not be able to sign in. Their college and its students are not affected. You can reactivate them from User management.`,
+                    description: `${row.firstName} ${row.lastName} (${row.email}) will not be able to sign in. Their college and its students are not affected. You can reactivate them here.`,
                     confirmLabel: 'Deactivate',
                     run: () => handleDeleteTPO(row.id)
                   })
                 }
               />
+              )}
             </RowActions>
           )}
           pagination={tposPagination}
@@ -1960,7 +2074,17 @@ const AdminDashboard = () => {
                 size="sm"
                 icon={CheckBadgeIcon}
                 label={`${row.isVerified ? 'Remove verified badge from' : 'Verify'} ${row.name}`}
-                onClick={() => onVerify(row.id, !row.isVerified)}
+                onClick={() =>
+                  row.isVerified
+                    ? askToConfirm({
+                        title: `Remove the verified badge from ${row.name}?`,
+                        description:
+                          'It will no longer appear in the sign-up lists, so new students and staff cannot pick it until it is verified again.',
+                        confirmLabel: 'Remove badge',
+                        run: () => onVerify(row.id, false)
+                      })
+                    : onVerify(row.id, true)
+                }
               />
               <IconButton
                 size="sm"
@@ -2046,6 +2170,15 @@ const AdminDashboard = () => {
           optional; common spellings such as &ldquo;Email ID&rdquo; and &ldquo;Mobile No&rdquo;
           are recognised. Up to 500 students at a time.
         </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={ArrowDownTrayIcon}
+          className="mt-2 -ml-2"
+          onClick={downloadImportTemplate}
+        >
+          Download template (CSV)
+        </Button>
       </div>
 
       <Card as="form" onSubmit={handleImportSubmit} className="space-y-4">
@@ -2319,7 +2452,7 @@ const AdminDashboard = () => {
                         return (
                           <div key={type}>
                             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-500">
-                              {type}s
+                              {{ school: 'Schools', college: 'Colleges', university: 'Universities' }[type]}
                             </h4>
                             <div className="space-y-1.5">
                               {list.map((org) => (

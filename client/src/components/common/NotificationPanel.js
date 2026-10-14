@@ -5,6 +5,7 @@
 // glyphs that render differently on every platform and read aloud as their
 // Unicode names.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Button, EmptyState, IconButton, Skeleton, Tabs, cx } from '../ui';
@@ -15,7 +16,8 @@ import {
   DocumentTextIcon,
   BriefcaseIcon,
   CalendarIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  ArrowRightIcon
 } from '@heroicons/react/24/outline';
 
 const TYPE_ICONS = {
@@ -32,13 +34,46 @@ const PRIORITY_TONES = {
   low: 'border-ink-950/15 bg-bone-100 text-ink-600'
 };
 
+/**
+ * Where a notification leads. The server already records it in `metadata`
+ * (an explicit `link`, or the job / application / event / offer it is about),
+ * but the panel never used it, so "Profile awaiting verification" or "Job
+ * posting approved" could only be read, not acted on.
+ */
+const notificationHref = (n) => {
+  const m = n.metadata || {};
+  if (typeof m.link === 'string' && m.link.startsWith('/')) return m.link;
+  if (m.applicationId) return `/applications/${m.applicationId}`;
+  if (m.offerId) return '/offers';
+  if (m.jobId) return `/jobs/${m.jobId}`;
+  if (m.eventId) return `/events/${m.eventId}`;
+  return null;
+};
+
 const NotificationPanel = ({ isOpen, onClose }) => {
-  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead, formatNotificationTime } =
-    useNotification();
+  const navigate = useNavigate();
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    markAsRead,
+    markAllAsRead,
+    formatNotificationTime,
+    fetchNotifications,
+    fetchUnreadCount
+  } = useNotification();
   const [activeTab, setActiveTab] = useState('all');
   const [markingAll, setMarkingAll] = useState(false);
   const panelRef = useRef(null);
   const restoreRef = useRef(null);
+
+  // Polling runs every 30s, so a notification sent a moment ago was missing
+  // and the panel said "all caught up" until a reload. Fetch on every open.
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchNotifications();
+    fetchUnreadCount();
+  }, [isOpen, fetchNotifications, fetchUnreadCount]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -94,6 +129,12 @@ const NotificationPanel = ({ isOpen, onClose }) => {
     } catch {
       toast.error('Could not mark that as read');
     }
+  };
+
+  const openNotification = (n, href) => {
+    if (!n.isRead) markAsRead(n.id).catch(() => {});
+    onClose();
+    navigate(href);
   };
 
   const handleMarkAllAsRead = async () => {
@@ -184,6 +225,7 @@ const NotificationPanel = ({ isOpen, onClose }) => {
             <ul className="space-y-3">
               {visible.map((n) => {
                 const Icon = TYPE_ICONS[n.type] || BellIcon;
+                const href = notificationHref(n);
                 return (
                   <li
                     key={n.id}
@@ -227,16 +269,28 @@ const NotificationPanel = ({ isOpen, onClose }) => {
                           >
                             {formatNotificationTime(n.createdAt)}
                           </time>
-                          {!n.isRead && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              icon={CheckIcon}
-                              onClick={() => handleMarkAsRead(n.id)}
-                            >
-                              Mark read
-                            </Button>
-                          )}
+                          <span className="flex items-center gap-1">
+                            {!n.isRead && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                icon={CheckIcon}
+                                onClick={() => handleMarkAsRead(n.id)}
+                              >
+                                Mark read
+                              </Button>
+                            )}
+                            {href && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                iconRight={ArrowRightIcon}
+                                onClick={() => openNotification(n, href)}
+                              >
+                                Open
+                              </Button>
+                            )}
+                          </span>
                         </div>
                       </div>
                     </div>

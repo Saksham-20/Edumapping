@@ -60,6 +60,17 @@ const EVENT_TIPS = [
   'Register early — popular events fill up quickly'
 ];
 
+// A school student is not meeting recruiters with a resume in hand; the
+// placement tips above read as addressed to somebody else.
+const SCHOOL_EVENT_TIPS = [
+  'Read the event details and note the time and place',
+  'Bring a notebook and write down what you learn',
+  'Ask questions — speakers want to hear them',
+  'Tell your teacher or counsellor which events interest you',
+  'Take notes during presentations and workshops',
+  'Register early — popular events fill up quickly'
+];
+
 const TYPE_ICONS = {
   campus_drive: BuildingOfficeIcon,
   info_session: UserGroupIcon,
@@ -432,7 +443,11 @@ const Events = () => {
       <PageHeader
         eyebrow="Campus"
         title="Events"
-        lead="Campus drives, workshops, info sessions and career fairs."
+        lead={
+          user?.organization?.type === 'school'
+            ? 'Workshops, seminars and sessions at your school and across EduMapping.'
+            : 'Campus drives, workshops, info sessions and career fairs.'
+        }
         actions={
           !isStudent && (
             <Button icon={PlusIcon} onClick={() => navigate('/events/new')}>
@@ -525,7 +540,7 @@ const Events = () => {
                 Make the most of an event
               </h2>
               <ul className="mt-4 grid gap-2.5 text-sm text-ink-700 sm:grid-cols-2">
-                {EVENT_TIPS.map((tip) => (
+                {(user?.organization?.type === 'school' ? SCHOOL_EVENT_TIPS : EVENT_TIPS).map((tip) => (
                   <li key={tip} className="flex items-start gap-2.5">
                     <CheckIcon
                       aria-hidden="true"

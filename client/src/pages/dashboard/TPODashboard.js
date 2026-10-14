@@ -154,7 +154,11 @@ const TPODashboard = () => {
         <StatTile
           label="Students"
           value={toInt(students.total)}
-          hint="Enrolled at your institution"
+          hint={
+            toInt(students.accounts) > toInt(students.total)
+              ? `With a profile, of ${toInt(students.accounts)} account${toInt(students.accounts) === 1 ? '' : 's'}`
+              : 'Enrolled at your institution'
+          }
           icon={UserGroupIcon}
           to="/tpo/students"
           loading={loading}
@@ -291,7 +295,9 @@ const TPODashboard = () => {
                     </div>
                     <p className="shrink-0 font-display text-lg font-bold tabular-nums text-ink-950">
                       {toInt(row.count)}
-                      <span className="ml-1.5 font-sans text-xs font-medium text-ink-500">applications</span>
+                      <span className="ml-1.5 font-sans text-xs font-medium text-ink-500">
+                        application{toInt(row.count) === 1 ? '' : 's'}
+                      </span>
                     </p>
                   </li>
                 ))}

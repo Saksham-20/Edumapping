@@ -71,12 +71,63 @@ const DataTable = ({
     return <EmptyState icon={InboxIcon} title={emptyTitle} description={emptyDescription} />;
   }
 
+  const cellContent = (column, row) =>
+    column.render ? column.render(row[column.key], row) : row[column.key] ?? '—';
+
   return (
     <div>
+      {/* Phones get one card per row. The table is 700-1000px wide, so on a
+          390px screen the row actions (edit, verify, deactivate) sat far off
+          to the right with nothing to say the table scrolled sideways. */}
+      <ul className="space-y-3 sm:hidden">
+        {rows.map((row, index) => {
+          const [titleColumn, ...rest] = columns;
+          const title = cellContent(titleColumn, row);
+          return (
+            <li
+              key={row.id ?? index}
+              className="rounded-2xl border border-ink-950/15 bg-[#FFFDF8] p-4"
+            >
+              <div className="break-words font-medium text-ink-950">
+                {onRowClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onRowClick(row)}
+                    className="rounded text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-950"
+                  >
+                    {title}
+                  </button>
+                ) : (
+                  title
+                )}
+              </div>
+              {rest.length > 0 && (
+                <dl className="mt-2 space-y-1.5 text-sm">
+                  {rest.map((column) => (
+                    <div key={column.key} className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.07em] text-ink-500">
+                        {column.label}
+                      </dt>
+                      <dd className="min-w-0 break-words text-right text-ink-800 [overflow-wrap:anywhere]">
+                        {cellContent(column, row)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {actions && (
+                <div className="mt-3 border-t border-ink-950/10 pt-3">{actions(row)}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
       {/* `relative` so the visually-hidden (absolutely positioned) header
           labels are clipped by the table's own horizontal scroller. Without
           it they escaped to the page and made the whole screen scroll
           sideways on a phone. */}
+      <div className="hidden sm:block">
       <Table className="relative">
         <Thead>
           <Tr className="hover:bg-transparent">
@@ -155,6 +206,7 @@ const DataTable = ({
           ))}
         </Tbody>
       </Table>
+      </div>
 
       {pagination && pagination.totalPages > 1 && (
         <div className="mt-5 flex flex-col items-center gap-3">

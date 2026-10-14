@@ -40,7 +40,10 @@ const EMPTY = {
   graduationYear: '',
   branch: '',
   organizationId: '',
-  role: 'all'
+  role: 'all',
+  // Admin only: an empty institution means every account on EduMapping, which
+  // must be confirmed rather than reached by leaving a field blank.
+  platformWide: false
 };
 
 const AnnounceModal = ({ open, onClose, role }) => {
@@ -120,9 +123,14 @@ const AnnounceModal = ({ open, onClose, role }) => {
     if (form.message.trim().length < 3) next.message = 'At least 3 characters.';
     if (form.message.trim().length > 2000) next.message = '2000 characters at most.';
     if (form.graduationYear && !/^\d{4}$/.test(form.graduationYear)) next.graduationYear = 'A four-digit year.';
+    if (needsPlatformConfirm && !form.platformWide) {
+      next.platformWide = 'Choose an institution, or confirm that this goes to everyone on EduMapping.';
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   };
+
+  const needsPlatformConfirm = isAdmin && !form.organizationId;
 
   const send = async () => {
     if (!validate()) return;
@@ -139,7 +147,7 @@ const AnnounceModal = ({ open, onClose, role }) => {
           message: form.message.trim(),
           priority: form.priority,
           sendEmail: form.sendEmail,
-          audience
+          audience: needsPlatformConfirm ? { ...audience, platformWide: true } : audience
         },
         { silent: true }
       );
@@ -174,7 +182,7 @@ const AnnounceModal = ({ open, onClose, role }) => {
           <Button
             icon={MegaphoneIcon}
             loading={sending}
-            disabled={previewing || recipients === 0 || Boolean(preview?.error)}
+            disabled={previewing || recipients === 0 || Boolean(preview?.error) || (needsPlatformConfirm && !form.platformWide)}
             onClick={send}
           >
             {typeof recipients === 'number'
@@ -220,11 +228,14 @@ const AnnounceModal = ({ open, onClose, role }) => {
                   help={form.graduationYear || form.branch ? 'Batch and branch filters apply to students only.' : undefined}
                 />
                 <Select
-                  label="Organization"
+                  label="Institution"
                   value={form.organizationId}
-                  onChange={set('organizationId')}
+                  onChange={(e) => {
+                    set('organizationId')(e);
+                    setForm((prev) => ({ ...prev, platformWide: false }));
+                  }}
                   options={[
-                    { value: '', label: 'All organizations' },
+                    { value: '', label: 'Choose an institution…' },
                     ...organizations.map((o) => ({ value: String(o.id), label: `${o.name} (${o.type})` }))
                   ]}
                 />
@@ -265,6 +276,21 @@ const AnnounceModal = ({ open, onClose, role }) => {
               'Enter a valid year to count recipients.'
             )}
           </p>
+          {needsPlatformConfirm && (
+            <div className="mt-3 rounded-xl border border-saffron-500/40 bg-saffron-50 p-3">
+              <Checkbox
+                checked={form.platformWide}
+                onChange={set('platformWide')}
+                label={`Send to everyone on EduMapping${typeof recipients === 'number' ? ` (${recipients} ${recipients === 1 ? 'person' : 'people'})` : ''}`}
+                description="No institution is chosen, so this reaches every matching account on the platform."
+              />
+              {errors.platformWide && (
+                <p role="alert" className="mt-2 text-sm text-red-700">
+                  {errors.platformWide}
+                </p>
+              )}
+            </div>
+          )}
         </fieldset>
 
         <div className="grid gap-4 sm:grid-cols-2">

@@ -202,8 +202,8 @@ const JobDetail = () => {
       }
 
       if (!profile?.resumeUrl) {
-        toast.error('Please generate your resume from the Resume page before applying.');
-        navigate('/resume');
+        // The resume page explains this and links back here once one exists.
+        navigate(`/resume?return=${encodeURIComponent(`/jobs/${id}`)}&job=${encodeURIComponent(job.title || '')}`);
         return;
       }
     } catch (error) {
@@ -694,6 +694,11 @@ const JobDetail = () => {
                       <p className="truncate text-sm font-semibold text-ink-950">{name}</p>
                       <p className="truncate text-xs text-ink-500">{a.student?.email}</p>
                     </div>
+                    {a.student?.studentProfile?.verificationStatus === 'verified' && (
+                      <Badge tone="success" dot>
+                        Verified
+                      </Badge>
+                    )}
                     <StatusBadge status={a.status} />
                     <Button as={Link} to={`/applications/${a.id}`} size="sm" variant="ghost">
                       Open

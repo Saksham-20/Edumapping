@@ -217,7 +217,11 @@ const SchoolRegister = () => {
       if (!isSignedInOnRegister(response.user)) {
         navigate('/pending-approval', {
           replace: true,
-          state: { institution: String(formData.role || '').startsWith('new_'), email: response.user?.email }
+          state: {
+            institution: String(formData.role || '').startsWith('new_'),
+            school: true,
+            email: response.user?.email
+          }
         });
         return;
       }

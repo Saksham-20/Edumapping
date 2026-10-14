@@ -200,6 +200,53 @@ const Students = () => {
     setFilter('search', search.trim());
   };
 
+  // Verify / send back / unlock and the outcome picker, shared by the table
+  // (desktop) and the cards (phone).
+  const rowActions = (s, align = '') => (
+    <div className={cx('flex flex-wrap items-center gap-1.5', align)}>
+      {s.verificationStatus !== 'verified' ? (
+        <>
+          <Button size="sm" variant="attest" icon={CheckIcon} disabled={!s.hasProfile} onClick={() => setReview({ student: s, action: 'verify' })}>
+            Verify
+          </Button>
+          {s.verificationStatus === 'pending' && (
+            <Button size="sm" variant="secondary" icon={ArrowUturnLeftIcon} onClick={() => setReview({ student: s, action: 'reject' })}>
+              Send back
+            </Button>
+          )}
+        </>
+      ) : (
+        <Button size="sm" variant="secondary" icon={LockOpenIcon} onClick={() => setReview({ student: s, action: 'unlock' })}>
+          Unlock
+        </Button>
+      )}
+      <Select
+        aria-label={`Record outcome for ${s.firstName}`}
+        value=""
+        onChange={(e) => e.target.value && setOutcome(s, e.target.value)}
+        className="w-36 !py-1.5 text-xs"
+        disabled={!s.hasProfile}
+      >
+        <option value="">Outcome…</option>
+        <option value="higher_studies">Higher studies</option>
+        <option value="opted_out">Opted out</option>
+        <option value="deferred">Deferred</option>
+        <option value="auto">From offers (auto)</option>
+      </Select>
+    </div>
+  );
+
+  const recordBadge = (s) =>
+    s.verificationStatus === 'verified' ? (
+      <Stamp size="sm" rotate={-3}>
+        Verified
+      </Stamp>
+    ) : (
+      <Badge tone={VERIFICATION_TONES[s.verificationStatus]} dot>
+        {VERIFICATION_LABELS[s.verificationStatus]}
+      </Badge>
+    );
+
   return (
     <PageShell width="wide">
       <PageHeader
@@ -305,7 +352,63 @@ const Students = () => {
         />
       ) : (
         <>
-          <Table>
+          {/* Phone: one card per student, so the actions are not hidden off
+              the right edge of a sideways-scrolling table. */}
+          <div className="space-y-3 md:hidden">
+            <label className="flex min-h-[44px] items-center gap-3 px-1 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                checked={allOnPage}
+                onChange={() => setSelected(allOnPage ? new Set() : new Set(data.students.map((s) => s.id)))}
+                className="h-5 w-5 rounded border-ink-950/30 text-ink-950 focus:ring-ink-950"
+              />
+              Select all on this page
+            </label>
+            {data.students.map((s) => (
+              <Card key={s.id} className={cx('!p-4', selected.has(s.id) && 'bg-saffron-50/60')}>
+                <div className="flex items-start gap-3">
+                  <label className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${fullName(s)}`}
+                      checked={selected.has(s.id)}
+                      onChange={() => toggle(s.id)}
+                      className="h-5 w-5 rounded border-ink-950/30 text-ink-950 focus:ring-ink-950"
+                    />
+                  </label>
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/users/${s.id}`} className="font-semibold text-ink-950 hover:underline">
+                      {fullName(s)}
+                    </Link>
+                    <p className="font-mono text-xs text-ink-500">{s.rollNumber || 'No roll number'}</p>
+                    <p className="mt-1 text-sm text-ink-700">
+                      {s.branch || 'Branch not set'} · {s.graduationYear ? `${s.graduationYear} batch` : 'batch not set'}
+                      {s.cgpa != null && ` · CGPA ${s.cgpa.toFixed(2)}`}
+                    </p>
+                    {s.activeBacklogs > 0 && <p className="text-xs text-red-700">{s.activeBacklogs} backlog{s.activeBacklogs === 1 ? '' : 's'}</p>}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {recordBadge(s)}
+                      <Badge tone={OUTCOME_TONES[s.placementStatus]}>{OUTCOME_LABELS[s.placementStatus] || s.placementStatus}</Badge>
+                      {s.placementSanction !== 'none' && <Badge tone="danger">{s.placementSanction === 'removed' ? 'Removed' : 'Blocked'}</Badge>}
+                      <span className="text-xs text-ink-500">{s.applications} applied</span>
+                      {s.hasMarksheet && (
+                        <button
+                          type="button"
+                          onClick={() => openProtectedFile(s.marksheetUrl)}
+                          className="inline-flex min-h-[32px] items-center gap-1 text-xs font-medium text-azure-700 hover:underline"
+                        >
+                          <DocumentTextIcon className="h-3.5 w-3.5" aria-hidden="true" /> Marksheets
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-3">{rowActions(s)}</div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+          <div className="hidden md:block">
+            <Table>
             <Thead>
               <tr>
                 <Th className="w-10">
@@ -351,19 +454,11 @@ const Students = () => {
                   </Td>
                   <Td className="text-right font-mono tabular-nums">
                     {s.cgpa != null ? s.cgpa.toFixed(2) : '—'}
-                    {s.activeBacklogs > 0 && <p className="text-xs text-red-700">{s.activeBacklogs} backlog(s)</p>}
+                    {s.activeBacklogs > 0 && <p className="text-xs text-red-700">{s.activeBacklogs} backlog{s.activeBacklogs === 1 ? '' : 's'}</p>}
                   </Td>
                   <Td>
                     <div className="flex flex-col items-start gap-1">
-                      {s.verificationStatus === 'verified' ? (
-                        <Stamp size="sm" rotate={-3}>
-                          Verified
-                        </Stamp>
-                      ) : (
-                        <Badge tone={VERIFICATION_TONES[s.verificationStatus]} dot>
-                          {VERIFICATION_LABELS[s.verificationStatus]}
-                        </Badge>
-                      )}
+                      {recordBadge(s)}
                       {s.hasMarksheet && (
                         <button
                           type="button"
@@ -386,42 +481,13 @@ const Students = () => {
                     </div>
                   </Td>
                   <Td className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {s.verificationStatus !== 'verified' ? (
-                        <>
-                          <Button size="sm" variant="attest" icon={CheckIcon} disabled={!s.hasProfile} onClick={() => setReview({ student: s, action: 'verify' })}>
-                            Verify
-                          </Button>
-                          {s.verificationStatus === 'pending' && (
-                            <Button size="sm" variant="secondary" icon={ArrowUturnLeftIcon} onClick={() => setReview({ student: s, action: 'reject' })}>
-                              Send back
-                            </Button>
-                          )}
-                        </>
-                      ) : (
-                        <Button size="sm" variant="secondary" icon={LockOpenIcon} onClick={() => setReview({ student: s, action: 'unlock' })}>
-                          Unlock
-                        </Button>
-                      )}
-                      <Select
-                        aria-label={`Record outcome for ${s.firstName}`}
-                        value=""
-                        onChange={(e) => e.target.value && setOutcome(s, e.target.value)}
-                        className="w-32 !py-1.5 text-xs"
-                        disabled={!s.hasProfile}
-                      >
-                        <option value="">Outcome…</option>
-                        <option value="higher_studies">Higher studies</option>
-                        <option value="opted_out">Opted out</option>
-                        <option value="deferred">Deferred</option>
-                        <option value="auto">From offers (auto)</option>
-                      </Select>
-                    </div>
+                    {rowActions(s, 'justify-end')}
                   </Td>
                 </Tr>
               ))}
             </Tbody>
-          </Table>
+            </Table>
+          </div>
           {data.pagination?.totalPages > 1 && (
             <Pagination
               className="mt-6"
@@ -430,7 +496,9 @@ const Students = () => {
               onChange={(p) => setFilter('page', String(p))}
             />
           )}
-          <p className="mt-3 text-xs text-ink-500">{data.pagination?.totalItems} students</p>
+          <p className="mt-3 text-xs text-ink-500">
+            {data.pagination?.totalItems} student{data.pagination?.totalItems === 1 ? '' : 's'}
+          </p>
         </>
       )}
 

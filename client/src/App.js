@@ -140,7 +140,10 @@ function App() {
                           <div className="h-6 w-6 text-gray-400">ℹ</div>
                         )}
                       </div>
-                      <div className="ml-3 w-0 flex-1 pt-0.5">
+                      {/* ariaProps (role="status", aria-live) is what the
+                          stock toast sets; a custom renderer has to pass it
+                          on or screen readers never hear the message. */}
+                      <div className="ml-3 w-0 flex-1 pt-0.5" {...t.ariaProps}>
                         <p className="text-sm font-medium text-gray-900">
                           {typeof t.message === 'string' ? t.message : t.message?.toString() || ''}
                         </p>
@@ -150,7 +153,7 @@ function App() {
                   <div className="flex border-l border-gray-200">
                     <button
                       onClick={() => toastLib.dismiss(t.id)}
-                      className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-gray-700 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-opacity opacity-0 group-hover:opacity-100"
+                      className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-gray-700 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-opacity focus:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                       aria-label="Dismiss"
                     >
                       <svg
@@ -224,25 +227,25 @@ function App() {
               } />
               
               <Route path="/resume" element={
-                <ProtectedRoute requiredRoles={['student']}>
+                <ProtectedRoute requiredRoles={['student']} collegeOnly>
                   <AppLayout><ResumePage /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/applications" element={
-                <ProtectedRoute>
+                <ProtectedRoute collegeOnly>
                   <AppLayout><Applications /></AppLayout>
                 </ProtectedRoute>
               } />
               
               <Route path="/offers" element={
-                <ProtectedRoute requiredRoles={['student', 'recruiter', 'tpo', 'admin']}>
+                <ProtectedRoute requiredRoles={['student', 'recruiter', 'tpo', 'admin']} collegeOnly>
                   <AppLayout><Offers /></AppLayout>
                 </ProtectedRoute>
               } />
 
               <Route path="/applications/:id" element={
-                <ProtectedRoute>
+                <ProtectedRoute collegeOnly>
                   <AppLayout><ApplicationDetail /></AppLayout>
                 </ProtectedRoute>
               } />

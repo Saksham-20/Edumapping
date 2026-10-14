@@ -92,7 +92,7 @@ export const Breadcrumbs = ({ items = [], className = '' }) => (
             {item.to && !last ? (
               <Link
                 to={item.to}
-                className="rounded px-1 py-0.5 font-medium hover:text-ink-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600"
+                className="inline-flex min-h-[32px] items-center rounded px-1.5 font-medium hover:text-ink-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600"
               >
                 {item.label}
               </Link>
@@ -838,6 +838,26 @@ export const Td = ({ children, className = '', ...rest }) => (
  */
 export const Tabs = ({ tabs, value, onChange, className = '' }) => {
   const listRef = useRef(null);
+  // On a phone the last tabs sit off-screen with nothing to say they exist.
+  // When the row overflows, its right edge fades and the active tab is
+  // scrolled into view.
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return undefined;
+    const check = () => setOverflowing(el.scrollWidth > el.clientWidth + 1 && el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      el.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+    };
+  }, [tabs.length]);
+  useEffect(() => {
+    const active = listRef.current?.querySelector('[aria-selected="true"]');
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [value]);
 
   const onKeyDown = (e) => {
     const idx = tabs.findIndex((t) => t.value === value);
@@ -860,6 +880,7 @@ export const Tabs = ({ tabs, value, onChange, className = '' }) => {
       onKeyDown={onKeyDown}
       className={cx(
         'flex gap-1 overflow-x-auto rounded-[12px] border border-ink-950/[0.13] bg-[#FFFDF8] p-1',
+        overflowing && '[mask-image:linear-gradient(to_right,black_82%,transparent)]',
         className
       )}
     >
@@ -874,7 +895,7 @@ export const Tabs = ({ tabs, value, onChange, className = '' }) => {
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(tab.value)}
             className={cx(
-              'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] px-4 py-2 text-sm font-medium transition-colors duration-150',
+              'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] px-3 py-2 text-sm font-medium transition-colors duration-150 sm:px-4',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-600',
               active ? 'bg-ink-950 text-bone-50' : 'text-ink-600 hover:bg-bone-100 hover:text-ink-950'
             )}

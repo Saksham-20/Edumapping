@@ -216,6 +216,12 @@ const CandidateCard = ({ student }) => {
   );
 };
 
+// "Welcome back" is wrong on a brand-new account's first visit. Login
+// overwrites `lastLogin` with the current sign-in, so it cannot tell a first
+// visit apart; an account created within the last day can.
+const isNewAccount = (user) =>
+  Boolean(user?.createdAt) && Date.now() - new Date(user.createdAt).getTime() < 24 * 60 * 60 * 1000;
+
 const RecruiterDashboard = () => {
   const { user } = useAuth();
   const organizationId = user?.organizationId;
@@ -347,7 +353,7 @@ const RecruiterDashboard = () => {
     <PageShell width="wide">
       <PageHeader
         eyebrow="Recruiter"
-        title={`Welcome back, ${user?.firstName || 'recruiter'}`}
+        title={`${isNewAccount(user) ? 'Welcome' : 'Welcome back'}, ${user?.firstName || 'recruiter'}`}
         lead="Your postings, incoming applications and the candidates worth a second look."
         actions={
           <>

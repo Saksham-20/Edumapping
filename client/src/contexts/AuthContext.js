@@ -56,11 +56,13 @@ export const AuthProvider = ({ children }) => {
     try {
       const tokens = authService.getTokens();
 
-      if (tokens && tokens.accessToken) {
+      // A refresh token alone is enough: /auth/me then answers 401 and the
+      // API layer refreshes and retries it.
+      if (tokens && (tokens.accessToken || tokens.refreshToken)) {
         const user = await authService.getCurrentUser();
         dispatch({
           type: 'LOGIN_SUCCESS',
-          payload: { user, tokens }
+          payload: { user, tokens: authService.getTokens() || tokens }
         });
       } else {
         dispatch({ type: 'SET_LOADING', payload: false });
@@ -73,6 +75,15 @@ export const AuthProvider = ({ children }) => {
       // deploy signed everybody out. Those are retried a few times instead,
       // and the tokens are kept so a reload later still works.
       const sessionRefused = status === 401 || status === 403;
+      // A 429 is the rate limiter, not a verdict on the session: a busy
+      // officer who hit it was dropped onto the sign-in page. Wait it out
+      // (the limiter's own retry hint, capped) and keep the session.
+      if (status === 429 && attempt < 6) {
+        const hinted = Number(error?.data?.retryAfter || error?.response?.data?.retryAfter);
+        const waitMs = Math.min(Number.isFinite(hinted) && hinted > 0 && hinted < 120 ? hinted * 1000 : 10000, 60000);
+        setTimeout(() => checkAuthStatus(attempt + 1), waitMs);
+        return;
+      }
       if (!sessionRefused && attempt < 3) {
         setTimeout(() => checkAuthStatus(attempt + 1), attempt * 2000);
         return;

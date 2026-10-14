@@ -58,7 +58,10 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Close the mobile sheet whenever the route changes.
+  // Close the mobile sheet whenever the route changes. The sheet's own
+  // buttons also close it directly: choosing the page already showing, or an
+  // audience, does not change the route, and used to leave the sheet open
+  // over the section the page had just scrolled to.
   useEffect(() => setMenuOpen(false), [currentPage]);
 
   // Lock body scroll while the mobile sheet is open.
@@ -70,6 +73,17 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
       document.body.style.overflow = previous;
     };
   }, [menuOpen]);
+
+  // An audience picked in the mobile sheet is applied once the sheet has
+  // closed and the page can scroll again. Applied while the sheet was still
+  // open, the page scrolled to the section underneath the sheet; applied in
+  // the same click that closed it, unlocking the page cancelled the scroll.
+  const [pendingAudience, setPendingAudience] = useState(null);
+  useEffect(() => {
+    if (menuOpen || !pendingAudience) return;
+    setPendingAudience(null);
+    onSelectAudience(pendingAudience);
+  }, [menuOpen, pendingAudience, onSelectAudience]);
 
   const raised = scrolled || menuOpen || currentPage !== 'home';
 
@@ -195,7 +209,10 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                     <button
                       key={page}
                       type="button"
-                      onClick={() => onNavigate(page)}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onNavigate(page);
+                      }}
                       className={`block w-full cursor-pointer rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lndink-950 ${
                         currentPage === page
                           ? 'bg-lndink-950 text-white'
@@ -211,7 +228,10 @@ const Nav = ({ currentPage, onNavigate, audience, onSelectAudience, loginPath })
                       <button
                         key={key}
                         type="button"
-                        onClick={() => onSelectAudience(key)}
+                        onClick={() => {
+                          setPendingAudience(key);
+                          setMenuOpen(false);
+                        }}
                         aria-pressed={audience === key}
                         className={`flex-1 cursor-pointer rounded-2xl px-4 py-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lndink-950 ${
                           audience === key

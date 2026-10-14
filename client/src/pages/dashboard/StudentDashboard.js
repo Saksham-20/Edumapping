@@ -11,7 +11,7 @@ import api from '../../services/api';
 // The shared helper, not a local copy: this file used to carry its own
 // unweighted version that ignored achievements and linkedinUrl, so the
 // dashboard called a profile "complete" that the Profile page scored at 90%.
-import { calculateProfileCompletion } from '../../utils/helpers';
+import computeCompletion from '../../components/profile/completion';
 import MyRounds from '../../components/rounds/MyRounds';
 import {
   Button,
@@ -69,6 +69,28 @@ const formatDateTime = (value) => {
 };
 
 /** Sums a `[{ status, count }]` aggregate, optionally filtered to some statuses. */
+// Round types that are an interview, and results that mean the student sat it.
+const INTERVIEW_ROUNDS = ['technical', 'hr', 'group_discussion'];
+const SAT_ROUND = ['cleared', 'not_cleared'];
+
+/**
+ * Applications that went through an interview round but are not already
+ * counted under the "interviewed" or "selected" status — e.g. cleared the
+ * technical round and then were rejected, or are still marked shortlisted.
+ */
+const interviewedThroughRounds = (rounds) =>
+  new Set(
+    (Array.isArray(rounds) ? rounds : [])
+      .filter(
+        (r) =>
+          INTERVIEW_ROUNDS.includes(r.roundType) &&
+          SAT_ROUND.includes(r.participation?.result) &&
+          !['interviewed', 'selected'].includes(r.applicationStatus) &&
+          r.applicationId
+      )
+      .map((r) => r.applicationId)
+  ).size;
+
 const sumByStatus = (rows, statuses) =>
   (Array.isArray(rows) ? rows : [])
     .filter((r) => r?.status && (!statuses || statuses.includes(r.status)))
@@ -134,6 +156,12 @@ const NoApplications = () => (
   />
 );
 
+// "Welcome back" is wrong on a brand-new account's first visit. Login
+// overwrites `lastLogin` with the current sign-in, so it cannot tell a first
+// visit apart; an account created within the last day can.
+const isNewAccount = (user) =>
+  Boolean(user?.createdAt) && Date.now() - new Date(user.createdAt).getTime() < 24 * 60 * 60 * 1000;
+
 const StudentDashboard = () => {
   const { user } = useAuth();
   const [data, setData] = useState({
@@ -143,7 +171,8 @@ const StudentDashboard = () => {
     achievements: [],
     profile: null,
     statsRows: [],
-    offers: null
+    offers: null,
+    rounds: []
   });
   const [loading, setLoading] = useState(true);
   const [allFailed, setAllFailed] = useState(false);
@@ -168,7 +197,11 @@ const StudentDashboard = () => {
       // The student's real offers. "Offers" used to count applications marked
       // selected, which disagrees with /offers once an offer is declined or
       // withdrawn.
-      api.get('/offers', { params: { limit: 100 }, silent: true })
+      api.get('/offers', { params: { limit: 100 }, silent: true }),
+      // Selection rounds the student sat: an interview round they attended
+      // counts as "interviewed" even when the company never moved the
+      // application to that status.
+      api.get('/rounds/mine', { silent: true })
     ]);
 
     const value = (i) => (results[i].status === 'fulfilled' ? results[i].value : null);
@@ -181,7 +214,8 @@ const StudentDashboard = () => {
       statsRows: value(3)?.stats?.byStatus || [],
       achievements: value(4)?.achievements || [],
       profile,
-      offers: results[6].status === 'fulfilled' ? value(6)?.offers || [] : null
+      offers: results[6].status === 'fulfilled' ? value(6)?.offers || [] : null,
+      rounds: value(7)?.rounds || []
     });
 
     setAllFailed(results.every((r) => r.status === 'rejected'));
@@ -197,20 +231,22 @@ const StudentDashboard = () => {
     return {
       totalApplications: sumByStatus(rows),
       activeApplications: sumByStatus(rows, IN_PROGRESS),
-      interviewed: sumByStatus(rows, ['interviewed']),
+      // A selection went through the interview stage too; it used to drop out
+      // of this count the moment the offer arrived.
+      interviewed: sumByStatus(rows, ['interviewed', 'selected']) + interviewedThroughRounds(data.rounds),
       offers: Array.isArray(data.offers)
         ? data.offers.filter((o) => o.status === 'offered' || o.status === 'accepted').length
         : sumByStatus(rows, ['selected']),
       awaitingAnswer: Array.isArray(data.offers)
         ? data.offers.filter((o) => o.status === 'offered').length
         : 0,
-      profileCompletion: calculateProfileCompletion(data.profile, user?.role),
+      profileCompletion: computeCompletion(data.profile, 'student'),
       skillsCount: Array.isArray(data.profile?.studentProfile?.skills)
         ? data.profile.studentProfile.skills.length
         : 0,
       achievementsCount: data.achievements.length
     };
-  }, [data, user?.role]);
+  }, [data]);
 
   const complete = stats.profileCompletion === 100;
 
@@ -238,7 +274,7 @@ const StudentDashboard = () => {
     <PageShell width="wide">
       <PageHeader
         eyebrow="Student"
-        title={`Welcome back, ${user?.firstName || 'student'}`}
+        title={`${isNewAccount(user) ? 'Welcome' : 'Welcome back'}, ${user?.firstName || 'student'}`}
         lead="Your applications, recommended roles and upcoming campus events."
         actions={
           <>

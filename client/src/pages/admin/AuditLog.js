@@ -53,6 +53,20 @@ const ACTION_GROUPS = [
     ]
   },
   {
+    label: 'Accounts and organizations',
+    adminOnly: true,
+    actions: [
+      ['admin_user_created', 'Account created (incl. placement officers)'],
+      ['admin_user_updated', 'Account updated'],
+      ['admin_user_deactivated', 'Account deactivated'],
+      ['organization_created', 'Organization created'],
+      ['organization_updated', 'Organization updated'],
+      ['organization_deactivated', 'Organization deactivated'],
+      ['organization_unverified', 'Organization verification removed'],
+      ['recruiter_allowed_organizations_updated', 'Recruiter institutions changed']
+    ]
+  },
+  {
     label: 'Student data access',
     actions: [
       ['recruiter_candidate_access', 'Recruiter viewed candidates'],
@@ -89,7 +103,7 @@ const ACTION_GROUPS = [
 ];
 
 /** Which entries are a recruiter seeing student data — highlighted in the table. */
-const ACCESS_ACTIONS = new Set(ACTION_GROUPS[1].actions.map(([value]) => value));
+const ACCESS_ACTIONS = new Set(ACTION_GROUPS.find((g) => g.label === 'Student data access').actions.map(([value]) => value));
 
 const ROLE_TONES = { admin: 'ink', tpo: 'info', recruiter: 'purple', student: 'neutral' };
 
@@ -168,7 +182,7 @@ const AuditLog = () => {
             }}
           >
             <option value="">All actions</option>
-            {ACTION_GROUPS.map((group) => (
+            {ACTION_GROUPS.filter((group) => !group.adminOnly || user?.role === 'admin').map((group) => (
               <optgroup key={group.label} label={group.label}>
                 {group.actions.map(([value, label]) => (
                   <option key={value} value={value}>

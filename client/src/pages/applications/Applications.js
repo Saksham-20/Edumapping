@@ -9,7 +9,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import RaiseOfferModal from '../../components/forms/RaiseOfferModal';
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -118,9 +120,6 @@ const Applications = () => {
   // placement reportable, so it is asked for here rather than left to be filled
   // in later and never filled in.
   const [offerFor, setOfferFor] = useState(null);
-  const [offerCtc, setOfferCtc] = useState('');
-  const [offerPPO, setOfferPPO] = useState(false);
-  const [offerBusy, setOfferBusy] = useState(false);
   // The application a student is about to withdraw, held for confirmation.
   const [withdrawing, setWithdrawing] = useState(null);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
@@ -139,25 +138,6 @@ const Applications = () => {
       .split(/[\s,;]+/)
       .map((v) => v.trim())
       .filter(Boolean);
-
-  const raiseOffer = async () => {
-    setOfferBusy(true);
-    try {
-      await api.post('/offers', {
-        applicationId: offerFor.id,
-        ctc: offerCtc === '' ? null : Number(offerCtc),
-        isPPO: offerPPO
-      });
-      toast.success('Offer raised');
-      setOfferFor(null);
-      setOfferPPO(false);
-      fetchApplications();
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Could not raise the offer');
-    } finally {
-      setOfferBusy(false);
-    }
-  };
 
   const runPaste = async (dryRun) => {
     const identifiers = parseIdentifiers(pasteText);
@@ -358,7 +338,16 @@ const Applications = () => {
                       }`.trim() || 'Unknown applicant'}
                 </span>
               </h3>
-              <StatusBadge status={application.status} />
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                {/* What the placement cell has checked against marksheets: the
+                    first thing a recruiter screens on. */}
+                {!isStudent && profile?.verificationStatus === 'verified' && (
+                  <Badge tone="success" dot>
+                    Verified
+                  </Badge>
+                )}
+                <StatusBadge status={application.status} />
+              </div>
             </div>
 
             <div className="mt-3 space-y-1 text-sm text-ink-600">
@@ -437,7 +426,7 @@ const Applications = () => {
                   size="sm"
                   variant="saffron"
                   icon={BanknotesIcon}
-                  onClick={() => { setOfferFor(application); setOfferCtc(''); }}
+                  onClick={() => setOfferFor(application)}
                 >
                   Raise offer
                 </Button>
@@ -746,47 +735,11 @@ const Applications = () => {
         </p>
       </Modal>
 
-      <Modal
-        open={Boolean(offerFor)}
+      <RaiseOfferModal
+        application={offerFor}
         onClose={() => setOfferFor(null)}
-        size="sm"
-        title="Raise an offer"
-        description={
-          offerFor
-            ? `For ${offerFor.student?.firstName} ${offerFor.student?.lastName}, against ${offerFor.job?.title}.`
-            : ''
-        }
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setOfferFor(null)}>
-              Cancel
-            </Button>
-            <Button variant="saffron" loading={offerBusy} onClick={raiseOffer}>
-              Raise offer
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <Input
-            label="Annual CTC (₹)"
-            type="number"
-            min="0"
-            value={offerCtc}
-            onChange={(e) => setOfferCtc(e.target.value)}
-            placeholder="e.g. 1450000"
-            help="Optional — some offers arrive before the number does. Without it the offer is recorded but cannot appear in salary statistics."
-          />
-          <Checkbox
-            label="Pre-placement offer (PPO)"
-            checked={offerPPO}
-            onChange={(e) => setOfferPPO(e.target.checked)}
-          />
-          <p className="text-sm text-ink-600">
-            The student is notified immediately and the application is marked selected.
-          </p>
-        </div>
-      </Modal>
+        onRaised={() => fetchApplications()}
+      />
     </PageShell>
   );
 };

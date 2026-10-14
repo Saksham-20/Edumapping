@@ -5,6 +5,7 @@
 // wrong when it was first switched on.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api, { fieldErrorsFrom } from '../../services/api';
 import { formatRole } from '../../components/common/navigation';
@@ -242,7 +243,9 @@ const UserManagement = () => {
   const reactivate = async (row) => {
     setReactivatingId(row.id);
     try {
-      await api.patch(`/users/${row.id}/status`, { isActive: true });
+      // The admin update endpoint records the change in the audit log; the
+      // generic status endpoint did not.
+      await api.put(`/admin/users/${row.id}`, { isActive: true });
       toast.success(`${row.firstName} ${row.lastName} can sign in again`);
       fetchUsers();
     } catch (err) {
@@ -251,6 +254,46 @@ const UserManagement = () => {
       setReactivatingId(null);
     }
   };
+
+  /** View, edit and (de|re)activate controls for one account. */
+  const rowActions = (row) => (
+    <div className="flex items-center justify-end gap-1.5">
+      <IconButton
+        size="sm"
+        icon={EyeIcon}
+        label={`View ${row.firstName} ${row.lastName}`}
+        onClick={() => openDetail(row.id)}
+      />
+      <IconButton
+        size="sm"
+        icon={PencilSquareIcon}
+        label={`Edit ${row.firstName} ${row.lastName}`}
+        onClick={() => openEdit(row)}
+      />
+      {/* The original guarded this with `user.id !== user.id`,
+          a self-comparison that is always false, so the control
+          could never render. The real rule is that an admin
+          must not deactivate their own account. */}
+      {row.id !== currentUser?.id && !row.isActive && (
+        <IconButton
+          size="sm"
+          icon={ArrowPathIcon}
+          label={`Reactivate ${row.firstName} ${row.lastName}`}
+          disabled={reactivatingId === row.id}
+          onClick={() => reactivate(row)}
+        />
+      )}
+      {row.id !== currentUser?.id && row.isActive && (
+        <IconButton
+          size="sm"
+          variant="danger"
+          icon={TrashIcon}
+          label={`Deactivate ${row.firstName} ${row.lastName}`}
+          onClick={() => setPendingDeactivate(row)}
+        />
+      )}
+    </div>
+  );
 
   const isSelfEdit = Boolean(editing && editing.id === currentUser?.id);
   const editOrgOptions = organizations.filter((o) =>
@@ -383,6 +426,42 @@ const UserManagement = () => {
 
       {!loading && !error && users.length > 0 && (
         <>
+          {/* Phones: one card per account. The six-column table is ~1070px
+              wide, so on a 390px screen the role, status and every action
+              sat off to the right behind a sideways scroll nobody would
+              guess was there. */}
+          <ul className="space-y-3 sm:hidden">
+            {users.map((row) => (
+              <li key={row.id} className="rounded-2xl border border-ink-950/15 bg-[#FFFDF8] p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar src={row.profilePicture} name={`${row.firstName} ${row.lastName}`} size="sm" />
+                  <div className="min-w-0">
+                    <p className="break-words font-medium text-ink-950">
+                      {row.firstName} {row.lastName}
+                    </p>
+                    <p className="text-xs text-ink-500 [overflow-wrap:anywhere]">{row.email}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <Badge tone={ROLE_TONES[row.role] || 'neutral'}>{formatRole(row.role)}</Badge>
+                  <StatusBadge status={row.approvalStatus} />
+                  {!row.isActive && <Badge tone="danger">Inactive</Badge>}
+                </div>
+                <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-700">
+                  <BuildingOfficeIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-ink-500" />
+                  <span className="min-w-0 break-words">{row.organization?.name || '—'}</span>
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-ink-950/10 pt-3">
+                  <span className="text-xs text-ink-500">
+                    Joined {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '—'}
+                  </span>
+                  {rowActions(row)}
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden sm:block">
           <Table className="relative">
             <Thead>
               <Tr className="hover:bg-transparent">
@@ -433,47 +512,13 @@ const UserManagement = () => {
                     {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '—'}
                   </Td>
                   <Td className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <IconButton
-                        size="sm"
-                        icon={EyeIcon}
-                        label={`View ${row.firstName} ${row.lastName}`}
-                        onClick={() => openDetail(row.id)}
-                      />
-                      <IconButton
-                        size="sm"
-                        icon={PencilSquareIcon}
-                        label={`Edit ${row.firstName} ${row.lastName}`}
-                        onClick={() => openEdit(row)}
-                      />
-                      {/* The original guarded this with `user.id !== user.id`,
-                          a self-comparison that is always false, so the control
-                          could never render. The real rule is that an admin
-                          must not deactivate their own account. */}
-                      {row.id !== currentUser?.id && !row.isActive && (
-                        <IconButton
-                          size="sm"
-                          icon={ArrowPathIcon}
-                          label={`Reactivate ${row.firstName} ${row.lastName}`}
-                          disabled={reactivatingId === row.id}
-                          onClick={() => reactivate(row)}
-                        />
-                      )}
-                      {row.id !== currentUser?.id && row.isActive && (
-                        <IconButton
-                          size="sm"
-                          variant="danger"
-                          icon={TrashIcon}
-                          label={`Deactivate ${row.firstName} ${row.lastName}`}
-                          onClick={() => setPendingDeactivate(row)}
-                        />
-                      )}
-                    </div>
+                    {rowActions(row)}
                   </Td>
                 </Tr>
               ))}
             </Tbody>
           </Table>
+          </div>
 
           <Pagination
             className="mt-6"
@@ -495,6 +540,17 @@ const UserManagement = () => {
             <Button variant="secondary" onClick={() => setDetail(null)}>
               Close
             </Button>
+            {/* College access used to be reachable only from a dashboard
+                tab, so an admin looking at a recruiter had to go hunting. */}
+            {detail?.role === 'recruiter' && (
+              <Button
+                as={Link}
+                variant="secondary"
+                to={`/dashboard?tab=recruiter-permissions&recruiter=${detail.id}`}
+              >
+                College access
+              </Button>
+            )}
             {detail?.role && (
               <Button
                 onClick={() => {

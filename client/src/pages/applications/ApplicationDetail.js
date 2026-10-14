@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import openProtectedFile from '../../utils/openProtectedFile';
 import MyRounds from '../../components/rounds/MyRounds';
+import RaiseOfferModal from '../../components/forms/RaiseOfferModal';
 import toast from 'react-hot-toast';
 import {
   Badge,
@@ -44,7 +45,8 @@ import {
   ExclamationTriangleIcon,
   DocumentArrowDownIcon,
   BriefcaseIcon,
-  PencilIcon
+  PencilIcon,
+  BanknotesIcon
 } from '@heroicons/react/24/outline';
 import { formatJobType } from '../../utils/helpers';
 
@@ -197,6 +199,9 @@ const ApplicationDetail = () => {
   // candidate", and can withdraw from here as well as from the list.
   const isStudent = user?.role === 'student';
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  // The offer dialog, opened from right where the recruiter marks someone
+  // selected rather than only from the applications list.
+  const [offerOpen, setOfferOpen] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const canWithdraw =
     isStudent && application && ['applied', 'screening', 'shortlisted', 'interviewed'].includes(application.status);
@@ -250,6 +255,15 @@ const ApplicationDetail = () => {
     if (user.role === 'tpo') return application?.student?.organizationId === user.organizationId;
     return false;
   };
+
+  // Offers are raised by the people who can move the application: the
+  // company, its institution's TPO, an admin. Once there is one, the button
+  // becomes a link to it.
+  const canRaiseOffer =
+    !isStudent &&
+    canUpdateStatus() &&
+    !application?.offer &&
+    ['shortlisted', 'interviewed', 'selected'].includes(application?.status);
 
   if (isLoading) {
     return (
@@ -316,8 +330,24 @@ const ApplicationDetail = () => {
                 Withdraw
               </Button>
             )}
+            {!isStudent && application.offer && (
+              <Button as={Link} to="/offers" size="sm" variant="secondary" icon={BanknotesIcon}>
+                {application.offer.status === 'offered' ? 'Offer sent' : `Offer ${application.offer.status}`}
+              </Button>
+            )}
+            {canRaiseOffer && (
+              <Button size="sm" variant="saffron" icon={BanknotesIcon} onClick={() => setOfferOpen(true)}>
+                Raise offer
+              </Button>
+            )}
           </div>
         }
+      />
+
+      <RaiseOfferModal
+        application={offerOpen ? application : null}
+        onClose={() => setOfferOpen(false)}
+        onRaised={() => fetchApplicationDetails()}
       />
 
       <Card className="mb-6">
@@ -359,7 +389,16 @@ const ApplicationDetail = () => {
 
       {showStudent && (
         <Card className="mb-6">
-          <CardHeader title="Candidate" />
+          <CardHeader
+            title="Candidate"
+            actions={
+              studentProfile?.verificationStatus === 'verified' ? (
+                <Badge tone="success" dot>
+                  Verified by placement cell
+                </Badge>
+              ) : null
+            }
+          />
           <div className="mt-4 grid grid-cols-1 gap-x-8 md:grid-cols-2">
             <dl className="divide-y divide-ink-950/10">
               <DetailRow label="Name">

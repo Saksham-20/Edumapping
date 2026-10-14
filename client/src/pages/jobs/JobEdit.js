@@ -436,8 +436,9 @@ const JobEdit = () => {
           )}
           {jobStatus === 'active' && user.role === 'recruiter' && (
             <p className="text-sm text-ink-600">
-              Changing the eligibility rules or salary of a live posting sends it back to the
-              placement cell for review before students see the change.
+              Changing the title, description, requirements, job type, pay or eligibility of a
+              live posting sends it back to the placement cell for review before students see the
+              change. Openings, location, skills and the deadline save straight away.
             </p>
           )}
 

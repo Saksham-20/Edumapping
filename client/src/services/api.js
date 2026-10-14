@@ -43,6 +43,15 @@ export const describeApiError = (error) => {
   const firstDetail = details
     .map((d) => (typeof d === 'string' ? d : d?.message || d?.msg))
     .find((m) => m && m !== 'Invalid value');
+  // A gateway or crash page has no JSON body; axios then offers "Request
+  // failed with status code 502", which means nothing to a student.
+  const status = error?.response?.status || error?.status;
+  if (!data.message && !firstDetail && status >= 500) {
+    return 'Something went wrong on our side. Please try again in a minute.';
+  }
+  if (!error?.response && error?.message === 'Network Error') {
+    return 'Could not reach EduMapping. Check your internet connection and try again.';
+  }
   return (
     data.message ||
     firstDetail ||

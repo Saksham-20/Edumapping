@@ -21,6 +21,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { Badge, Button, Card, CardHeader, EmptyState, IconButton, Input, Modal, Select, Textarea, cx } from '../ui';
 import placementService from '../../services/placement';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const ROUND_TYPES = {
   aptitude: 'Aptitude / online test',
@@ -49,6 +50,10 @@ const EMPTY_ROUND = { name: '', roundType: 'aptitude', scheduledAt: '', endsAt: 
 const splitList = (text) => text.split(/[\s,;]+/).map((v) => v.trim()).filter(Boolean);
 
 const RoundsManager = ({ jobId }) => {
+  // The company runs some drives itself and the placement cell others; the
+  // copy told the company to paste "the shortlist the company sent back".
+  const { user } = useAuth();
+  const isCompany = user?.role === 'recruiter';
   const [rounds, setRounds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // round object or EMPTY_ROUND
@@ -125,7 +130,9 @@ const RoundsManager = ({ jobId }) => {
           : { identifiers: splitList(paste) };
     try {
       const res = await placementService.addParticipants(adding.id, body);
-      toast.success(res.message);
+      // Nobody added is not a success: say why without the green tick.
+      if (res.added > 0) toast.success(res.message);
+      else toast(res.message, { duration: 6000 });
       if (res.unknown?.length) toast(`Not found: ${res.unknown.slice(0, 5).join(', ')}${res.unknown.length > 5 ? '…' : ''}`);
       setAdding(null);
       setPaste('');
@@ -225,10 +232,10 @@ const RoundsManager = ({ jobId }) => {
                     </div>
                     {r.canEdit && (
                       <div className="flex items-center gap-1">
-                        <Button size="sm" variant="secondary" icon={UserPlusIcon} onClick={() => { setAddMode(r.sequence > 1 ? 'previous' : 'all'); setAdding(r); }}>
+                        <Button size="sm" variant="secondary" icon={UserPlusIcon} onClick={() => { setAddMode(r.sequence > 1 ? 'previous' : 'all'); setPaste(''); setAdding(r); }}>
                           Add students
                         </Button>
-                        <Button size="sm" variant="secondary" icon={CheckCircleIcon} disabled={!c.total} onClick={() => { setResultValue('cleared'); setResulting(r); }}>
+                        <Button size="sm" variant="secondary" icon={CheckCircleIcon} disabled={!c.total} onClick={() => { setResultValue('cleared'); setRejectOthers(false); setPaste(''); setResulting(r); }}>
                           Results
                         </Button>
                         <IconButton
@@ -368,7 +375,7 @@ const RoundsManager = ({ jobId }) => {
           {[
             ['all', 'Everyone who applied', 'All live applications to this job.'],
             ['previous', 'Everyone who cleared the previous round', 'Use for round 2 onwards.'],
-            ['paste', 'Paste roll numbers or emails', 'The shortlist the company sent back.']
+            ['paste', 'Paste roll numbers or emails', isCompany ? 'Your shortlist, by roll number or email.' : 'The shortlist the company sent back.']
           ].map(([v, t, d]) => (
             <label key={v} className={cx('flex cursor-pointer gap-3 rounded-xl border p-3', addMode === v ? 'border-ink-950 bg-bone-50' : 'border-ink-950/15')}>
               <input type="radio" name="addMode" checked={addMode === v} onChange={() => setAddMode(v)} className="mt-1 text-ink-950 focus:ring-ink-950" />
@@ -389,7 +396,11 @@ const RoundsManager = ({ jobId }) => {
         open={Boolean(resulting)}
         onClose={() => setResulting(null)}
         title={`Results — ${resulting?.name || ''}`}
-        description="Paste the roll numbers or emails the company sent back."
+        description={
+          isCompany
+            ? 'Paste the roll numbers or emails of the students this result applies to.'
+            : 'Paste the roll numbers or emails the company sent back.'
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setResulting(null)}>

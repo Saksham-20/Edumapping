@@ -41,7 +41,10 @@ const EnquiryForm = () => {
 
       window.location.href = `mailto:hello@edumapping.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
-      toast.success('Thank you for your enquiry! We will get back to you soon.');
+      // Nothing has been sent yet: the visitor still has to press send in
+      // their mail app. Thanking them as if it had arrived meant enquiries
+      // were silently lost whenever that step was skipped.
+      toast.success('Your email app has opened with the enquiry filled in. Press send there to reach us at hello@edumapping.com.');
       setEnquiryData({ name: '', phone: '', email: '', city: '' });
       setShowForm(false);
     } catch (error) {

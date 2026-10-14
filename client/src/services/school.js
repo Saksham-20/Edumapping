@@ -143,9 +143,16 @@ export const withMyRegistration = async (events, userId) => {
   return events.map((event, i) => {
     const settled = details[i];
     if (settled.status !== 'fulfilled') return { ...event, myRegistration: undefined };
-    const rows = settled.value?.event?.registrations || [];
+    const detail = settled.value?.event;
+    const rows = detail?.registrations || [];
     const mine = rows.find((r) => r.userId === userId);
-    return { ...event, myRegistration: mine || null };
+    // The count comes from the same response: after registering, keeping the
+    // list's old count showed "0 of 1" next to "You are registered".
+    return {
+      ...event,
+      registrationCount: detail?.registrationCount ?? event.registrationCount,
+      myRegistration: mine || null
+    };
   });
 };
 

@@ -128,7 +128,7 @@ const MyRounds = ({ applicationId, title = 'Your selection rounds', limit, compa
               </p>
               {p && r.instructions && <p className="mt-2 whitespace-pre-line rounded-xl bg-white/70 p-3 text-sm text-ink-700">{r.instructions}</p>}
               {!applicationId && r.applicationId && (
-                <Link to={`/applications/${r.applicationId}`} className="mt-2 inline-block text-xs font-semibold text-ink-950 hover:underline">
+                <Link to={`/applications/${r.applicationId}`} className="mt-1 inline-flex min-h-[28px] items-center text-xs font-semibold text-ink-950 hover:underline">
                   View application →
                 </Link>
               )}

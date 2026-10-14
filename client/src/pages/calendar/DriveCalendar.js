@@ -31,6 +31,8 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DriveCalendar = () => {
   const { user } = useAuth();
   const isStudent = user?.role === 'student';
+  // Schools run no placement drives; "Drive calendar" read as the wrong product.
+  const isSchool = user?.organization?.type === 'school';
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [downloading, setDownloading] = useState(false);
@@ -130,9 +132,13 @@ const DriveCalendar = () => {
   return (
     <PageShell width="wide">
       <PageHeader
-        eyebrow="Season"
-        title="Drive calendar"
-        lead="Selection rounds, campus events and application deadlines in one place."
+        eyebrow={isSchool ? user?.organization?.name || 'School' : 'Season'}
+        title={isSchool ? 'School calendar' : 'Drive calendar'}
+        lead={
+          isSchool
+            ? 'Events and deadlines for your school in one place.'
+            : 'Selection rounds, campus events and application deadlines in one place.'
+        }
         actions={
           <Button variant="secondary" icon={ArrowDownTrayIcon} loading={downloading} onClick={downloadIcs}>
             Add to Google / Outlook (.ics)

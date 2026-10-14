@@ -22,6 +22,7 @@ import {
   Badge
 } from '../components/ui';
 import { KeyIcon, UserCircleIcon } from '@heroicons/react/24/outline';
+import { formatRole } from '../components/common/navigation';
 
 /** Mirrors the server's rule in routes/auth.js so the UI fails fast and local. */
 const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
@@ -76,6 +77,15 @@ const Settings = () => {
       // under "Current password", so a too-weak new password read as if the
       // current one were wrong. A wrong current password has no field in the
       // response (it is not a validation failure), so it is placed there.
+      //
+      // A server or network failure is not about the current password, and
+      // the API layer has already said so in a toast; printing it under the
+      // field as well read as "your current password is wrong".
+      const status = err?.status || err?.response?.status;
+      if (!status || status >= 500) {
+        setErrors({});
+        return;
+      }
       const fields = fieldErrorsFrom(err);
       setErrors(
         Object.keys(fields).length
@@ -113,9 +123,9 @@ const Settings = () => {
             </DetailRow>
             <DetailRow label="Email">{user?.email}</DetailRow>
             <DetailRow label="Phone">{user?.phone}</DetailRow>
-            <DetailRow label="Role">
-              <span className="capitalize">{user?.role?.replace(/_/g, ' ')}</span>
-            </DetailRow>
+            {/* The shared label ("TPO", "Career counselor"). CSS capitalize
+                turned the raw role into "Tpo". */}
+            <DetailRow label="Role">{formatRole(user?.role)}</DetailRow>
             <DetailRow label="Organization">{user?.organization?.name}</DetailRow>
             <DetailRow label="Status">
               <Badge tone={user?.approvalStatus === 'approved' ? 'success' : 'warning'} dot>

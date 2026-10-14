@@ -102,15 +102,6 @@ const APPLICATION_STATUSES = [
   'withdrawn'
 ];
 
-const BRANCHES = [
-  'Computer Science Engineering',
-  'Computer Science',
-  'Information Technology',
-  'Electronics',
-  'Mechanical',
-  'Civil',
-  'Electrical'
-];
 
 const PAGE_SIZE = 20;
 
@@ -180,6 +171,9 @@ const TPOAnalytics = () => {
   const [studentsPage, setStudentsPage] = useState(1);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState(null);
+  // The campus's own departments, from the server (one per branch however it
+  // is spelled). A fixed list offered branches nobody had and missed the rest.
+  const [branchOptions, setBranchOptions] = useState([]);
   const [exporting, setExporting] = useState(false);
 
   const overviewQuery = useMemo(() => {
@@ -257,6 +251,9 @@ const TPOAnalytics = () => {
     try {
       const data = await api.get(`/analytics/tpo/students?${studentsQuery}`, { silent: true });
       setStudents(data.students || []);
+      if (Array.isArray(data.branches)) {
+        setBranchOptions((prev) => [...new Set([...prev, ...data.branches])].sort());
+      }
       setStudentsPagination(data.pagination || { currentPage: 1, totalPages: 1 });
     } catch (err) {
       setStudentsError(err?.message || 'Could not load students.');
@@ -440,7 +437,7 @@ const TPOAnalytics = () => {
         </div>
       </Toolbar>
 
-      <Tabs className="mb-6 w-fit" tabs={TABS} value={tab} onChange={setTab} />
+      <Tabs className="mb-6 w-fit max-w-full" tabs={TABS} value={tab} onChange={setTab} />
 
       {!scoped && institutionsLoaded && (
         <EmptyState
@@ -451,7 +448,7 @@ const TPOAnalytics = () => {
       )}
 
       {scoped && loading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <SkeletonCard key={i} lines={2} />
           ))}
@@ -471,8 +468,13 @@ const TPOAnalytics = () => {
                   label="Students"
                   value={analytics.students?.total ?? 0}
                   hint={
+                    // "3 — 100% of 9 accounts active" read as a contradiction:
+                    // the 3 are students with a profile, the 9 every account
+                    // (the roster's count). Say which is which.
                     analytics.students?.accounts != null
-                      ? `${analytics.students.activePercentage ?? 0}% of ${analytics.students.accounts} accounts active`
+                      ? analytics.students.accounts > (analytics.students.total ?? 0)
+                        ? `With a profile, of ${analytics.students.accounts} student account${analytics.students.accounts === 1 ? '' : 's'}`
+                        : `${analytics.students.activePercentage ?? 0}% of accounts active`
                       : 'Active accounts at this institution'
                   }
                   icon={UserGroupIcon}
@@ -501,7 +503,7 @@ const TPOAnalytics = () => {
                 />
               </StatStrip>
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <Card>
                   <CardHeader
                     title="Applications by status"
@@ -660,7 +662,7 @@ const TPOAnalytics = () => {
                     onChange={setFilter('branch')}
                     options={[
                       { value: '', label: 'All branches' },
-                      ...BRANCHES.map((b) => ({ value: b, label: b }))
+                      ...branchOptions.map((b) => ({ value: b, label: b }))
                     ]}
                   />
                 </div>

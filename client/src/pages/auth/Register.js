@@ -223,7 +223,11 @@ const Register = () => {
       if (!isSignedInOnRegister(response.user)) {
         navigate('/pending-approval', {
           replace: true,
-          state: { institution: String(formData.role || '').startsWith('new_'), email: response.user?.email }
+          state: {
+            institution: String(formData.role || '').startsWith('new_'),
+            company: formData.role === 'new_company',
+            email: response.user?.email
+          }
         });
         return;
       }

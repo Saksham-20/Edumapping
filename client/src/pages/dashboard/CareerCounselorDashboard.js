@@ -100,7 +100,13 @@ const CareerCounselorDashboard = () => {
     const nextErrors = {};
 
     if (jobsRes.status === 'fulfilled') {
-      setJobs(jobsRes.value.jobs || []);
+      // "Active" is only the posting's status; nothing closes a role when its
+      // deadline passes, so a 2024 internship was counted as an open role.
+      setJobs(
+        (jobsRes.value.jobs || []).filter(
+          (j) => !j.applicationDeadline || new Date(j.applicationDeadline).getTime() >= Date.now()
+        )
+      );
     } else {
       nextErrors.jobs = toErrorState(jobsRes.reason, 'Could not load opportunities');
     }
@@ -275,7 +281,7 @@ const CareerCounselorDashboard = () => {
           title="No counselling sessions scheduled"
           description="Your role can host live sessions. Create one and every student at your school will be able to join it."
           action={
-            <Button as={Link} to="/conferences" icon={PlusIcon}>
+            <Button as={Link} to="/conferences?new=1" icon={PlusIcon}>
               Create a session
             </Button>
           }

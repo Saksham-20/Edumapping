@@ -5,7 +5,7 @@
 // create one, so `/conference/:id` was reachable only by typing an ID you had
 // no way to obtain. This is that missing surface.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import conferenceService, { canHostConferences } from '../../services/conferences';
 import api, { describeApiError, fieldErrorsFrom } from '../../services/api';
@@ -58,7 +58,7 @@ const formatWhen = (iso) => {
   });
 };
 
-const ConferenceCard = ({ conference, onJoin }) => {
+const ConferenceCard = ({ conference, onJoin, canEnd, onEnd }) => {
   const isLive = conference.status === 'live';
   const hostName = conference.host
     ? `${conference.host.firstName} ${conference.host.lastName}`
@@ -99,6 +99,14 @@ const ConferenceCard = ({ conference, onJoin }) => {
         >
           {isLive ? 'Join now' : conference.status === 'ended' ? 'Ended' : 'Open room'}
         </Button>
+        {/* The room's own "End" control is unreachable whenever the room
+            cannot open (live video not switched on, or a network failure),
+            which left a scheduled class on everyone's list for good. */}
+        {canEnd && (conference.status === 'scheduled' || conference.status === 'live') && (
+          <Button size="sm" variant="ghost" onClick={() => onEnd(conference)}>
+            {isLive ? 'End class' : 'Cancel class'}
+          </Button>
+        )}
       </div>
     </Card>
   );
@@ -120,7 +128,10 @@ const ConferencesList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('upcoming');
-  const [createOpen, setCreateOpen] = useState(false);
+  // `?new=1` is how a dashboard's "Create a live class" lands here with the
+  // form already open, instead of on a list with one more button to find.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(() => canHost && searchParams.get('new') === '1');
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     title: '',
@@ -130,6 +141,29 @@ const ConferencesList = () => {
     maxParticipants: ''
   });
   const [formErrors, setFormErrors] = useState({});
+  const [ending, setEnding] = useState(null);
+  const [endBusy, setEndBusy] = useState(false);
+
+  // The server lets the class's host (or a platform admin) end it.
+  const canEnd = (c) => user?.role === 'admin' || (c.host?.id && c.host.id === user?.id);
+
+  const onEnd = async () => {
+    if (!ending) return;
+    setEndBusy(true);
+    try {
+      await conferenceService.end(ending.id);
+      toast.success(ending.status === 'live' ? 'Class ended' : 'Class cancelled');
+      setEnding(null);
+      load();
+    } catch (err) {
+      // The shared interceptor already toasts everything but 401/403.
+      if (err?.status === 401 || err?.status === 403) {
+        toast.error(err?.message || 'Only the host can end this class.');
+      }
+    } finally {
+      setEndBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -164,6 +198,10 @@ const ConferencesList = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get('new')) setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const visible = useMemo(() => {
     if (tab === 'all') return conferences;
@@ -216,10 +254,13 @@ const ConferencesList = () => {
       // Posted directly because the shared service's `create` takes no request
       // config; `silent` keeps the error inside the form, next to its field.
       const data = await api.post('/conferences', payload, { silent: true });
-      toast.success('Live class created');
+      toast.success(liveAvailable === false ? 'Live class scheduled' : 'Live class created');
       setCreateOpen(false);
       setForm({ title: '', description: '', scheduledStart: '', access: defaultAccess, maxParticipants: '' });
-      if (data?.conference?.id) navigate(`/conference/${data.conference.id}`);
+      // While live video is off the room can only show "not switched on
+      // yet", so opening it straight after creating read as a failure. Stay
+      // on the list, where the new class now appears.
+      if (data?.conference?.id && liveAvailable !== false) navigate(`/conference/${data.conference.id}`);
       else load();
     } catch (err) {
       const fields = fieldErrorsFrom(err);
@@ -322,6 +363,8 @@ const ConferencesList = () => {
               key={c.id}
               conference={c}
               onJoin={(conf) => navigate(`/conference/${conf.id}`)}
+              canEnd={canEnd(c)}
+              onEnd={setEnding}
             />
           ))}
         </div>
@@ -342,7 +385,7 @@ const ConferencesList = () => {
               Cancel
             </Button>
             <Button type="submit" form="create-conference" loading={creating}>
-              Create and open
+              {liveAvailable === false ? 'Schedule class' : 'Create and open'}
             </Button>
           </>
         }
@@ -395,6 +438,30 @@ const ConferencesList = () => {
             help="Optional. This server is sized for roughly 25–30 people at once."
           />
         </form>
+      </AdminModal>
+
+      <AdminModal
+        open={Boolean(ending)}
+        onClose={() => !endBusy && setEnding(null)}
+        size="md"
+        title={ending?.status === 'live' ? 'End this class for everyone?' : 'Cancel this class?'}
+        description={
+          ending?.status === 'live'
+            ? 'Everyone in the room is disconnected and nobody can rejoin.'
+            : 'It moves to Past and nobody can join it. This cannot be undone.'
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEnding(null)} disabled={endBusy}>
+              Keep class
+            </Button>
+            <Button variant="danger" loading={endBusy} onClick={onEnd}>
+              {ending?.status === 'live' ? 'End class' : 'Cancel class'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-700">{ending?.title}</p>
       </AdminModal>
     </PageShell>
   );

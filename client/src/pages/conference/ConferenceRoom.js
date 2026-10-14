@@ -13,7 +13,7 @@ import { RoomEvent } from 'livekit-client';
 import toast from 'react-hot-toast';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
-import conferenceService from '../../services/conferences';
+import conferenceService, { canHostConferences } from '../../services/conferences';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import Stage from '../../components/conference/Stage';
@@ -29,7 +29,7 @@ import '@livekit/components-styles';
  * shown as-is; "session full" shares the 503 status and is told apart by its
  * error code.
  */
-const describeJoinError = (error) => {
+const describeJoinError = (error, isStaff = false) => {
   const status = error?.status;
   const code = error?.data?.error;
   if (status === 503 && code === 'Session Full') {
@@ -43,8 +43,11 @@ const describeJoinError = (error) => {
   if (status === 503) {
     return {
       title: 'Live classes are not switched on yet',
-      message:
-        'Video sessions cannot start yet because live classes have not been set up on EduMapping. Please check back later, or ask your teacher or placement office when the class will run.'
+      // The host lands here too; telling a teacher to "ask your teacher" was
+      // advice addressed to the wrong person.
+      message: isStaff
+        ? 'Video sessions cannot start yet because live classes have not been set up on EduMapping. Your class is saved and listed under Live classes; it can run once live video is switched on.'
+        : 'Video sessions cannot start yet because live classes have not been set up on EduMapping. Please check back later, or ask your teacher or placement office when the class will run.'
     };
   }
   if (status === 404) {
@@ -363,6 +366,7 @@ const ConferenceRoom = () => {
   const { user } = useAuth();
 
   const [state, setState] = useState({ status: 'loading' });
+  const isStaff = canHostConferences(user?.role);
 
   useEffect(() => {
     let cancelled = false;
@@ -381,7 +385,7 @@ const ConferenceRoom = () => {
         });
       } catch (error) {
         if (cancelled) return;
-        setState({ status: 'error', ...describeJoinError(error) });
+        setState({ status: 'error', ...describeJoinError(error, isStaff) });
       }
     };
 
@@ -389,7 +393,7 @@ const ConferenceRoom = () => {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, isStaff]);
 
   const leave = useCallback(() => navigate('/dashboard'), [navigate]);
 

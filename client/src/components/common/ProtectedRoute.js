@@ -7,7 +7,7 @@ import { Button } from '../ui';
 import { formatRole } from './navigation';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
-const ProtectedRoute = ({ children, requiredRoles = [] }) => {
+const ProtectedRoute = ({ children, requiredRoles = [], collegeOnly = false }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
@@ -19,7 +19,9 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     // Remember where they were headed so the login can send them back rather
     // than dumping everyone on the dashboard.
     // The query string is kept too, so "/jobs?type=internship" survives.
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+    return (
+      <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
+    );
   }
 
   // An account still awaiting approval reached /pending-approval exactly once,
@@ -34,7 +36,12 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     return <Navigate to="/pending-approval" replace />;
   }
 
-  if (requiredRoles.length > 0 && !requiredRoles.includes(user.role)) {
+  // Placement pages (applications, offers, resume) belong to colleges. A school
+  // account's role names overlap ("student"), so the role check alone let a
+  // school student into an empty placement page.
+  const blockedForSchool = collegeOnly && user?.organization?.type === 'school';
+
+  if (blockedForSchool || (requiredRoles.length > 0 && !requiredRoles.includes(user.role))) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-bone-50 px-5 py-16">
         <div className="w-full max-w-md text-center">
@@ -45,12 +52,21 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
             <LockClosedIcon className="h-6 w-6" strokeWidth={1.6} />
           </span>
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink-950">
-            You don’t have access to this page
+            {blockedForSchool
+              ? 'This is part of college placements'
+              : 'You don’t have access to this page'}
           </h1>
-          <p className="mt-3 text-sm text-ink-600">
-            It’s limited to {requiredRoles.map((r) => r.replace(/_/g, ' ')).join(', ')} accounts.
-            You’re signed in as {formatRole(user.role)}.
-          </p>
+          {blockedForSchool ? (
+            <p className="mt-3 text-sm text-ink-600">
+              Applications, offers and resumes are used by colleges during placement season. Your
+              school dashboard has your events, classes and career guidance.
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-ink-600">
+              It’s limited to {requiredRoles.map(formatRole).join(', ')} accounts. You’re signed in
+              as {formatRole(user.role)}.
+            </p>
+          )}
           <Button as={Link} to="/dashboard" className="mt-6">
             Back to dashboard
           </Button>
