@@ -155,9 +155,18 @@ function rateLimitUserId(token) {
 // Rate limiting with user-based keys for authenticated requests
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 500 : 1000), // Much higher limit in development
+  // Signed-in people are counted one by one. Signed-out traffic is counted by
+  // IP, and a whole college lab shares one, so its ceiling is several times
+  // higher: a class opening the sign-up page together must not be refused.
+  max: (req) => {
+    const perUser = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || (process.env.NODE_ENV === 'production' ? 500 : 1000);
+    const authHeader = req.headers.authorization || '';
+    const signedIn = authHeader.startsWith('Bearer ') && rateLimitUserId(authHeader.slice(7));
+    return signedIn ? perUser : parseInt(process.env.RATE_LIMIT_ANON_MAX, 10) || perUser * 6;
+  },
   message: {
-    error: 'Too many requests from this IP, please try again later'
+    error: 'Too Many Requests',
+    message: 'Too many requests in a short time. Wait a few minutes and try again.'
   },
   standardHeaders: true,
   legacyHeaders: false,

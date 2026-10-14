@@ -4,7 +4,7 @@ const { body, validationResult } = require('express-validator');
 const authService = require('../services/authService');
 const { PASSWORD_POLICY, PASSWORD_POLICY_MESSAGE } = authService;
 const { authenticateToken } = require('../middleware/auth');
-const { authLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimiter');
+const { authLimiter, authIpLimiter, registerLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -127,7 +127,7 @@ router.post('/register/send-otp', otpSendLimiter, async (req, res, next) => {
   }
 });
 
-router.post('/register', authLimiter, otpVerifyLimiter, validateRegistration, async (req, res, next) => {
+router.post('/register', registerLimiter, otpVerifyLimiter, validateRegistration, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -178,7 +178,7 @@ router.post('/register', authLimiter, otpVerifyLimiter, validateRegistration, as
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', authLimiter, validateLogin, async (req, res, next) => {
+router.post('/login', authIpLimiter, authLimiter, validateLogin, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

@@ -38,17 +38,61 @@ const generalLimiter = rateLimit({
   }
 });
 
-// Strict limiter for authentication endpoints
+// Sign-in limits.
+//
+// A college lab or hostel Wi-Fi puts hundreds of students behind one public
+// IP. The old limiter allowed 5 failed attempts per IP per 15 minutes, so five
+// typos anywhere on campus locked every student out of signing in, and of
+// signing up, which shared the same limiter. Failures are now counted per
+// account (IP + identifier), which still stops guessing one person's password,
+// and a much higher per-IP ceiling still stops one machine spraying many
+// accounts.
+const loginIdentity = (req) =>
+  String(req.body?.identifier || req.body?.email || '')
+    .trim()
+    .toLowerCase();
+
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => `${req.ip}|${loginIdentity(req)}`,
   message: {
     error: 'Too Many Login Attempts',
-    message: 'Too many sign-in attempts. Wait 15 minutes and try again, or use "Forgot your password?" to reset it.'
+    message: 'Too many sign-in attempts for this account. Wait 15 minutes and try again, or use "Forgot your password?" to reset it.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful requests
+  skipSuccessfulRequests: true,
+  skip: skipLocalhostInDev
+});
+
+// Coarse per-network ceiling on failed sign-ins, sized for a campus NAT.
+const authIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.AUTH_IP_FAILURE_MAX, 10) || 100,
+  message: {
+    error: 'Too Many Login Attempts',
+    message: 'Too many failed sign-ins from this network. Wait 15 minutes and try again.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: skipLocalhostInDev
+});
+
+// Sign-ups have their own allowance (a whole class may register from one lab
+// in an hour), and their own wording; they used to be told about "sign-in
+// attempts".
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: parseInt(process.env.REGISTER_IP_MAX, 10) || 200,
+  message: {
+    error: 'Too Many Sign-ups',
+    message: 'Too many sign-ups from this network in the last hour. Wait a while and try again.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
   skip: skipLocalhostInDev
 });
 
@@ -64,9 +108,13 @@ const passwordResetLimiter = rateLimit({
 });
 
 // OTP send limiter (registration + forgot-password) - prevent enumeration and abuse
+// Per address, not per IP: five codes per 15 minutes per IP meant the sixth
+// student registering from a college lab could not get a code at all. The
+// address being emailed is what needs protecting from floods.
 const otpSendLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: parseInt(process.env.OTP_RATE_LIMIT_MAX, 10) || 5,
+  keyGenerator: (req) => `${req.ip}|${String(req.body?.email || '').trim().toLowerCase()}`,
   message: {
     error: 'Too Many OTP Requests',
     message: 'Too many verification codes requested. Wait 15 minutes, then ask for a new code.'
@@ -171,6 +219,8 @@ const createIPLimiter = (options = {}) => {
 module.exports = {
   generalLimiter,
   authLimiter,
+  authIpLimiter,
+  registerLimiter,
   passwordResetLimiter,
   otpSendLimiter,
   otpVerifyLimiter,
