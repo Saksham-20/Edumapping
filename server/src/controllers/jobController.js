@@ -7,6 +7,40 @@ const notificationService = require('../services/notificationService');
 const { checkEligibility, describeEligibility } = require('../utils/eligibility');
 const { checkPolicyForStudent } = require('../utils/placementPolicy');
 const models = require('../models');
+const {
+  companyIdsRecruitingAt,
+  studentVisibleJobWhere,
+  canStudentSeeJob,
+  isJobScopedViewer,
+  jobAudienceOrganizationIds,
+  tpoUserIdsFor
+} = require('../services/recruiterAccessService');
+
+/**
+ * Tell the placement cells that can review this posting that it is waiting
+ * for them. Recruiters submitted drives into a queue nobody was told about.
+ * Fire-and-forget: called after the response.
+ */
+async function notifyReviewersOfPendingJob(job) {
+  try {
+    const institutions = (await jobAudienceOrganizationIds(job)).filter((id) => id !== job.organizationId);
+    const tpoIds = await tpoUserIdsFor(institutions);
+    await Promise.all(
+      tpoIds.map((userId) =>
+        notificationService.createNotification(
+          userId,
+          'Drive waiting for your approval',
+          `${job.title} needs the placement cell's review before students can see it.`,
+          'system_alert',
+          { jobId: job.id, action: 'review' },
+          'high'
+        )
+      )
+    );
+  } catch (err) {
+    logger.error('Review-queue notification failed', err, { jobId: job.id });
+  }
+}
 
 // Who may act on a posting's contents and see who applied: the organization
 // that owns it (its recruiters, or a TPO who posted for their own college) and
@@ -92,19 +126,7 @@ const sameValue = (a, b) => {
  * Admins review everything.
  */
 async function reviewableCompanyIds(tpoOrganizationId) {
-  if (!tpoOrganizationId) return [];
-  const rows = await models.RecruiterAllowedOrganization.findAll({
-    where: { organizationId: tpoOrganizationId },
-    attributes: ['id'],
-    include: [{
-      model: models.RecruiterProfile,
-      as: 'recruiterProfile',
-      attributes: ['id'],
-      required: true,
-      include: [{ model: User, as: 'user', attributes: ['organizationId'], required: true }]
-    }]
-  });
-  return [...new Set(rows.map((r) => r.recruiterProfile.user.organizationId).filter(Boolean))];
+  return companyIdsRecruitingAt(tpoOrganizationId);
 }
 
 async function canReviewJob(user, job) {
@@ -278,6 +300,14 @@ class JobController {
       }
 
       const approved = action === 'approve';
+      // A live posting a recruiter edited comes back through this queue. Its
+      // students were alerted the first time it was approved; alerting them
+      // again announced the same drive as a "new job" twice.
+      const approvedBefore = approved
+        ? (await AuditLog.count({
+            where: { entityType: 'job', entityId: job.id, action: 'job_posting_approved' }
+          })) > 0
+        : false;
       await job.update({
         status: approved ? 'active' : 'draft',
         reviewedBy: req.user.id,
@@ -315,7 +345,7 @@ class JobController {
           )
           .catch((err) => logger.error('Review notification failed', err));
       }
-      if (approved) {
+      if (approved && !approvedBefore) {
         notificationService
           .notifyEligibleStudentsOfJob(job.id)
           .catch((err) => logger.error('Job alert fan-out failed', err, { jobId: job.id }));
@@ -418,6 +448,8 @@ class JobController {
         notificationService
           .notifyEligibleStudentsOfJob(job.id)
           .catch((err) => logger.error('Job alert fan-out failed', err, { jobId: job.id }));
+      } else if (job.status === 'pending_review') {
+        notifyReviewersOfPendingJob(job);
       }
     } catch (error) {
       // Log detailed error information for debugging
@@ -531,6 +563,14 @@ class JobController {
         ];
       }
 
+      // A student (or other institution member, or an anonymous caller) sees
+      // only the drives of their own institution and of companies allowed to
+      // recruit there. Under Op.and, so `?organizationId=` cannot widen it.
+      if (isJobScopedViewer(req.user)) {
+        const scope = await studentVisibleJobWhere(req.user);
+        whereClause[Op.and] = [...(whereClause[Op.and] || []), scope];
+      }
+
       const { count, rows: jobs } = await Job.findAndCountAll({
         where: whereClause,
         include: [
@@ -619,6 +659,13 @@ class JobController {
         }
       }
 
+      // A live drive is still only for the institutions it recruits at: a
+      // student of a college the company is not allowed at gets the same 404
+      // as for a job that does not exist.
+      if (!manages && isJobScopedViewer(req.user) && !(await canStudentSeeJob(req.user, job))) {
+        return res.status(404).json({ error: 'Job Not Found', message: 'Job not found' });
+      }
+
       // Who applied is the owning organization's business. The full applicant
       // list — names, emails, cover letters — used to ship with every GET of a
       // job, including to anonymous visitors. Now:
@@ -629,7 +676,14 @@ class JobController {
       if (manages) {
         applications = await Application.findAll({
           where: { jobId: job.id },
-          include: [{ model: User, as: 'student', attributes: ['id', 'firstName', 'lastName', 'email'] }]
+          include: [{
+            model: User,
+            as: 'student',
+            attributes: ['id', 'firstName', 'lastName', 'email'],
+            // Only whether the placement cell verified the record: the
+            // company screens on it, and it is already on the application.
+            include: [{ model: StudentProfile, as: 'studentProfile', attributes: ['verificationStatus'], required: false }]
+          }]
         });
       } else if (INSTITUTION_STAFF_ROLES.includes(req.user?.role) && req.user.organizationId) {
         applications = await Application.findAll({
@@ -639,7 +693,8 @@ class JobController {
             as: 'student',
             attributes: ['id', 'firstName', 'lastName', 'email'],
             where: { organizationId: req.user.organizationId },
-            required: true
+            required: true,
+            include: [{ model: StudentProfile, as: 'studentProfile', attributes: ['verificationStatus'], required: false }]
           }]
         });
       }
@@ -824,6 +879,7 @@ class JobController {
         sentForReview,
         job: updatedJob
       });
+      if (sentForReview) notifyReviewersOfPendingJob(updatedJob);
     } catch (error) {
       next(error);
     }
@@ -937,6 +993,11 @@ class JobController {
         whereClause.organizationId = req.user.organizationId;
       }
 
+      if (isJobScopedViewer(req.user)) {
+        const scope = await studentVisibleJobWhere(req.user);
+        whereClause[Op.and] = [...(whereClause[Op.and] || []), scope];
+      }
+
       const stats = await Job.findAll({
         where: whereClause,
         attributes: [
@@ -1016,6 +1077,7 @@ class JobController {
           status: job.status
         }
       });
+      if (decision.status === 'pending_review') notifyReviewersOfPendingJob(job);
     } catch (error) {
       next(error);
     }
@@ -1052,8 +1114,10 @@ class JobController {
       // Find jobs that match user's skills and eligibility
       const jobs = await Job.findAll({
         where: {
-          status: 'active',
-          applicationDeadline: { [Op.gte]: new Date() }
+          [Op.and]: [
+            { applicationDeadline: { [Op.gte]: new Date() } },
+            await studentVisibleJobWhere(req.user)
+          ]
         },
         include: [
           { 
@@ -1066,11 +1130,17 @@ class JobController {
         order: [['createdAt', 'DESC']]
       });
 
-      // Score jobs based on skill match and eligibility
-      const scoredJobs = jobs.map(job => {
+      // Score jobs based on skill match and eligibility. A role the student
+      // cannot apply for is not a recommendation: it used to be listed (only
+      // scored lower), and the criteria were read under the camelCase keys
+      // alone with an exact branch match, so "CSE" never matched "Computer
+      // Science Engineering". Both now go through utils/eligibility.
+      const scoredJobs = jobs
+        .filter((job) => checkEligibility(job.eligibilityCriteria, user.studentProfile).eligible)
+        .map(job => {
         let score = 0;
         const jobSkills = job.skillsRequired || [];
-        const eligibility = job.eligibilityCriteria || {};
+        const eligibility = describeEligibility(job.eligibilityCriteria);
 
         // Skill matching
         const matchingSkills = userSkills.filter(skill => 
@@ -1081,13 +1151,13 @@ class JobController {
         score += matchingSkills.length * 10;
 
         // CGPA eligibility
-        if (eligibility.minCGPA && userCGPA >= eligibility.minCGPA) {
+        if (eligibility.minCGPA !== null && Number(userCGPA) >= eligibility.minCGPA) {
           score += 20;
         }
 
-        // Branch eligibility
-        if (eligibility.allowedBranches && 
-            eligibility.allowedBranches.includes(userBranch)) {
+        // Branch eligibility: the job names branches and the student's is one
+        // of them (the eligibility filter above already ruled out a mismatch).
+        if (eligibility.allowedBranches.length > 0 && userBranch) {
           score += 15;
         }
 

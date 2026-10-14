@@ -10,6 +10,7 @@ const {
 const { validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+const notificationService = require('../services/notificationService');
 
 let cachedEduMappingOrgId = undefined;
 const getEduMappingOrgId = async () => {
@@ -192,6 +193,12 @@ class EventController {
       }
 
       const event = await Event.create(eventData);
+
+      // Students of a non-global organisation hear about it in the bell;
+      // they used to find out only by visiting the events page.
+      if (!(eduMappingOrgId && event.organizationId === eduMappingOrgId)) {
+        notificationService.notifyStudentsOfNewEvent(event);
+      }
 
       const eventWithDetails = await Event.findByPk(event.id, {
         include: [
@@ -744,6 +751,33 @@ class EventController {
         return res.status(404).json({
           error: 'Registration Not Found',
           message: 'You are not registered for this event'
+        });
+      }
+
+      // Attendance already taken is the organiser's record, not the student's
+      // to erase: cancelling turned an "attended" row back into a no-sign-up.
+      if (registration.status === 'attended' || registration.status === 'no_show') {
+        return res.status(400).json({
+          error: 'Attendance Recorded',
+          message: 'Your attendance for this event has already been recorded, so the registration cannot be cancelled.'
+        });
+      }
+
+      // Once registration has closed the seat is final — the event pages stop
+      // offering "Cancel" at that point, and a seat freed after the deadline is
+      // one nobody else can take. Only the API still allowed it.
+      const event = await Event.findByPk(id, { attributes: ['id', 'startTime', 'registrationDeadline', 'status'] });
+      const now = new Date();
+      const closed =
+        event &&
+        event.status !== 'cancelled' &&
+        (event.registrationDeadline
+          ? now > new Date(event.registrationDeadline)
+          : now >= new Date(event.startTime));
+      if (closed && registration.status !== 'cancelled') {
+        return res.status(400).json({
+          error: 'Registration Closed',
+          message: 'Registration for this event has closed, so your place can no longer be cancelled. Contact the organiser if you cannot attend.'
         });
       }
 

@@ -295,7 +295,19 @@ class ConferenceController {
         return res.status(404).json({ error: 'Not Found', message: 'Conference not found' });
       }
 
-      const { allowed, role, reason } = await resolveRole(conference, req.user);
+      const { allowed, role, reason, membership } = await resolveRole(conference, req.user);
+
+      // Same visibility as the listing: your own, your institution's, public
+      // ones, or ones you were added to. Any signed-in user could otherwise
+      // read another school's class title, description and host by id.
+      const visible =
+        allowed ||
+        !!membership ||
+        conference.access === 'public' ||
+        (conference.organizationId && conference.organizationId === req.user.organizationId);
+      if (!visible) {
+        return res.status(404).json({ error: 'Not Found', message: 'Conference not found' });
+      }
 
       res.json({
         message: 'Conference retrieved successfully',
@@ -319,12 +331,23 @@ class ConferenceController {
    */
   async getJoinToken(req, res, next) {
     try {
-      if (!livekit.isConfigured()) return notConfigured(res);
-
       const conference = await Conference.findByPk(req.params.id);
       if (!conference) {
         return res.status(404).json({ error: 'Not Found', message: 'Conference not found' });
       }
+      const { allowed, role, reason, membership } = await resolveRole(conference, req.user);
+      if (!allowed) {
+        // Someone outside the class's institution gets the same 404 as
+        // GET /:id, not a confirmation that the class exists.
+        const visible =
+          !!membership ||
+          conference.access === 'public' ||
+          (conference.organizationId && conference.organizationId === req.user.organizationId);
+        return visible
+          ? res.status(403).json({ error: 'Access Forbidden', message: reason })
+          : res.status(404).json({ error: 'Not Found', message: 'Conference not found' });
+      }
+
       if (conference.status === 'ended' || conference.status === 'cancelled') {
         return res.status(409).json({
           error: 'Conference Closed',
@@ -332,10 +355,9 @@ class ConferenceController {
         });
       }
 
-      const { allowed, role, reason, membership } = await resolveRole(conference, req.user);
-      if (!allowed) {
-        return res.status(403).json({ error: 'Access Forbidden', message: reason });
-      }
+      // Checked after access, so a person who may never join this class is
+      // refused rather than told to "check back later".
+      if (!livekit.isConfigured()) return notConfigured(res);
 
       // Capacity guard — the VPS, not LiveKit, is the limiting factor.
       if (role === 'attendee') {
@@ -400,8 +422,6 @@ class ConferenceController {
   /* --------------------------------------------------------- participants */
   async listLiveParticipants(req, res, next) {
     try {
-      if (!livekit.isConfigured()) return notConfigured(res);
-
       const conference = await Conference.findByPk(req.params.id);
       if (!conference) {
         return res.status(404).json({ error: 'Not Found', message: 'Conference not found' });

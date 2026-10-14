@@ -14,7 +14,7 @@
 // makes the recruiter scoping already built into this codebase visible to the
 // person it protects.
 
-const { AuditLog, User, Organization } = require('../models');
+const { AuditLog, User, Organization, Job } = require('../models');
 const { Op } = require('sequelize');
 
 // Actions worth showing a human, mapped to plain descriptions. Anything not
@@ -26,8 +26,18 @@ const ACTION_LABELS = {
   job_posting_approved: 'Approved a job posting',
   job_posting_rejected: 'Sent a job posting back',
   application_bulk_status_by_identifier: 'Bulk-updated application statuses',
-  organization_approved: 'Approved a company',
-  organization_rejected: 'Rejected a company',
+  // Organizations, not companies: an admin approves colleges and schools too.
+  organization_approved: 'Approved an organization',
+  organization_rejected: 'Rejected an organization',
+  organization_verified: 'Verified an organization',
+  organization_unverified: 'Removed verification from an organization',
+  organization_created: 'Created an organization',
+  organization_updated: 'Updated an organization',
+  organization_deactivated: 'Deactivated an organization',
+  admin_user_created: 'Created an account',
+  admin_user_updated: 'Updated an account',
+  admin_user_deactivated: 'Deactivated an account',
+  recruiter_allowed_organizations_updated: "Changed a recruiter's institutions",
   recruiter_approved: 'Approved a recruiter',
   recruiter_rejected: 'Rejected a recruiter',
   recruiter_profile_access: "Opened a student's profile",
@@ -74,10 +84,22 @@ const describe = (action) =>
  * officer nothing; the name and roll number are what they recognise.
  */
 const entityNames = async (rows) => {
-  const ids = [...new Set(rows.filter((r) => r.entityType === 'user' && r.entityId).map((r) => Number(r.entityId)))];
-  if (!ids.length) return new Map();
-  const users = await User.findAll({ where: { id: { [Op.in]: ids } }, attributes: ['id', 'firstName', 'lastName'] });
-  return new Map(users.map((u) => [u.id, [u.firstName, u.lastName === '-' ? '' : u.lastName].filter(Boolean).join(' ')]));
+  const idsOf = (type) => [...new Set(rows.filter((r) => r.entityType === type && r.entityId).map((r) => Number(r.entityId)))];
+  const userIds = idsOf('user');
+  const jobIds = idsOf('job');
+  const orgIds = idsOf('organization');
+  // "job #5" and "organization #12" told a reviewer no more than "user #78"
+  // did: a posting decision should say which posting.
+  const [users, jobs, orgs] = await Promise.all([
+    userIds.length ? User.findAll({ where: { id: { [Op.in]: userIds } }, attributes: ['id', 'firstName', 'lastName'] }) : [],
+    jobIds.length ? Job.findAll({ where: { id: { [Op.in]: jobIds } }, attributes: ['id', 'title'] }) : [],
+    orgIds.length ? Organization.findAll({ where: { id: { [Op.in]: orgIds } }, attributes: ['id', 'name'] }) : []
+  ]);
+  return new Map([
+    ...users.map((u) => [`user:${u.id}`, [u.firstName, u.lastName === '-' ? '' : u.lastName].filter(Boolean).join(' ')]),
+    ...jobs.map((j) => [`job:${j.id}`, j.title]),
+    ...orgs.map((o) => [`organization:${o.id}`, o.name])
+  ]);
 };
 
 const shape = (row, names = new Map()) => ({
@@ -86,7 +108,7 @@ const shape = (row, names = new Map()) => ({
   description: describe(row.action),
   entityType: row.entityType,
   entityId: row.entityId,
-  entityName: row.entityType === 'user' ? names.get(Number(row.entityId)) || null : null,
+  entityName: row.entityId ? names.get(`${row.entityType}:${Number(row.entityId)}`) || null : null,
   at: row.createdAt,
   by: row.user
     ? {

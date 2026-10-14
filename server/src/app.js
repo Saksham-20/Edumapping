@@ -159,10 +159,13 @@ const limiter = rateLimit({
   // IP, and a whole college lab shares one, so its ceiling is several times
   // higher: a class opening the sign-up page together must not be refused.
   max: (req) => {
-    const perUser = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || (process.env.NODE_ENV === 'production' ? 500 : 1000);
+    // 500 per person was reached by a placement officer working quickly
+    // through filters and tabs (each screen makes several calls), and the
+    // 429 then looked like being signed out.
+    const perUser = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 1500;
     const authHeader = req.headers.authorization || '';
     const signedIn = authHeader.startsWith('Bearer ') && rateLimitUserId(authHeader.slice(7));
-    return signedIn ? perUser : parseInt(process.env.RATE_LIMIT_ANON_MAX, 10) || perUser * 6;
+    return signedIn ? perUser : parseInt(process.env.RATE_LIMIT_ANON_MAX, 10) || 3000;
   },
   message: {
     error: 'Too Many Requests',

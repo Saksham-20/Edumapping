@@ -16,6 +16,7 @@ const { Offer, Application, Job, User, Organization, StudentProfile, AuditLog } 
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 const { syncPlacementStatus } = require('../utils/placementStatus');
+const { tpoUserIdsFor } = require('../services/recruiterAccessService');
 
 const path = require('path');
 
@@ -72,6 +73,33 @@ const canSeeOffer = async (user, offer) => {
   if (user.role === 'recruiter') return offer.organizationId === user.organizationId;
   if (user.role === 'tpo') return (await studentOrgOf(offer.studentId)) === user.organizationId;
   return false;
+};
+
+/**
+ * Tell people about an offer event, after the response has gone. A failed
+ * notification is logged, never surfaced: the offer itself succeeded.
+ */
+const notifyUsers = (userIds, title, message, metadata, priority = 'high') => {
+  [...new Set(userIds.filter(Boolean))].forEach((userId) => {
+    notificationService
+      .createNotification(userId, title, message, 'application_update', metadata, priority)
+      .catch((err) => logger.error('Offer notification failed', err, { userId }));
+  });
+};
+
+/** The student's placement cell, for an offer event. */
+const notifyStudentTpos = async (studentId, title, message, metadata, priority) => {
+  try {
+    const tpoIds = await tpoUserIdsFor(await studentOrgOf(studentId));
+    notifyUsers(tpoIds, title, message, metadata, priority);
+  } catch (err) {
+    logger.error('TPO lookup for offer notification failed', err, { studentId });
+  }
+};
+
+const studentName = async (studentId) => {
+  const u = await User.findByPk(studentId, { attributes: ['firstName', 'lastName'] });
+  return u ? `${u.firstName} ${u.lastName}`.trim() : 'A student';
 };
 
 class OfferController {
@@ -159,6 +187,19 @@ class OfferController {
           'urgent'
         )
         .catch((err) => logger.error('Offer notification failed', err));
+
+      // The placement cell tracks every offer its students hold; a TPO who
+      // raised it themselves does not need telling.
+      if (req.user.role !== 'tpo') {
+        notifyStudentTpos(
+          application.studentId,
+          'Offer raised for your student',
+          `${await studentName(application.studentId)} has an offer for ${application.job.title} at ${
+            full.organization?.name || 'a company'
+          }.`,
+          { offerId: offer.id, jobId: application.jobId, studentId: application.studentId }
+        );
+      }
 
       AuditLog.create({
         userId: req.user.id,
@@ -278,6 +319,21 @@ class OfferController {
         offer: present(offer)
       });
 
+      // The company that made the offer and the student's placement cell both
+      // act on the answer: the company to plan joining, the cell to update the
+      // placement record.
+      const who = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || 'The student';
+      const verb = action === 'accept' ? 'accepted' : 'declined';
+      const role = offer.roleTitle || 'the role';
+      const meta = { offerId: offer.id, jobId: offer.jobId, studentId: offer.studentId };
+      notifyUsers([offer.createdBy], `Offer ${verb}`, `${who} ${verb} your offer for ${role}.`, meta);
+      notifyStudentTpos(
+        offer.studentId,
+        `Offer ${verb}`,
+        `${who} ${verb} the offer from ${offer.organization?.name || 'a company'} for ${role}.`,
+        meta
+      );
+
       AuditLog.create({
         userId: req.user.id,
         action: action === 'accept' ? 'offer_accepted' : 'offer_declined',
@@ -389,6 +445,15 @@ class OfferController {
       if (offer.status === 'revoked' || offer.status === 'declined') {
         return res.status(409).json({ error: 'Offer Closed', message: 'This offer is no longer live' });
       }
+      // A letter the placement cell has checked is the record behind a
+      // placement. Replacing it silently reset the check and nobody was told,
+      // so only the cell itself (or an admin) may replace a verified letter.
+      if (offer.letterVerified && !['tpo', 'admin'].includes(req.user.role)) {
+        return res.status(409).json({
+          error: 'Letter Verified',
+          message: 'Your placement cell has verified this offer letter, so it can no longer be replaced. Ask the placement cell if it needs changing.'
+        });
+      }
       const fileService = require('../services/fileService');
       const fileName = `offerletter_${offer.id}_${Date.now()}.pdf`;
       const savedPath = await fileService.saveFile(req.file.buffer, fileName, req.file.mimetype);
@@ -408,6 +473,16 @@ class OfferController {
       }).catch((err) => logger.error('Audit log failed', err));
 
       res.json({ message: 'Offer letter uploaded', offer: present(offer) });
+
+      if (!['tpo', 'admin'].includes(req.user.role)) {
+        notifyStudentTpos(
+          offer.studentId,
+          'Offer letter to verify',
+          `${await studentName(offer.studentId)} has an offer letter for ${offer.roleTitle || 'a role'} waiting for your check.`,
+          { offerId: offer.id, studentId: offer.studentId },
+          'medium'
+        );
+      }
     } catch (error) {
       next(error);
     }
@@ -448,6 +523,16 @@ class OfferController {
         userAgent: req.get('user-agent')
       }).catch((err) => logger.error('Audit log failed', err));
       res.json({ message: verified ? 'Offer letter verified' : 'Verification removed', offer: present(offer) });
+
+      if (verified) {
+        notifyUsers(
+          [offer.createdBy, offer.studentId].filter((uid) => uid !== req.user.id),
+          'Offer letter verified',
+          `The placement cell verified the offer letter for ${offer.roleTitle || 'the role'}.`,
+          { offerId: offer.id },
+          'medium'
+        );
+      }
     } catch (error) {
       next(error);
     }

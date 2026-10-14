@@ -20,6 +20,15 @@ router.post('/', contactLimiter, async (req, res, next) => {
     try {
         const { name, email, message } = req.body;
 
+        // Without SMTP the message cannot go anywhere; say so plainly and
+        // point to a channel that works, instead of failing with a 500.
+        if (!emailService.isConfigured()) {
+            return res.status(503).json({
+                error: 'Email Not Configured',
+                message: 'Our contact form is offline. Write to hello@edumapping.com or WhatsApp +91 91049 91059.'
+            });
+        }
+
         if (!name || !email || !message) {
             return res.status(400).json({ error: 'All fields are required' });
         }

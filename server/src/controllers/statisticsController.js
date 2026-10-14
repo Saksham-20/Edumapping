@@ -1,6 +1,9 @@
 const { User, Job, Application, Organization, StudentProfile, RecruiterProfile, Event, EventRegistration, Achievement } = require('../models');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+// The approvals queue and student job visibility share these rules; the
+// dashboard counts must agree with both.
+const { companyIdsRecruitingAt, studentVisibleJobWhere } = require('../services/recruiterAccessService');
 
 /**
  * Counts grouped by one column, with every value of the column's ENUM present
@@ -154,6 +157,9 @@ class StatisticsController {
       }
 
       const ownStudents = { model: User, as: 'student', where: { organizationId }, attributes: [] };
+      // Same rule as the approvals queue (jobController.reviewableCompanyIds).
+      const companyIds = await companyIdsRecruitingAt(organizationId);
+      const studentVisible = await studentVisibleJobWhere({ organizationId, role: 'student' });
       const ownProfiles = { model: User, as: 'user', where: { organizationId }, attributes: [] };
 
       const [placementByStatus, courseRows, applicationsByStatus, appliedJobRows, pendingReview] =
@@ -174,13 +180,21 @@ class StatisticsController {
             attributes: [[Application.sequelize.fn('DISTINCT', Application.sequelize.col('job_id')), 'jobId']],
             raw: true
           }),
-          Job.count({ where: { status: 'pending_review' } })
+          // Only what this TPO's approvals queue shows. Counting every pending
+          // posting on the platform put "1 posting awaiting review" on a
+          // dashboard whose queue was empty.
+          companyIds.length
+            ? Job.count({ where: { status: 'pending_review', organizationId: { [Op.in]: companyIds } } })
+            : 0
         ]);
 
       const appliedJobIds = appliedJobRows.map((r) => r.jobId).filter(Boolean);
+      // "Visible to your students": live postings from the institution itself
+      // or from a company linked to it, plus anything they already applied to.
+      // Every active job on the platform was counted before.
       const visibleJobs = {
         [Op.or]: [
-          { status: 'active' },
+          studentVisible,
           ...(appliedJobIds.length ? [{ id: { [Op.in]: appliedJobIds } }] : [])
         ]
       };
@@ -246,6 +260,9 @@ class StatisticsController {
       // the pipeline is "what students see" and the queue is reported apart.
       const jobsByStatus = jobsByStatusAll.filter((r) => r.status !== 'pending_review' || r.count > 0);
       const totalStudents = sumCounts(placementByStatus);
+      // The roster counts every student account; this tile counts profiles.
+      // Both are reported so the dashboard can say which is which.
+      const studentAccounts = await User.count({ where: { organizationId, role: 'student' } });
       const placedStudents = countOf(placementByStatus, 'placementStatus', 'placed');
 
       const byCompany = byCompanyRows
@@ -264,6 +281,7 @@ class StatisticsController {
         stats: {
           students: {
             total: totalStudents,
+            accounts: studentAccounts,
             byPlacementStatus: placementByStatus,
             byCourse: courseRows
               .filter((r) => r.course)

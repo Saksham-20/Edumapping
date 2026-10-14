@@ -8,6 +8,7 @@ const { checkEligibility } = require('../utils/eligibility');
 const { checkPolicyForStudent } = require('../utils/placementPolicy');
 const models = require('../models');
 const { syncPlacementStatus: sharedSyncPlacementStatus } = require('../utils/placementStatus');
+const { canStudentSeeJob } = require('../services/recruiterAccessService');
 
 /**
  * Keep `student_profiles.placement_status` in step with the student's
@@ -174,6 +175,16 @@ class ApplicationController {
         return res.status(400).json({
           error: 'Job Not Available',
           message: 'This job is no longer accepting applications'
+        });
+      }
+
+      // Only students of an institution the drive recruits at: their own
+      // college's drive, or a company allowed at their college. Listing and
+      // GET /jobs/:id hide the rest; this stops an application by id.
+      if (!(await canStudentSeeJob(req.user, job))) {
+        return res.status(403).json({
+          error: 'Not Open To Your Institution',
+          message: 'This drive is not open to students of your institution. Ask your placement cell if you think it should be.'
         });
       }
 
@@ -578,9 +589,18 @@ class ApplicationController {
         });
       }
 
+      // The offer against this application, if any, so the page can show
+      // "Raise offer" only when there is none and link to it when there is.
+      const offer = models.Offer
+        ? await models.Offer.findOne({
+            where: { applicationId: application.id },
+            attributes: ['id', 'status', 'ctc', 'isPPO', 'letterVerified', 'createdAt']
+          })
+        : null;
+
       res.json({
         message: 'Application retrieved successfully',
-        application: forViewer(req, application)
+        application: { ...forViewer(req, application), offer: offer ? offer.toJSON() : null }
       });
     } catch (error) {
       next(error);

@@ -6,6 +6,8 @@ const { Notification, User, Application, Job, Organization, Event, StudentProfil
 const emailService = require('./emailService');
 const logger = require('../utils/logger');
 const { checkEligibility } = require('../utils/eligibility');
+const { Op } = require('sequelize');
+const { jobAudienceOrganizationIds } = require('./recruiterAccessService');
 
 class NotificationService {
   async createNotification(userId, title, message, type = 'general', metadata = {}, priority = 'medium') {
@@ -173,8 +175,13 @@ class NotificationService {
     const job = await Job.findByPk(jobId);
     if (!job || job.status !== 'active') return 0;
 
+    // Only institutions the drive is open to: a student elsewhere would be
+    // alerted to a drive that 404s for them.
+    const audienceOrgIds = await jobAudienceOrganizationIds(job);
+    if (!audienceOrgIds.length) return 0;
+
     const students = await User.findAll({
-      where: { role: 'student', isActive: true },
+      where: { role: 'student', isActive: true, organizationId: { [Op.in]: audienceOrgIds } },
       include: [
         // `required: true` — a student with no profile has no CGPA, branch or
         // batch to match against, so `checkEligibility` would wave them
@@ -215,6 +222,42 @@ class NotificationService {
       notified: eligible.length
     });
     return eligible.length;
+  }
+
+  // Tell an institution's own students that it has scheduled an event. Only
+  // the in-app notice: an email per student per event would be too much.
+  // Platform-wide (EduMapping) events are left to announcements.
+  async notifyStudentsOfNewEvent(event) {
+    try {
+      if (!event?.organizationId || event.status !== 'scheduled') return 0;
+      const students = await User.findAll({
+        where: { role: 'student', isActive: true, organizationId: event.organizationId },
+        attributes: ['id']
+      });
+      if (!students.length) return 0;
+      const when = new Date(event.startTime).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'Asia/Kolkata'
+      });
+      const now = new Date();
+      await Notification.bulkCreate(
+        students.map((s) => ({
+          userId: s.id,
+          title: 'New event',
+          message: `${event.title} on ${when}. Open it to register.`,
+          notificationType: 'event_reminder',
+          priority: 'medium',
+          metadata: { eventId: event.id },
+          createdAt: now,
+          updatedAt: now
+        }))
+      );
+      return students.length;
+    } catch (error) {
+      logger.error('Error notifying students of new event', error, { eventId: event?.id });
+      return 0;
+    }
   }
 
   async notifyEventReminder(userId, eventId) {

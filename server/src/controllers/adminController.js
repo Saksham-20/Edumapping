@@ -176,6 +176,10 @@ class AdminController {
         attributes: { exclude: ['passwordHash'] }
       });
 
+      // Account creation decides who can see student data, like the role
+      // changes and deactivations below, but was the one change not recorded.
+      auditAccountChange(req, 'admin_user_created', user, { role, organizationId: user.organizationId });
+
       res.status(201).json({
         message: 'User created successfully',
         user: userResponse
@@ -619,6 +623,8 @@ class AdminController {
         attributes: { exclude: ['passwordHash'] }
       });
 
+      auditAccountChange(req, 'admin_user_created', tpo, { role: 'tpo', organizationId });
+
       res.status(201).json({
         message: 'TPO created successfully',
         tpo: tpoResponse
@@ -690,6 +696,8 @@ class AdminController {
       }
 
       await tpo.update(updateData);
+      const { passwordHash: _omit, ...changedFields } = updateData;
+      auditAccountChange(req, 'admin_user_updated', tpo, { ...changedFields, ...(password ? { passwordReset: true } : {}) });
 
       const updatedTPO = await User.findByPk(id, {
         include: [
@@ -739,6 +747,7 @@ class AdminController {
         });
       } else {
         await tpo.update({ isActive: false });
+        auditAccountChange(req, 'admin_user_deactivated', tpo, { role: 'tpo' });
         return res.json({
           message: 'TPO deactivated successfully'
         });

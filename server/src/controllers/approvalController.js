@@ -612,9 +612,30 @@ class ApprovalController {
         })
       ]);
 
+      // "Approved to date" for a TPO is what their own placement cell
+      // approved. Counting every approved company and recruiter on the
+      // platform showed a brand-new college "13 approved".
+      let approvedToDate;
+      if (isAdmin) {
+        approvedToDate =
+          orgStats.filter((r) => r.approvalStatus === 'approved').reduce((n, r) => n + Number(r.count), 0) +
+          userStats.filter((r) => r.approvalStatus === 'approved').reduce((n, r) => n + Number(r.count), 0);
+      } else {
+        const staff = await User.findAll({ where: { organizationId: req.user.organizationId }, attributes: ['id'] });
+        const staffIds = staff.map((u) => u.id);
+        const [orgs, users] = staffIds.length
+          ? await Promise.all([
+              Organization.count({ where: { ...orgScope, approvalStatus: 'approved', approvedBy: { [Op.in]: staffIds } } }),
+              User.count({ where: { ...userScope, approvalStatus: 'approved', approvedBy: { [Op.in]: staffIds } } })
+            ])
+          : [0, 0];
+        approvedToDate = orgs + users;
+      }
+
       res.json({
         message: 'Approval statistics retrieved successfully',
         stats: {
+          approvedToDate,
           organizations: orgStats,
           // `recruiters` kept as the key existing callers read; for an admin it
           // covers every non-admin role.

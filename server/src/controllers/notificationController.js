@@ -260,6 +260,23 @@ class NotificationController {
       }
 
       const { title, message, priority = 'medium', sendEmail = false } = req.body;
+      // An admin who left the institution empty used to reach every active
+      // account on the platform without being asked. Going platform-wide now
+      // has to be said explicitly. A TPO is always scoped to their own
+      // students by buildAudience, so this only concerns other senders.
+      const audienceIn = req.body.audience || {};
+      if (req.user.role !== 'tpo' && !audienceIn.organizationId && audienceIn.platformWide !== true) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Choose an institution, or confirm that this goes to everyone on EduMapping.',
+          details: [
+            {
+              field: 'organizationId',
+              message: 'Choose an institution, or confirm that this goes to everyone on EduMapping.'
+            }
+          ]
+        });
+      }
       const target = await buildAudience(req.user, req.body.audience);
       if (target.error) return res.status(400).json({ error: 'Invalid Audience', message: target.error });
 

@@ -32,6 +32,20 @@ class EmailService {
   }
 
   async sendEmail(to, subject, html, text) {
+    // In production without SMTP_HOST the transporter points at
+    // localhost:1025, where nothing listens: every send was a connection
+    // attempt that failed with ECONNREFUSED and surfaced as a bare 500 (the
+    // site's contact form, for one). Say what is actually wrong instead.
+    if (process.env.NODE_ENV === 'production' && !this.isConfigured()) {
+      logger.warn('Email not sent: SMTP_HOST is not set', {
+        to: logger.sanitize.email(to),
+        subject
+      });
+      const error = new Error('Email delivery is not set up on this server');
+      error.status = 503;
+      error.expected = true;
+      throw error;
+    }
     try {
       const mailOptions = {
         from: process.env.FROM_EMAIL || 'noreply@edumapping.com',

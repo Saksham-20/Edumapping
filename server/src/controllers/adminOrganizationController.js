@@ -96,6 +96,11 @@ class AdminOrganizationController {
         contactPhone,
         website: website || null, // Allow null for optional website
         address: address || null, // Allow null for optional address
+        // Location drives the recruiter region/state/city filters; the form
+        // now collects it.
+        ...Object.fromEntries(
+          ['region', 'state', 'city'].map((k) => [k, String(req.body[k] || '').trim() || null])
+        ),
         isVerified: true, // Admin-created organizations are verified
         approvalStatus: 'approved',
         approvedBy: req.user.id,

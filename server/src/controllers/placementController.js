@@ -435,10 +435,16 @@ class PlacementController {
       // Only records that are complete and not already verified: re-verifying
       // re-stamped the verifier and re-notified the student, and an empty
       // record would be locked before the student could fill it in.
-      const ready = profiles.filter((p) => p.verificationStatus !== 'verified' && missingForVerification(p).length === 0);
+      // A record the cell sent back is waiting on the student's corrections;
+      // "select all, verify" used to lock it with the wrong marks still in it.
+      // It can still be verified one at a time, deliberately.
+      const sentBack = profiles.filter((p) => p.verificationStatus === 'rejected').length;
+      const ready = profiles.filter(
+        (p) => !['verified', 'rejected'].includes(p.verificationStatus) && missingForVerification(p).length === 0
+      );
       const readyIds = ready.map((p) => p.userId);
       const alreadyVerified = profiles.filter((p) => p.verificationStatus === 'verified').length;
-      const incomplete = ids.length - readyIds.length - alreadyVerified;
+      const incomplete = ids.length - readyIds.length - alreadyVerified - sentBack;
       let count = 0;
       if (readyIds.length) {
         [count] = await StudentProfile.update(
@@ -454,8 +460,9 @@ class PlacementController {
       }
       const parts = [`${count} record${count === 1 ? '' : 's'} verified`];
       if (alreadyVerified) parts.push(`${alreadyVerified} already verified`);
+      if (sentBack) parts.push(`${sentBack} sent back for corrections — verify ${sentBack === 1 ? 'it' : 'them'} individually once fixed`);
       if (incomplete > 0) parts.push(`${incomplete} skipped — no profile or missing roll number, branch, batch or CGPA`);
-      res.json({ message: `${parts.join('. ')}.`, verified: count, alreadyVerified, skipped: Math.max(incomplete, 0) });
+      res.json({ message: `${parts.join('. ')}.`, verified: count, alreadyVerified, sentBack, skipped: Math.max(incomplete, 0) });
     } catch (error) {
       next(error);
     }
@@ -749,9 +756,27 @@ class PlacementController {
         });
       }
 
+      // Who is not in this report, and why. "0 of 1 eligible" for a college
+      // with five students read as a wrong count when four simply had no
+      // profile, no batch, or a different batch.
+      const [accounts, withProfile, noBatch] = await Promise.all([
+        User.count({ where: { organizationId, role: 'student' } }),
+        StudentProfile.count({ include: [{ model: User, as: 'user', attributes: [], where: { organizationId, role: 'student' } }] }),
+        StudentProfile.count({
+          where: { graduationYear: null },
+          include: [{ model: User, as: 'user', attributes: [], where: { organizationId, role: 'student' } }]
+        })
+      ]);
+      const notCounted = {
+        noProfile: Math.max(accounts - withProfile, 0),
+        noBatch: graduationYear ? noBatch : 0,
+        otherBatches: graduationYear ? Math.max(withProfile - noBatch - profiles.length, 0) : 0
+      };
+
       const data = {
         institution: org?.name,
         graduationYear,
+        notCounted,
         generatedAt: new Date().toISOString(),
         summary: finish('All programmes', total),
         byProgramme: [...groups.entries()].map(([k, g]) => finish(k, g)).sort((a, b) => b.students - a.students),

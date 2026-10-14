@@ -36,6 +36,9 @@ const audienceValidators = [
   body('audience.organizationId')
     .optional({ nullable: true, checkFalsy: true })
     .isInt({ min: 1 }).withMessage('organizationId must be an id'),
+  body('audience.platformWide')
+    .optional({ nullable: true })
+    .isBoolean({ strict: true }).withMessage('platformWide must be true or false'),
   body('audience.role')
     .optional({ nullable: true, checkFalsy: true })
     .isIn(['all', 'student', 'tpo', 'recruiter', 'principal', 'teacher', 'school_admin', 'career_counselor'])

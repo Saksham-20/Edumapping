@@ -6,6 +6,29 @@ const { branchLabel } = require('../utils/branches');
 
 const INSTITUTION_TYPES = ['university', 'college', 'school'];
 
+/** Every branch spelling stored on this institution's student profiles. */
+const storedBranches = async (organizationId) => {
+  const rows = await StudentProfile.findAll({
+    attributes: [[fn('DISTINCT', col('branch')), 'branch']],
+    where: { branch: { [Op.ne]: null } },
+    include: [{ model: User, as: 'user', attributes: [], where: { organizationId, role: 'student' }, required: true }],
+    raw: true
+  });
+  return rows.map((r) => r.branch).filter((b) => b && b.trim());
+};
+
+/**
+ * A branch filter that matches every spelling of the department. The filter
+ * used to be an exact match against a fixed list, so "Mechanical" missed
+ * every profile saying "Mechanical Engineering" and an imported "ECE" batch
+ * could not be selected at all.
+ */
+const branchWhere = async (organizationId, branch) => {
+  const wanted = branchLabel(branch);
+  const spellings = (await storedBranches(organizationId)).filter((b) => branchLabel(b) === wanted);
+  return spellings.length ? { [Op.in]: spellings } : { [Op.iLike]: String(branch).replace(/[%_\\]/g, '\\$&') };
+};
+
 /**
  * Which institution these analytics are about.
  *
@@ -125,7 +148,7 @@ class AnalyticsController {
       // Build student profile filters
       const studentFilters = {};
       if (branch) {
-        studentFilters.branch = branch;
+        studentFilters.branch = await branchWhere(organizationId, branch);
       }
       if (yearOfStudy) {
         studentFilters.yearOfStudy = parseInt(yearOfStudy);
@@ -567,7 +590,7 @@ class AnalyticsController {
       const { branch, yearOfStudy, placementStatus, search } = req.query;
 
       const studentProfileFilters = {};
-      if (branch) studentProfileFilters.branch = branch;
+      if (branch) studentProfileFilters.branch = await branchWhere(organizationId, branch);
       if (yearOfStudy) studentProfileFilters.yearOfStudy = parseInt(yearOfStudy, 10);
       if (placementStatus) studentProfileFilters.placementStatus = placementStatus;
       const profileFiltered = Object.keys(studentProfileFilters).length > 0;
@@ -667,7 +690,7 @@ class AnalyticsController {
       };
 
       const studentProfileFilters = {};
-      if (filters.branch) studentProfileFilters.branch = filters.branch;
+      if (filters.branch) studentProfileFilters.branch = await branchWhere(organizationId, filters.branch);
       if (filters.yearOfStudy) studentProfileFilters.yearOfStudy = parseInt(filters.yearOfStudy);
       if (filters.placementStatus) studentProfileFilters.placementStatus = filters.placementStatus;
 
@@ -681,6 +704,10 @@ class AnalyticsController {
 
       const { count, rows: students } = await User.findAndCountAll({
         where: whereClause,
+        // One row per student: without this the count multiplied by each
+        // student's applications and the roster showed phantom pages.
+        distinct: true,
+        col: 'id',
         // The default scope selects every column, which put each student's
         // bcrypt hash in the response body.
         attributes: { exclude: ['passwordHash'] },
@@ -716,9 +743,14 @@ class AnalyticsController {
         order: [['createdAt', 'DESC']]
       });
 
+      // The departments this campus actually has, one entry per branch however
+      // it is spelled, for the branch filter.
+      const branches = [...new Set((await storedBranches(organizationId)).map(branchLabel))].sort();
+
       res.json({
         message: 'Student analytics retrieved successfully',
         students,
+        branches,
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(count / limit),

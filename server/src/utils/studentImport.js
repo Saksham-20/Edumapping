@@ -116,9 +116,18 @@ const parseDate = (raw) => {
 };
 
 const parseNumber = (raw, { label, min, max, integer = false, percent = false }) => {
-  const s = text(raw).replace(/%$/, '').trim();
+  // "91.2 %", "8.4/10", "78/100" and a decimal comma ("7,65") all appear in
+  // real batch sheets; strip the decoration rather than blank the mark.
+  const s = text(raw)
+    .replace(/%$/, '')
+    .replace(/\s*\/\s*(10|100)$/, '')
+    .trim()
+    .replace(/^(\d+),(\d{1,2})$/, '$1.$2');
   if (!s) return { value: null };
   let n = Number(s);
+  if (!Number.isFinite(n)) {
+    return { value: null, warning: `${label} "${text(raw)}" is not a number, so it was left blank` };
+  }
   // A cell formatted as a percentage in Excel shows "91%" but holds 0.91,
   // which would import every student at under 1% and fail every Class X/XII
   // bar. No real mark is between 0 and 1 per cent, so read such a value as a
